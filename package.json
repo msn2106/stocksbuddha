@@ -14,9 +14,9 @@
   ],
   "scripts": {
     "dev": "npm run dev --workspace @ra/backend",
-    "build": "npm run typecheck && npm run build --workspace @ra/frontend && npm run build --workspace @ra/backend",
+    "build": "npm run typecheck && npm run build --workspace @ra/frontend && npm run build --workspace @ra/backend && npm run db:build",
     "start": "npm run start --workspace @ra/backend",
-    "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit && npm run db:typecheck",
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "node scripts/run-tests.mjs unit",
     "test:integration": "node scripts/run-tests.mjs integration",
@@ -34,7 +34,13 @@
     "security:policy": "node scripts/check-dependency-policy.mjs",
     "security:audit": "npm audit --workspaces --include-workspace-root --include=dev --audit-level=low",
     "security:check": "npm run security:policy && npm run security:audit",
-    "test:policy": "node scripts/run-tests.mjs integration scripts/tests"
+    "test:policy": "node scripts/run-tests.mjs integration scripts/tests",
+    "db:build": "tsx database/build.ts",
+    "db:migrate": "node --env-file-if-exists=backend/.env --import tsx database/cli.ts migrate",
+    "db:migrate:status": "node --env-file-if-exists=backend/.env --import tsx database/cli.ts status",
+    "db:seed:demo": "node --env-file-if-exists=backend/.env --import tsx database/cli.ts seed",
+    "db:typecheck": "tsc --noEmit -p database/tsconfig.json",
+    "test:database": "node --env-file-if-exists=backend/.env --import tsx --test --test-timeout=60000 backend/tests/integration/database.test.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",

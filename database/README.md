@@ -1,12 +1,49 @@
-# Database
+# MariaDB persistence
 
-Database-owned artifacts live here, separate from application code:
+The ten-table foundation uses TypeORM and mysql2. Nine ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
 
-- `migrations/`: future reviewed MySQL/TypeORM migrations, including the reviewed Better Auth schema.
-- `seeds/`: future repeatable database seed scripts for local/staging data.
+## Local setup
 
-No database or migration runner is configured yet. The current read-only tenant profiles are in `backend/src/tenants/tenants.ts`; website revisions and localized content are in `backend/src/websites/`. These are application demo data, not SQL seeds. Asynchronous repository interfaces in `backend/src/tenancy/repository.ts` define the replacement point for MySQL adapters. Do not place database dumps, credentials, or live customer records in this repository.
+Copy `backend/.env.example` to ignored `backend/.env`, replace both local passwords, then:
 
-When persistence is introduced, the backend will own database access and run migrations explicitly. The frontend receives only public contracts through the API/SSR boundary. Document migration and rollback commands here when they exist.
+```sh
+docker compose --env-file backend/.env up -d --wait db
+npm run db:migrate -- --target dev
+npm run db:seed:demo -- --target dev
+npm run dev
+```
 
-See [multi-tenant ownership and persistence requirements](../docs/ARCHITECTURE.md) before implementing tables or an editor. Enforce tenant-scoped revision/content relationships in the database, not only in application filters.
+Compose runs only MariaDB 11.4.8, pinned by image digest, on loopback port 3307 with a persistent volume. This is a tested local baseline, not a verified Hostinger version. A fresh image creates `stocksbuddha_dev`; provision `stocksbuddha_prod` separately. Do not stop a database with `down -v` unless its data should be deleted. No frontend/backend containers are required.
+
+Without a local `.env`, nonproduction startup retains fixture-preview mode. MariaDB failures never fall back to fixtures. Production defaults to MariaDB; fixture production previews require both `DATABASE_MODE=fixtures` and `ALLOW_PUBLIC_PREVIEW=true`.
+
+## Migration workflow
+
+```sh
+npm run db:migrate:status -- --target dev
+npm run db:migrate -- --target dev
+RELEASE_ID=your-release-id npm run db:build
+```
+
+Production runs the built artifact with deployment-provided credentials:
+
+```sh
+node database/dist/cli.js status --target prod
+node database/dist/cli.js migrate --target prod
+```
+
+Production requires `DB_ENV=prod`, a matching `stocksbuddha_prod` name (optional Hostinger account prefix), and `DB_TLS=true` with verified certificates. Supply `DB_TLS_CA` when needed. Use operator `DB_USER`/`DB_PASSWORD` for migrations and restricted runtime credentials for the application. Never pass secrets as CLI arguments or commit them. The source runner refuses production without a compiled manifest.
+
+Add timestamped reviewed SQL migrations through TypeORM QueryRunner and register classes in `catalog.ts` in matching order. No automatic entity-diff generator is configured. Build manifests hash original source and accompany compiled JavaScript. Applied files stay immutable; automatic destructive reversal is disabled. Status acquires the same lock and can initialize metadata on an empty database, but does not apply application migrations. Unfinished/failed history intentionally blocks normal commands pending operator reconciliation.
+
+## Seeds and tests
+
+Demo seeds are dev-only and insert missing read-only previews. They never overwrite edits, restore an unpublished tenant, or seed passwords/sessions/memberships. Real managed tenant provisioning creates an effective first owner transactionally through the internal service.
+
+```sh
+npm run typecheck
+npm run test:unit
+RUN_DATABASE_TESTS=true npm run test:database
+```
+
+The DB suite reads dev connection settings, creates unique `sb_test_*` databases and removes only those databases afterward. Use a local disposable administrative user with CREATE/DROP DATABASE permissions. It never drops the configured dev/prod database. Without `RUN_DATABASE_TESTS=true`, it explicitly skips; ordinary tests then do not establish database correctness. `test:integration` discovers it too and uses the same opt-in.

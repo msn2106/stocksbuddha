@@ -70,7 +70,17 @@ export function createPublicSiteResolver(
     const content = website.content[locale];
     if (!content) return missing;
     return {
-      tenant,
+      tenant: website.publicProfile
+        ? {
+            ...tenant,
+            profile: {
+              name: website.publicProfile.name,
+              legalName: website.publicProfile.legalName,
+              registration: website.publicProfile.registration,
+              monogram: website.publicProfile.monogram,
+            },
+          }
+        : tenant,
       website: {
         tenantId: website.tenantId,
         revision: website.revision,

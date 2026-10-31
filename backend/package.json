@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch --ignore \"**/node_modules/**\" --ignore \"**/dist/**\" src/main.ts",
+    "dev": "node --env-file-if-exists=.env ../node_modules/tsx/dist/cli.mjs watch --ignore \"**/node_modules/**\" --ignore \"**/dist/**\" src/main.ts",
     "build": "tsup",
-    "start": "NODE_ENV=production node dist/main.js",
+    "start": "NODE_ENV=production node --env-file-if-exists=.env dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:unit",
     "test:unit": "node ../scripts/run-tests.mjs unit tests",
@@ -16,10 +16,13 @@
     "@nestjs/common": "11.2.8",
     "@nestjs/core": "11.2.8",
     "@nestjs/platform-express": "11.2.8",
+    "@ra/contracts": "0.1.0",
+    "better-auth": "1.7.12",
     "express": "5.3.0",
+    "mysql2": "3.24.6",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
-    "@ra/contracts": "0.1.0"
+    "typeorm": "1.1.2"
   },
   "devDependencies": {
     "@types/express": "5.0.6",

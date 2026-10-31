@@ -10,6 +10,27 @@ import { startServer, type StartupOptions } from "../src/main";
 import type { PublicAppDependencies } from "../src/app";
 import { makePage } from "../../packages/contracts/tests/fixtures";
 
+test("startup failure closes the already-open persistence adapter", async () => {
+  let closed = 0;
+  await assert.rejects(
+    startServer({
+      env: { NODE_ENV: "production" },
+      persistenceFactory: async () => ({
+        resolvePage: async () => makePage(),
+        ready: async () => true,
+        close: async () => {
+          closed++;
+        },
+      }),
+      createNest: (async () => {
+        throw new Error("startup rejected");
+      }) as unknown as NonNullable<StartupOptions["createNest"]>,
+    }),
+    /startup rejected/,
+  );
+  assert.equal(closed, 1);
+});
+
 test("production startup configures lifecycle and renders from the configured asset root without opening ports", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "sb-startup-"));
   const calls: unknown[][] = [];
@@ -30,7 +51,13 @@ test("production startup configures lifecycle and renders from the configured as
       'exports.render = (data) => ({ html: data.page, head: "metadata", data: "json", lang: data.locale });',
     );
     const result = await startServer({
-      env: { NODE_ENV: "production", HOST: "0.0.0.0", PORT: "3200" },
+      env: {
+        NODE_ENV: "production",
+        DATABASE_MODE: "fixtures",
+        ALLOW_PUBLIC_PREVIEW: "true",
+        HOST: "0.0.0.0",
+        PORT: "3200",
+      },
       frontendRoot: root,
       buildApp: (options) => {
         dependencies = options;
@@ -130,6 +157,8 @@ test("development startup transforms HTML, uses Vite SSR and forwards corrected 
 test("the production CLI dispatches startup through the default Nest adapter without opening a port", async (context) => {
   const argv = process.argv;
   const mode = process.env.NODE_ENV;
+  const preview = process.env.ALLOW_PUBLIC_PREVIEW;
+  const dbMode = process.env.DATABASE_MODE;
   const calls: unknown[][] = [];
   const app = {
     enableShutdownHooks() {},
@@ -141,6 +170,8 @@ test("the production CLI dispatches startup through the default Nest adapter wit
   context.mock.method(console, "log", () => {});
   try {
     process.env.NODE_ENV = "production";
+    process.env.DATABASE_MODE = "fixtures";
+    process.env.ALLOW_PUBLIC_PREVIEW = "true";
     process.argv = [
       process.execPath,
       fileURLToPath(new URL("../src/main.ts", import.meta.url)),
@@ -149,6 +180,10 @@ test("the production CLI dispatches startup through the default Nest adapter wit
     assert.equal(calls.length, 1);
   } finally {
     process.argv = argv;
+    if (preview === undefined) delete process.env.ALLOW_PUBLIC_PREVIEW;
+    else process.env.ALLOW_PUBLIC_PREVIEW = preview;
+    if (dbMode === undefined) delete process.env.DATABASE_MODE;
+    else process.env.DATABASE_MODE = dbMode;
     if (mode === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = mode;
   }

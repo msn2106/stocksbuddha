@@ -1,4 +1,4 @@
-# Multi-tenant website architecture — S0.2
+# Multi-tenant website architecture — public renderer and database foundation
 
 ## Implemented boundary
 
@@ -19,7 +19,9 @@ One application serves `/ra/stocksbuddha`, `/ra/alpha`, and `/ra/beta`. The old 
 | `backend/src/access/`               | Tenant membership/capability and separate platform-role policy                       |
 | `frontend/src/locales/`             | Shared UI translations, accessibility controls and application-owned disclosure text |
 | `frontend/src/websites/`            | Approved page components, template presentation and configured section rendering     |
-| `database/`                         | Future migrations and persistent seeds; no live database adapter yet                 |
+| `database/`                         | MariaDB schema, locked migration runner, release manifest and repeatable dev seeds   |
+| `backend/src/database/`             | Persistent repositories and internal transactional tenant/publication operations     |
+| `backend/src/auth/`                 | Core authentication schema mapping; public auth routes remain unmounted              |
 
 The frontend receives a tenant profile and exactly one published website revision with only the selected language's content. It does not receive the tenant registry, draft revisions, other tenants' copy or every translation. SSR metadata and hydration use that same projection. Website content values are text, never HTML, executable configuration, CSS or translation identifiers. Shared UI keys cannot be overridden by tenant content. Bootstrap JSON escapes script delimiters.
 
@@ -35,15 +37,17 @@ Only English and Hindi are platform-supported today. Each tenant can enable eith
 
 Platform administration and RA membership are separate. A platform owner does not automatically become a member of every tenant. The permission policy requires an authenticated identity, active tenant, matching active membership and the requested capability. Owner, analyst, support and subscriber roles have explicit capabilities; revocation/suspension denies access.
 
-**No session authentication or protected business endpoint exists yet.** The access module is a tested policy contract for the next slice, not an authorization system already protecting an editor. Every future protected endpoint must derive its principal from a verified server session, resolve tenant context server-side, run this policy and scope resource reads/writes by tenant ID. A route slug, hidden button or body/header tenant ID is never sufficient authorization. Subscriber research also needs purchase/access entitlements beyond membership.
+**Public authentication and protected business endpoints remain unmounted.** The access module is a tested policy contract; internal database services separately verify stored sessions and current membership before their operations. Every future protected endpoint must derive its principal from a verified server session, resolve tenant context server-side, enforce the applicable policy and scope resource reads/writes by tenant ID. A route slug, hidden button or body/header tenant ID is never sufficient authorization. Subscriber research also needs purchase/access entitlements beyond membership.
 
-## Persistence and editing next
+## Persistence and editing
 
-The current adapters are defensive, read-only synthetic fixtures. Interfaces are asynchronous so MySQL adapters can replace them without changing public rendering. No tenant provisioning, durable edits, transactional publishing, sessions or customer data exists yet.
+The server selects MariaDB repositories through `DATABASE_MODE=mariadb`, or read-only fixtures for explicit preview use. MariaDB mode checks schema history, never migrates during startup and never falls back to fixtures. Production defaults to MariaDB; fixture previews require explicit opt-in. See [setup](../database/README.md) and [implementation/runbook](DATABASE_IMPLEMENTATION.md).
 
-Persistent tables should separate tenants, identities/accounts/sessions, tenant memberships, website revisions and localized revision content. Enforce unique tenant slugs, unique `(tenant_id, revision)`, unique `(tenant_id, user_id)` memberships, and composite tenant/revision foreign keys for content and future assets. Maintain an explicit published-revision pointer; update it atomically after validation and authorization. A publish must never expose a partially translated draft. Keep actor, tenant, revision and time in audit events. Last-owner protection and session revocation need transactional database-backed implementation/tests.
+Ten tables consolidate tenant profile/settings, membership profile and complete website snapshots while retaining separate authentication and migration metadata. Composite tenant/revision and actor relationships prevent foreign-tenant links. Public rendering follows the explicit publication pointer and frozen public profile, not administrative working values or the highest historical revision. Unpublished/suspended tenants stay unavailable.
 
-A future owner editor writes a tenant-owned draft, previews it through a protected route, then publishes an immutable validated snapshot. It must not directly mutate the current public revision. Credentials and private membership data never enter the public website contract.
+Internal services support partial drafts, optimistic saves, explicit rebase, complete atomic publication, retry receipts, membership lifecycle, last-owner protection and atomic managed-tenant provisioning. They validate stored sessions and lock current permission state; these methods are not public editor endpoints. Authentication core storage is integration-tested, but no login/recovery/editor UI or mounted mutation/auth endpoint is claimed. Username/administrator OTP plugins and real provider transport remain gated future work.
+
+Published snapshots stay immutable through application operations. Version 1 is supported; unknown versions fail closed. Future schema writers require compatible readers before rollout. Shared contracts for the existing public renderer remain stable; database adapters project the frozen snapshot into them. DB queries use a bounded pool and parameter binding. See [reviewed schema](DATABASE_DESIGN.md) for field sizes and invariants, and the implementation document for resolved differences and test scope.
 
 ## Hosts and environments
 
@@ -59,4 +63,4 @@ Testing is split into unit, integration and browser suites, with shared recursiv
 
 Run `npm run verify`. Unit tests cover tenant ownership, statuses, draft privacy, defensive repositories, localized publication validation and permission denials. Playwright covers canonical redirects, public API projections, conflicting tenant hints, independent tab/language state, different template/section order, mobile reflow, English/Hindi accessibility and existing page interactions.
 
-These tests establish the implemented in-memory public boundaries and policy behavior. They do not prove database isolation, account recovery, authenticated authorization, production capacity or compliance. Those require the next persistent authentication slice and real-database acceptance tests.
+Unit and fixture-based browser tests establish the public boundaries and policy behavior. The opt-in MariaDB suite verifies persistent constraints and authenticated internal operations locally. These checks do not establish mounted authentication, account recovery, production capacity, compliance, provider integrations or Hostinger readiness.

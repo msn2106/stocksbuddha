@@ -38,6 +38,7 @@ export function runtimeFiles(root) {
   for (const directory of [
     "frontend/src",
     "backend/src",
+    "database",
     "packages",
     "scripts",
   ])

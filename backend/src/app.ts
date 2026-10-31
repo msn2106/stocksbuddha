@@ -17,6 +17,7 @@ export type PublicAppDependencies = {
   renderPage: (data: PageData, request: Request) => Promise<RenderedPage>;
   assets?: RequestHandler;
   onError?: (error: unknown) => void;
+  ready?: () => Promise<boolean>;
 };
 
 /**
@@ -28,6 +29,7 @@ export function createPublicApp({
   resolvePage,
   renderPage,
   assets,
+  ready = async () => true,
   onError = (error) =>
     console.error(error instanceof Error ? error.message : "Render failure"),
 }: PublicAppDependencies) {
@@ -44,6 +46,16 @@ export function createPublicApp({
   server.get("/api/health", (_req, res) =>
     res.json({ status: "ok", slice: "S0.2" }),
   );
+  server.get("/api/ready", async (_req, res) => {
+    try {
+      const available = await ready();
+      res
+        .status(available ? 200 : 503)
+        .json({ status: available ? "ready" : "unavailable" });
+    } catch {
+      res.status(503).json({ status: "unavailable" });
+    }
+  });
   server.get("/api/ra/:slug", async (req, res) => {
     const data = await resolvePage(
       `/ra/${req.params.slug}`,

@@ -10,5 +10,7 @@ export interface TenantRepository {
 /** Read-only publication boundary whose implementations must scope queries by tenant ID. */
 export interface WebsiteRepository {
   /** Return the tenant's latest published revision or null; never return a draft or another tenant. */
-  findPublished(tenantId: string): Promise<WebsiteRevision | null>;
+  findPublished(
+    tenantId: string,
+  ): Promise<(WebsiteRevision & { publicProfile?: Tenant["profile"] }) | null>;
 }

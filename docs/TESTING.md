@@ -28,6 +28,8 @@ SSR tests verify escaped metadata, selected-language content and script-safe boo
 
 Tenant repositories and the public resolver retain their asynchronous interfaces, allowing small fake adapters for failure and ownership scenarios. Contracts own their schema, locale and serialization tests in `packages/contracts/tests/`; application tests retain assertions about how they use those contracts. Shared test fixtures are schema-valid synthetic data, independent of backend seed content, and are never bundled into production imports.
 
+Database unit tests cover migration orchestration, manifest checks, configuration, snapshot validation and guarded tenant operations with controlled adapters. Run `RUN_DATABASE_TESTS=true npm run test:database` for real MariaDB constraints, migration execution, concurrent operations and core authentication. This suite reads dev connection settings, requires local CREATE/DROP DATABASE permissions, and creates/removes only disposable `sb_test_*` databases. It is also discovered by `test:integration`, but explicitly skips without the opt-in. Ordinary unit/integration success alone does not establish MariaDB correctness. See the [database setup and test instructions](../database/README.md).
+
 ## Coverage and tooling
 
 Both coverage commands use c8 source maps and the same `precommit-policy.mjs` rules. Strictly greater than 90% is required separately for lines, statements, functions and branches of each included executable file; exactly 90% fails. These are whole-file thresholds. Integration and browser runs do not contribute to unit coverage. Whole-repository reports live in ignored `coverage/unit/`; changed-file reports live in `coverage/precommit/`.

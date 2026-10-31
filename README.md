@@ -17,14 +17,14 @@ Open [Stocks Buddha](http://localhost:3000/ra/stocksbuddha), [Alpha demo](http:/
 npm run typecheck
 npm test
 npm run build
-npm start
+DATABASE_MODE=fixtures ALLOW_PUBLIC_PREVIEW=true npm start # public preview without a DB
 # First time only:
 npx playwright install chromium
 npm run test:e2e
 npm run format:check
 ```
 
-The production build and development server both render public content and tenant metadata on the server, then hydrate the same validated data in React. One Nest/Express Node process serves the website and read-only API. Backend configuration is documented in `backend/.env.example`; provide values through the process environment (the example is not loaded automatically). `PORT` defaults to `3000`; `HOST` defaults to `127.0.0.1`. Set `HOST=0.0.0.0` in a future hosted environment if required by its runtime.
+The production build and development server both render public content and tenant metadata on the server, then hydrate the same validated data in React. One Nest/Express Node process serves the website and read-only API. Backend configuration is documented in `backend/.env.example`; copy it to ignored `backend/.env` for local use, or provide values through the process environment. Development and production startup read that optional local file. `PORT` defaults to `3000`; `HOST` defaults to `127.0.0.1`. Set `HOST=0.0.0.0` in a future hosted environment if required by its runtime.
 
 ## Before committing
 
@@ -72,15 +72,15 @@ stocksbuddha/
 │   ├── src/tenancy/           # Request resolution and asynchronous repository contracts
 │   ├── src/tenants/           # Tenant profiles and seed adapter
 │   ├── src/websites/          # Website revisions, tenant-localized seeds and adapter
-│   ├── src/access/            # Membership/capability policy; authentication comes next
+│   ├── src/access/            # Membership/capability policy; public auth endpoints remain gated
 │   ├── tests/                # Tenant unit tests
 │   ├── .env.example
 │   └── dist/                 # Generated Node server
 ├── packages/
 │   └── contracts/            # @ra/contracts — shared public schemas, types and serialization
 ├── database/
-│   ├── migrations/           # Reserved for future reviewed migrations
-│   └── seeds/                # Reserved for future database seeds
+│   ├── migrations/           # Reviewed TypeORM schema migrations
+│   └── seeds/                # Repeatable dev-only preview seeds
 ├── scripts/                  # Repo-wide verification and future operational scripts
 ├── docs/                     # Requirements, architecture and delivery evidence
 ├── tests/e2e/                # Cross-workspace browser acceptance
@@ -90,7 +90,7 @@ stocksbuddha/
 
 The frontend imports only `@ra/contracts`, never backend modules. Tenant records and path resolution belong to the backend. The shared contracts package contains public shapes, validation and safe serialization; no tenant registry or database access. Both build pipelines bundle this internal TypeScript package, so the production server does not execute raw workspace TypeScript.
 
-`npm run build` checks all workspaces, builds frontend client/SSR assets, then builds the backend. `npm start` launches the backend, which serves the frontend on the same origin. Build outputs stay inside their owning packages. Server paths resolve from the module location and work when invoked from either the root or the backend workspace.
+`npm run build` checks all workspaces and database code, builds frontend client/SSR assets and the backend, then builds the standalone migration CLI and manifest. `npm start` launches the backend, which serves the frontend on the same origin. Build outputs stay inside their owning packages and `database/dist/`. Server paths resolve from the module location and work when invoked from either the root or the backend workspace.
 
 Useful focused commands:
 
@@ -136,6 +136,16 @@ Do not bypass the policy with release-age exclusions, `--before`, a relaxed age 
 
 **Audit result, 1 November 2026:** the full root/workspace audit reports 14 moderate findings through the lint/coverage tooling's `glob` and `minimatch` dependency chains. The first patched releases (`glob@14.0.2`, `minimatch@11.0.1`) were published on 27 October and do not yet meet the seven-day floor. `npm run verify` currently stops at the audit; do not interpret passing unit, integration, build or browser checks as a passing security audit. No release-age exception or audit bypass has been added.
 
+The affected paths are `c8 → test-exclude → glob/minimatch`, `eslint → minimatch` (also through `@eslint/config-array`), and `typescript-eslint → @typescript-eslint/typescript-estree → minimatch`. The advisories cover [minimatch versions below 11.0.1](https://github.com/advisories/GHSA-g3hv-75wg-m249) and [glob versions 9.0.0 through 14.0.1](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4); downgrading within the existing supported dependency ranges does not resolve them.
+
+Registry publication timestamps make `glob@14.0.2` eligible on **4 November 2026 at 03:37:00.325 IST** and `minimatch@11.0.1` eligible at **03:56:03.755 IST** that day. These are the earliest fixed versions, not a validated upgrade recommendation. After both times, recheck advisories and release timestamps, select exact versions, regenerate the root lockfile with the unchanged age policy, and validate compatibility with `npm run verify`. Both fixes cross major versions relative to the installed packages, so overrides require compatibility testing. Until then, clearing the audit requires replacing the affected tooling and validating equivalent lint and per-file coverage checks; no dependency-only remediation currently satisfies the seven-day policy.
+
+## Database foundation
+
+MariaDB persistence uses TypeORM/mysql2 with ten foundation tables, locked migrations, an execution ledger/attempt history and repeatable dev preview seeds. Docker runs only the local database; the application remains one Node process. Follow [database setup](database/README.md), [reviewed schema](docs/DATABASE_DESIGN.md) and [implementation/recovery notes](docs/DATABASE_IMPLEMENTATION.md).
+
+`DATABASE_MODE=mariadb` selects real adapters and fails closed on unavailable schema; development without configuration keeps fixture previews. Production defaults to MariaDB. Migrations run explicitly during release, never on application startup. `GET /api/ready` checks persistence separately from process liveness. Public authentication/editor endpoints remain future work; the internal tenant/publication operations and pinned core auth storage are tested foundations.
+
 ## Accessibility and languages
 
 The website supports English/Hindi through the visible language links (`?lang=en` / `?lang=hi`), including server-rendered content and metadata. Display preferences offer larger text up to 200%, high contrast, reduced motion and reset. Body copy defaults to 18px; controls and disclosures use at least 16px. Language and display preferences are remembered when browser cookies/storage are available.
@@ -146,10 +156,10 @@ Playwright covers translation, keyboard focus, dialog behavior, persistence, tex
 
 ## Boundaries
 
-Tenant profiles and independently localized website revisions currently live in validated source seed adapters. There is **no database persistence, editing, authentication, authorization proof, payment, signup, or deployed infrastructure** yet. No customer records are stored. The read-only public API exposes only public seeded fields. Do not add private data to that contract.
+Tenant profiles and localized publications can use either validated source fixtures or MariaDB adapters. Database mode includes persistent revisions, tenant constraints, migrations and internal authenticated tenant operations. The public API remains read-only; no public login/editor/payment/signup flow or deployed infrastructure is introduced. No customer records are seeded. Public responses exclude private membership/authentication data.
 
 Stocks Buddha details reproduce the owner’s supplied brand, legal name and registration string; verification and approved content remain prerequisites for launch. Alpha and Beta are explicitly synthetic and use no registration credentials. The monogram and portrait area are placeholders. No invented pricing, testimonials, performance results, or research recommendations appear.
 
 All preview pages use `noindex` and `no-store`. Google Fonts are optional network enhancements with local serif/sans fallbacks. Revisit font self-hosting and the content security policy before production. Path tenancy separates resolution, not browser origins; authorization must be implemented on every future protected request.
 
-The access policy is unit-tested but is not connected to sessions or protected endpoints yet. Next: MySQL adapters/migrations and Better Auth proof, then server-authorized owner customization with draft/publish history. Keep the reference project intact. No deployment or changes to the existing Hostinger site are included.
+The public access policy and internal database operations are tested separately. Internal operations validate stored sessions, permissions and transaction concurrency; public authentication/editor endpoints remain gated. Next: finish the chosen auth plugins, recovery/admin protection and owner editor/API using this foundation. The reference project remains intact. No deployment or changes to the existing Hostinger site are included.

@@ -62,6 +62,21 @@ async function request(
 }
 
 test("public route handlers select success/not-found/method/redirect responses with controlled adapters", async () => {
+  assert.equal((await request({}, "/api/ready")).status, 200);
+  assert.equal(
+    (await request({ ready: async () => false }, "/api/ready")).status,
+    503,
+  );
+  const unavailable = await request(
+    {
+      ready: async () => {
+        throw new Error("private database details");
+      },
+    },
+    "/api/ready",
+  );
+  assert.equal(unavailable.status, 503);
+  assert.equal(unavailable.body.includes("private"), false);
   assert.deepEqual(JSON.parse((await request({}, "/api/health")).body), {
     status: "ok",
     slice: "S0.2",
