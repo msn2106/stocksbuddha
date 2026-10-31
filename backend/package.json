@@ -8,7 +8,9 @@
     "build": "tsup",
     "start": "NODE_ENV=production node dist/main.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "npm run test:unit",
+    "test:unit": "node ../scripts/run-tests.mjs unit tests",
+    "test:integration": "node ../scripts/run-tests.mjs integration tests"
   },
   "dependencies": {
     "@nestjs/common": "11.2.8",

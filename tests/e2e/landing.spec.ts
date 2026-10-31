@@ -49,7 +49,7 @@ test("primary interactions, keyboard dialog, FAQ, accessibility and responsive l
 }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/ra/stocks-buddha");
+  await page.goto("/ra/stocksbuddha");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(
     "Clarity in a market full of noise.",
   );
@@ -98,7 +98,7 @@ test("primary interactions, keyboard dialog, FAQ, accessibility and responsive l
     page.getByRole("navigation", { name: "Mobile navigation" }),
   ).not.toBeVisible();
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/ra/stocks-buddha");
+  await page.goto("/ra/stocksbuddha");
   await page.screenshot({ path: "test-results/mobile.png", fullPage: true });
   await page.screenshot({ path: "test-results/mobile-viewport.png" });
   expect(errors).toEqual([]);

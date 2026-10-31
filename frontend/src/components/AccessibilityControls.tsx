@@ -7,8 +7,16 @@ import { localeOptions } from "../locales/messages";
 const defaults = { textSize: 100, contrast: false, motion: false };
 const storageKey = "ra-display-preferences-v1";
 
+/**
+ * Render enabled-language links and keyboard-accessible display preferences.
+ * Client effects persist device-wide display settings in localStorage, update root
+ * font/contrast/motion settings and write a tenant-scoped language cookie. Storage
+ * failures are tolerated; preferences still work in memory and language links work
+ * without cookies. Browser state is read after mounting to preserve SSR hydration.
+ * @returns The language toolbar and display-preferences dialog.
+ */
 export function AccessibilityControls() {
-  const { locale, t } = useLanguage();
+  const { locale, t, enabledLocales, tenantId, tenantPath } = useLanguage();
   const [settings, setSettings] = useState(defaults);
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
@@ -27,11 +35,12 @@ export function AccessibilityControls() {
     }
     setLoaded(true);
     try {
-      document.cookie = `ra-language=${locale}; Path=/; Max-Age=31536000; SameSite=Lax`;
+      if (tenantId)
+        document.cookie = `ra-language-${tenantId}=${locale}; Path=${tenantPath}; Max-Age=31536000; SameSite=Lax${location.protocol === "https:" ? "; Secure" : ""}`;
     } catch {
       /* Explicit language links work even if cookies are unavailable. */
     }
-  }, [locale]);
+  }, [locale, tenantId, tenantPath]);
   useEffect(() => {
     if (!loaded) return;
     document.documentElement.style.fontSize = `${settings.textSize}%`;
@@ -53,17 +62,19 @@ export function AccessibilityControls() {
     >
       <div className="container toolbar-inner">
         <nav aria-label={t("languages.label")} className="language-switch">
-          {localeOptions.map(({ code, labelKey }) => (
-            <a
-              key={code}
-              href={`?lang=${code}`}
-              lang={code}
-              hrefLang={code}
-              aria-current={locale === code ? "page" : undefined}
-            >
-              {t(labelKey)}
-            </a>
-          ))}
+          {localeOptions
+            .filter(({ code }) => enabledLocales.includes(code))
+            .map(({ code, labelKey }) => (
+              <a
+                key={code}
+                href={`?lang=${code}`}
+                lang={code}
+                hrefLang={code}
+                aria-current={locale === code ? "page" : undefined}
+              >
+                {t(labelKey)}
+              </a>
+            ))}
         </nav>
         <Dialog.Root>
           <Dialog.Trigger className="preferences-trigger">

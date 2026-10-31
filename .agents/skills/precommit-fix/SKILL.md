@@ -1,0 +1,15 @@
+---
+name: precommit-fix
+description: Fix StocksBuddha pre-commit failures in lint, formatting, unit tests, coverage, JSDoc and stale README/docs, then rerun the complete gate. Use when pre-commit repairs are requested.
+---
+
+Read the sibling [check skill](../precommit-check/SKILL.md) for the exact gate and scope. Inspect `git status --short` and the diff before editing; preserve unrelated work.
+
+1. Run `npm run precommit:fix` from the repository root. It applies ESLint fixes and Prettier only to changed files, then runs all validation. It never stages or commits. Its nonzero exit status means manual repairs remain.
+2. Address remaining lint/type errors with focused changes. Investigate failing unit tests and fix actual defects; update expectations only for intended behavior.
+3. Add meaningful unit tests for uncovered behavior, including error and boundary cases. Tests use `node:test` and `node:assert/strict` in `backend/tests`, `frontend/tests`, `packages/contracts/tests` and `scripts/tests`; React interactions use Testing Library/jsdom. `npm run test:unit` recursively discovers test/spec files, including TSX. Files beneath an `integration/` directory run only through `npm run test:integration`. The root `npm test` runs both categories. Unit coverage excludes integration/browser runs. See [testing architecture](../../../docs/TESTING.md) for boundaries, fixtures and focused commands. Ensure each new test is actually discovered.
+4. Add accurate JSDoc descriptions to the declarations identified by the gate. Document parameters, returns, side effects and thrown errors where relevant. Avoid placeholder comments or inventing behavior. Do not blindly generate documentation from names.
+5. Review and update the root `README.md` and all affected documentation, including unchanged docs that reference changed behavior. Replace stale/invalid/incorrect code examples, removed symbols, old commands, paths, environment variables and configuration; correct contradictory claims and broken local links. Document new behavior where needed. Verify snippets against current signatures and package scripts; run safe examples when practical. Do not claim an example was executed if only inspected, and do not run destructive or externally mutating examples just to validate documentation. If no edits are needed, state what was reviewed and why it is accurate. A successful shell check does not replace this required semantic review.
+6. Rerun `npm run precommit:check` after code, test, JSDoc and documentation repairs. If a verified change is necessary, rerun after that change too. Stop and report an actionable blocker if a real external dependency or unresolved behavioral decision prevents progress; do not loop without new evidence.
+
+Never lower the >90% threshold, disable lint rules to hide errors, remove useful tests, add ignore pragmas, or expand coverage exclusions to pass. Report the files repaired, final check results and any remaining blockers. Leave all repairs unstaged for user review unless staging is separately requested. Do not commit as part of this skill.

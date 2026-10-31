@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:unit",
+    "test:unit": "node ../../scripts/run-tests.mjs unit tests"
   },
   "dependencies": {
     "zod": "4.6.7"

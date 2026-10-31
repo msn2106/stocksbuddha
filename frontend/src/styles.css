@@ -2090,3 +2090,24 @@ html[data-contrast="high"] *::after {
 .preference-checkbox {
   overflow-wrap: anywhere;
 }
+
+/* Approved editorial template: different structure, shared accessible controls. */
+.site-shell[data-template="editorial"] .hero {
+  grid-template-columns: 1fr;
+  text-align: center;
+  padding-block: 5rem;
+}
+.site-shell[data-template="editorial"] .hero-copy {
+  max-width: 56rem;
+  margin-inline: auto;
+}
+.site-shell[data-template="editorial"] .hero-intro,
+.site-shell[data-template="editorial"] .hero-actions,
+.site-shell[data-template="editorial"] .hero-assurance {
+  justify-content: center;
+}
+.site-shell[data-font="sans"] h1,
+.site-shell[data-font="sans"] h2 {
+  font-family: "DM Sans", "Noto Sans Devanagari", sans-serif;
+  font-weight: 500;
+}

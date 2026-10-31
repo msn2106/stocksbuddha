@@ -11,9 +11,9 @@ Implemented 31 October 2026. This is an engineering implementation and test reco
 
 ## English and Hindi
 
-`?lang=en` and `?lang=hi` select the same tenant page in either language, including server-rendered content, HTML language, title and description. The language switch uses native links and is available without JavaScript. A preference cookie remembers language after hydration; an explicit URL parameter takes precedence. Unknown values fall back to English. Navigation preserves both tenant and language.
+`?lang=en` and `?lang=hi` select the same tenant page in either language, including server-rendered content, HTML language, title and description. The language switch uses native links and is available without JavaScript. A preference cookie remembers language after hydration; an explicit URL parameter takes precedence. Unknown or disabled values fall back to the resolved tenant’s default language. Navigation preserves both tenant and language.
 
-`frontend/src/locales/en.json` and `hi.json` contain parallel semantic-key messages for all current seeded content, menus, FAQs, pending policy/subscription states, investor disclosures, display controls and help. Proper legal/brand names and registration identifiers remain unchanged. The interpolated analyst/organization copy supports either language’s word order. New tenant-authored text must have its own approved translations before claiming bilingual coverage. Unknown UI keys fail explicitly; there is no English-sentence lookup. See [i18n architecture and extension](I18N.md).
+`frontend/src/locales/en.json` and `hi.json` contain shared UI messages, pending states, disclosures, display controls and help. Tenant website revisions own their separate English/Hindi marketing and FAQ content under `backend/src/websites/seeds/`. Proper legal/brand names and registration identifiers remain unchanged. The interpolated analyst/organization copy supports either language’s word order. New tenant-authored text must have its own approved translations before claiming bilingual coverage. Unknown UI keys fail explicitly; there is no English-sentence lookup. See [i18n architecture and extension](I18N.md).
 
 **The RA must review and approve the Hindi financial/legal wording before publication.** No translation service receives visitor content. Approved legal documents, accessible PDF reports and media are not yet available and are not fabricated by this slice.
 
@@ -29,7 +29,7 @@ Run `npm run build` followed by `npm run test:e2e`, or use `npm run verify` for 
 
 `tests/e2e/accessibility.spec.ts` covers:
 
-- Hindi server-rendered HTML/metadata; translated sections, FAQ, disclosures and subscription dialogs; language switching and cookie persistence across tenants.
+- Hindi server-rendered HTML/metadata; translated sections, FAQ, disclosures and subscription dialogs; language switching and independent cookie persistence for each tenant.
 - Keyboard-only skip link and dialog entry, visible focus, forward/reverse focus containment, Escape restoration and mobile-menu Escape.
 - Measured 18px body/16px disclosure defaults and true 200% text enlargement to 36px body copy; preference persistence/reset; high-contrast colors; user and OS reduced motion; help text; unavailable browser storage.
 - Axe scans of both languages, preference dialogs, and enlarged high-contrast pages.
@@ -38,7 +38,7 @@ Run `npm run build` followed by `npm run test:e2e`, or use `npm run verify` for 
 
 Automated tests do not exercise an actual screen reader, certify every WCAG criterion, or replace usability testing with people with disabilities and a professional accessibility audit. Future login, KYC, payments, research documents, media, editors and tenant themes need the same review as they are introduced.
 
-Recorded results: **10/10 Playwright scenarios, 4/4 backend tests and 2/2 dependency-policy tests passed**. Production build, workspace type checks, formatting and dependency-policy checks passed. The full workspace npm audit reported **zero known vulnerabilities**. English desktop and Hindi mobile screenshots were visually reviewed. The tests found and drove fixes for intermediate contrast colors, enlarged serif line heights and subscription-list wrapping under combined text/spacing enlargement. No new npm dependencies were added.
+Historical S0.1 results, before the tenant-owned architecture and pre-commit tooling changes: **10/10 Playwright scenarios, 4/4 backend tests and 2/2 dependency-policy tests passed**. Production build, workspace type checks, formatting and dependency-policy checks passed. That earlier lockfile audit reported **zero known vulnerabilities**; this is not an audit result for the current lockfile. English desktop and Hindi mobile screenshots were visually reviewed. The tests found and drove fixes for intermediate contrast colors, enlarged serif line heights and subscription-list wrapping under combined text/spacing enlargement. No new npm dependencies were added in that accessibility implementation.
 
 ## Regulatory and design references
 
@@ -49,3 +49,7 @@ Recorded results: **10/10 Playwright scenarios, 4/4 backend tests and 2/2 depend
 - [WCAG 2.2](https://www.w3.org/TR/WCAG22/) and [GOV.UK typography](https://design-system.service.gov.uk/styles/paragraphs/): technical criteria and an external readability reference respectively.
 
 Compliance schedules must use current SEBI/BSE RAASB instructions, including subsequent extensions; no regulatory submission is performed by this change.
+
+## Tenant-owned websites (S0.2)
+
+Website copy now belongs to independently localized tenant revisions; shared UI/disclosure translations remain in frontend catalogues. Language selection and cookies are tenant-scoped, so another tenant keeps its own language/default. Templates render their configured section order in DOM order. Beta demonstrates the editorial template and is covered by English/Hindi axe and responsive tests. See [architecture](ARCHITECTURE.md) and [language maintenance](I18N.md).

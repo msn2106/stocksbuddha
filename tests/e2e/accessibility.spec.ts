@@ -37,7 +37,7 @@ test("Hindi is server rendered, translated across sections and dialogs, and reta
   page,
   request,
 }) => {
-  const response = await request.get("/ra/stocks-buddha?lang=hi");
+  const response = await request.get("/ra/stocksbuddha?lang=hi");
   const html = await response.text();
   expect(html).toContain('<html lang="hi">');
   expect(html).toContain("बाज़ार के शोर में स्पष्ट सोच।");
@@ -45,7 +45,7 @@ test("Hindi is server rendered, translated across sections and dialogs, and reta
   expect(html).not.toContain("<!--app-lang-->");
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/ra/stocks-buddha");
+  await page.goto("/ra/stocksbuddha");
   await page.getByRole("link", { name: "हिन्दी", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("lang", "hi");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(
@@ -79,6 +79,8 @@ test("Hindi is server rendered, translated across sections and dialogs, and reta
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("lang", "hi");
   await page.goto("/ra/alpha");
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await page.getByRole("link", { name: "हिन्दी", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("lang", "hi");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(
     "भारतीय इक्विटी पर एक धैर्यपूर्ण नज़रिया।",
@@ -94,14 +96,14 @@ test("Hindi is server rendered, translated across sections and dialogs, and reta
 test("keyboard skip link, focus indication, preference dialog trap, Escape and mobile menu", async ({
   page,
 }) => {
-  await page.goto("/ra/stocks-buddha");
+  await page.goto("/ra/stocksbuddha");
   await page.keyboard.press("Tab");
   const skip = page.getByRole("link", { name: "Skip to content" });
   await expect(skip).toBeFocused();
   await expect(skip).toBeInViewport();
   await page.keyboard.press("Enter");
   await expect(page.locator("main")).toBeFocused();
-  await page.goto("/ra/stocks-buddha");
+  await page.goto("/ra/stocksbuddha");
   for (let index = 0; index < 4; index++) await page.keyboard.press("Tab");
   const trigger = page.getByRole("button", {
     name: "Display preferences",
@@ -147,7 +149,7 @@ test("keyboard skip link, focus indication, preference dialog trap, Escape and m
 test("display settings enlarge text, persist, reduce motion, offer help, and reset", async ({
   page,
 }) => {
-  await page.goto("/ra/stocks-buddha");
+  await page.goto("/ra/stocksbuddha");
   const textSize = () =>
     page
       .locator(".hero-description")
@@ -220,7 +222,7 @@ for (const language of ["en", "hi"])
   test(`${language}: accessibility scan, mobile/tablet reflow, 200% text and spacing overrides`, async ({
     page,
   }) => {
-    await page.goto(`/ra/stocks-buddha?lang=${language}`);
+    await page.goto(`/ra/stocksbuddha?lang=${language}`);
     await scan(page);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.screenshot({
@@ -311,7 +313,7 @@ test("language and display controls work when browser storage is unavailable", a
   });
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto("/ra/stocks-buddha?lang=hi");
+  await page.goto("/ra/stocksbuddha?lang=hi");
   await page
     .getByRole("button", { name: "प्रदर्शन प्राथमिकताएँ", exact: true })
     .click();
@@ -328,7 +330,7 @@ test("language links work without JavaScript and error pages keep their language
   const context = await browser.newContext({ javaScriptEnabled: false });
   try {
     const page = await context.newPage();
-    await page.goto("http://127.0.0.1:3100/ra/stocks-buddha?lang=hi");
+    await page.goto("http://127.0.0.1:3100/ra/stocksbuddha?lang=hi");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(
       "बाज़ार के शोर में स्पष्ट सोच।",
     );
@@ -342,7 +344,7 @@ test("language links work without JavaScript and error pages keep their language
     await expect(page.getByRole("heading", { level: 1 })).toContainText(
       "इस पते पर अनुसंधान",
     );
-    const invalid = await request.get("/ra/stocks-buddha?lang=invalid");
+    const invalid = await request.get("/ra/stocksbuddha?lang=invalid");
     expect(await invalid.text()).toContain('<html lang="en">');
   } finally {
     await context.close();

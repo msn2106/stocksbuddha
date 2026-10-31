@@ -6,4 +6,8 @@ import "./styles.css";
 const data: PageData = JSON.parse(
   document.getElementById("page-data")!.textContent!,
 );
-hydrateRoot(document.getElementById("root")!, <App data={data} />);
+/** Hydrated page root, also exposed for controlled teardown in client bootstrap tests. */
+export const root = hydrateRoot(
+  document.getElementById("root")!,
+  <App data={data} />,
+);

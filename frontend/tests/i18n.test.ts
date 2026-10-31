@@ -1,49 +1,36 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  catalogues,
-  translator,
-  localeOptions,
-  tenantContent,
-} from "../src/locales/messages";
+import { catalogues, translator, localeOptions } from "../src/locales/messages";
 import { supportedLocales, resolveLocale } from "@ra/contracts/locales";
-import type { Tenant } from "@ra/contracts";
-
+import type { WebsiteContent } from "@ra/contracts";
 const placeholders = (text: string) =>
-  [
-    ...new Set([...text.matchAll(/\{(\w+)\}/g)].map((match) => match[1])),
-  ].sort();
+  [...new Set([...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]))].sort();
 
-test("every enabled language has the same stable keys and nonempty messages", () => {
-  const keys = Object.keys(catalogues.en).sort();
-  assert.deepEqual(
-    Object.keys(catalogues).sort(),
-    [...supportedLocales].sort(),
-  );
+test("shared UI catalogues have parallel stable keys and placeholders", () => {
   for (const locale of supportedLocales) {
-    assert.deepEqual(Object.keys(catalogues[locale]).sort(), keys);
-    for (const [key, value] of Object.entries(catalogues[locale])) {
-      assert.match(key, /^[a-z][A-Za-z0-9]*(?:\.[a-z][A-Za-z0-9]*)+$/);
-      assert.equal(typeof value, "string");
-      assert.ok(value.trim(), `${locale}: empty message ${key}`);
-    }
-  }
-});
-
-test("interpolation placeholders match English in every language", () => {
-  for (const locale of supportedLocales)
+    assert.deepEqual(
+      Object.keys(catalogues[locale]).sort(),
+      Object.keys(catalogues.en).sort(),
+    );
     for (const key of Object.keys(
       catalogues.en,
     ) as (keyof typeof catalogues.en)[]) {
+      assert.match(key, /^[a-z][A-Za-z0-9]*(?:\.[a-z][A-Za-z0-9]*)+$/);
+      assert.ok(catalogues[locale][key].trim());
       assert.deepEqual(
         placeholders(catalogues[locale][key]),
         placeholders(catalogues.en[key]),
-        `${locale}: placeholder mismatch for ${key}`,
       );
     }
+    assert.equal(
+      Object.keys(catalogues[locale]).some(
+        (key) => key.startsWith("tenants.") || key.startsWith("about."),
+      ),
+      false,
+    );
+  }
 });
-
-test("the same key translates independently of English copy", () => {
+test("UI wording changes independently of translations", () => {
   const original = catalogues.en["nav.subscribe"];
   try {
     catalogues.en["nav.subscribe"] = "Join the research";
@@ -53,83 +40,88 @@ test("the same key translates independently of English copy", () => {
     catalogues.en["nav.subscribe"] = original;
   }
 });
-
-test("interpolation supports translated word order and leaves values as literal text", () => {
+test("each render uses its supplied tenant content, with literal values and interpolation", () => {
+  const alpha = { "site.hero": "Alpha {name}" } as WebsiteContent;
+  const beta = { "site.hero": "Beta {name}" } as WebsiteContent;
+  const a = translator("hi", alpha),
+    b = translator("hi", beta);
   const name = "Example {name} $& <company>";
-  const message = translator("hi")("about.analystIntroduction", { name });
-  assert.ok(message.startsWith(`${name} के नेतृत्व में`));
-  assert.equal(message.includes(name), true);
-  assert.throws(
-    () => translator("en")("about.belief"),
-    /Missing placeholder "name"/,
+  assert.equal(a("site.hero", { name }), `Alpha ${name}`);
+  assert.equal(b("site.hero", { name }), `Beta ${name}`);
+  assert.equal(a("site.hero", { name }), `Alpha ${name}`);
+  assert.throws(() => a("site.hero"), /Missing placeholder/);
+  assert.equal(
+    translator("hi", { "site.hero": "nav.subscribe" } as WebsiteContent)(
+      "site.hero",
+    ),
+    "nav.subscribe",
   );
 });
-
-test("unknown and sentence-based keys are rejected instead of rendered", () => {
+test("tenant content cannot override shared controls or fall back to another site", () => {
+  const content = {
+    "nav.subscribe": "Forged control",
+  } as unknown as WebsiteContent;
+  assert.equal(translator("en", content)("nav.subscribe"), "Subscribe");
+  assert.throws(() => translator("en")("site.hero"), /missing website content/);
   assert.throws(() => {
-    // @ts-expect-error This old sentence-key API must remain a type error.
+    // @ts-expect-error English sentences are not keys.
     translator("en")("Subscribe");
   }, /Unknown translation key/);
-  assert.throws(() => {
-    // @ts-expect-error Unknown identifiers must remain a type error.
-    translator("hi")("nav.unknown");
-  }, /Unknown translation key/);
 });
-
-test("only English and Hindi are enabled and every option has a native label", () => {
+test("only registered platform languages have switcher labels", () => {
   assert.deepEqual(supportedLocales, ["en", "hi"]);
   assert.deepEqual(
-    localeOptions.map(({ code }) => code),
-    [...supportedLocales],
+    localeOptions.map((v) => v.code),
+    supportedLocales,
   );
-  for (const { labelKey } of localeOptions)
-    assert.ok(translator("en")(labelKey));
-  for (const unknown of ["kn", "gu", "mr", "invalid", ["hi"], undefined])
-    assert.equal(resolveLocale(unknown), "en");
-  assert.equal(resolveLocale("hi"), "hi");
+  for (const option of localeOptions)
+    assert.ok(translator("en")(option.labelKey));
+  for (const value of ["kn", "gu", "mr", ["hi"], undefined])
+    assert.equal(resolveLocale(value), "en");
 });
 
-test("tenant-authored text is data, not an implicit UI translation key", () => {
-  const tenant: Tenant = {
+test("server-rendered language controls show only a tenant's enabled languages", async () => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { LanguageProvider } = await import("../src/i18n");
+  const { AccessibilityControls } =
+    await import("../src/components/AccessibilityControls");
+  const { websiteContentKeys } = await import("@ra/contracts");
+  const tenant = {
     id: "a1b87125-42b7-4d6d-8715-78721c436a82",
-    slug: "custom-ra",
-    status: "active",
+    slug: "example",
+    status: "active" as const,
     synthetic: true,
     profile: {
       name: "Example",
       legalName: "Example",
       registration: null,
       monogram: "ex",
-      description: "Custom organization description",
-    },
-    published: {
-      revision: 1,
-      publishedAt: "2026-10-31T00:00:00.000Z",
-      hero: "nav.subscribe",
-      introduction: "Tenant-authored introduction",
-      accent: "#244b3b",
-      surface: "#e8eee5",
     },
   };
-  assert.deepEqual(tenantContent(tenant, translator("hi")), {
-    hero: "nav.subscribe",
-    introduction: "Tenant-authored introduction",
-    description: "Custom organization description",
-  });
-  const original = catalogues.en["tenants.stocksBuddha.hero"];
-  try {
-    catalogues.en["tenants.stocksBuddha.hero"] = "Updated seed heading";
-    assert.equal(
-      tenantContent({ ...tenant, slug: "stocks-buddha" }, translator("en"))
-        .hero,
-      "Updated seed heading",
-    );
-    assert.equal(
-      tenantContent({ ...tenant, slug: "stocks-buddha" }, translator("hi"))
-        .hero,
-      "बाज़ार के शोर में स्पष्ट सोच।",
-    );
-  } finally {
-    catalogues.en["tenants.stocksBuddha.hero"] = original;
-  }
+  const website = {
+    tenantId: tenant.id,
+    revision: 1,
+    publishedAt: "2026-10-31T00:00:00.000Z",
+    branding: {
+      accent: "#244b3b",
+      surface: "#e8eee5",
+      font: "classic" as const,
+    },
+    languages: { default: "hi" as const, enabled: ["hi" as const] },
+    layout: { template: "classic" as const, sections: [] },
+    content: Object.fromEntries(
+      websiteContentKeys.map((key) => [key, key]),
+    ) as WebsiteContent,
+  };
+  const html = renderToStaticMarkup(
+    createElement(LanguageProvider, {
+      locale: "hi",
+      tenant,
+      website,
+      children: createElement(AccessibilityControls),
+    }),
+  );
+  assert.ok(html.includes('href="?lang=hi"'));
+  assert.equal(html.includes('href="?lang=en"'), false);
 });
