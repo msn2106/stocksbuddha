@@ -1,3 +1,5 @@
+import "./instrument";
+import * as Sentry from "@sentry/react";
 import { hydrateRoot } from "react-dom/client";
 import { App } from "./App";
 import type { PageData } from "@ra/contracts";
@@ -10,4 +12,9 @@ const data: PageData = JSON.parse(
 export const root = hydrateRoot(
   document.getElementById("root")!,
   <App data={data} />,
+  {
+    onUncaughtError: Sentry.reactErrorHandler(),
+    onCaughtError: Sentry.reactErrorHandler(),
+    onRecoverableError: Sentry.reactErrorHandler(),
+  },
 );

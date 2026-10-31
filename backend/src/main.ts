@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import * as Sentry from "@sentry/node";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -54,6 +55,14 @@ export async function startServer({
           appType: "custom",
         });
     const server = buildApp({
+      /** Report handled request failures to Sentry and retain the existing console diagnostic. */
+      onError: (error) => {
+        Sentry.captureException(error);
+        Sentry.logger.error("Public request failed");
+        console.error(
+          error instanceof Error ? error.message : "Render failure",
+        );
+      },
       resolvePage: persistence.resolvePage,
       ready: persistence.ready,
       assets: vite
@@ -97,6 +106,13 @@ export async function startServer({
           provide: "PERSISTENCE_LIFECYCLE",
           useValue: { onApplicationShutdown: persistence.close },
         },
+        {
+          provide: "SENTRY_LIFECYCLE",
+          useValue: {
+            /** Flush buffered telemetry and close Sentry during application shutdown. */
+            onApplicationShutdown: () => Sentry.close(2000),
+          },
+        },
       ],
     })(AppModule);
     const app = await createNest(AppModule, new ExpressAdapter(server), {
@@ -117,4 +133,8 @@ if (
   process.argv[1] &&
   path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 )
-  await startServer();
+  await startServer().catch(async (error: unknown) => {
+    Sentry.captureException(error);
+    await Sentry.flush(2000);
+    throw error;
+  });

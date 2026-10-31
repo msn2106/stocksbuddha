@@ -6,9 +6,61 @@ import path from "node:path";
 import express from "express";
 import { NestFactory } from "@nestjs/core";
 import { fileURLToPath } from "node:url";
+import * as Sentry from "@sentry/node";
 import { startServer, type StartupOptions } from "../src/main";
 import type { PublicAppDependencies } from "../src/app";
 import { makePage } from "../../packages/contracts/tests/fixtures";
+
+test("the production server forwards handled request failures to Sentry without logging request data", async (context) => {
+  const envelopes: string[] = [];
+  Sentry.init({
+    dsn: "https://test@o0.ingest.sentry.io/1",
+    defaultIntegrations: false,
+    transport: () => ({
+      send: async (envelope) => {
+        envelopes.push(JSON.stringify(envelope));
+        return { statusCode: 200 };
+      },
+      flush: async () => true,
+    }),
+  });
+  let dependencies: PublicAppDependencies | undefined;
+  context.mock.method(console, "error", () => {});
+  try {
+    await startServer({
+      env: { NODE_ENV: "production" },
+      persistenceFactory: async () => ({
+        resolvePage: async () => makePage(),
+        ready: async () => true,
+        close: async () => {},
+      }),
+      buildApp: (options) => {
+        dependencies = options;
+        return express();
+      },
+      createNest: (async () => ({
+        enableShutdownHooks() {},
+        listen: async () => {},
+      })) as unknown as NonNullable<StartupOptions["createNest"]>,
+      log: () => {},
+    });
+    assert.ok(dependencies?.onError);
+    dependencies.onError(new Error("renderer rejected"));
+    dependencies.onError("opaque rejection");
+    await Sentry.flush(2000);
+    assert.ok(
+      envelopes.some((envelope) =>
+        envelope.includes('"value":"renderer rejected"'),
+      ),
+    );
+    assert.ok(
+      envelopes.some((envelope) => envelope.includes("opaque rejection")),
+    );
+    assert.ok(!envelopes.some((envelope) => envelope.includes('"cookies"')));
+  } finally {
+    await Sentry.close(2000);
+  }
+});
 
 test("startup failure closes the already-open persistence adapter", async () => {
   let closed = 0;

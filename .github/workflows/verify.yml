@@ -20,3 +20,8 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run verify
+        env:
+          # Upload source maps only from trusted push builds; the secret stays server-side.
+          SENTRY_AUTH_TOKEN: ${{ github.event_name == 'push' && secrets.SENTRY_AUTH_TOKEN || '' }}
+          SENTRY_RELEASE: ${{ github.sha }}
+          VITE_SENTRY_RELEASE: ${{ github.sha }}

@@ -52,7 +52,8 @@ export function createPublicApp({
       res
         .status(available ? 200 : 503)
         .json({ status: available ? "ready" : "unavailable" });
-    } catch {
+    } catch (error) {
+      onError(error);
       res.status(503).json({ status: "unavailable" });
     }
   });

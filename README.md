@@ -26,6 +26,8 @@ npm run format:check
 
 The production build and development server both render public content and tenant metadata on the server, then hydrate the same validated data in React. One Nest/Express Node process serves the website and read-only API. Backend configuration is documented in `backend/.env.example`; copy it to ignored `backend/.env` for local use, or provide values through the process environment. Development and production startup read that optional local file. `PORT` defaults to `3000`; `HOST` defaults to `127.0.0.1`. Set `HOST=0.0.0.0` in a future hosted environment if required by its runtime.
 
+Sentry captures browser/React and server failures in separate projects, with performance tracing and source-map uploads. The app currently runs locally only. See [Sentry setup](docs/SENTRY.md) for frontend/backend development and production variables, build tokens, sampling, and the preparation needed before deploying on Hostinger or another Node platform. Monitoring initializes only when a DSN is configured.
+
 ## Before committing
 
 In Codex, run `$precommit-check` to review lint, formatting, types, unit tests, coverage, JSDoc and README/documentation accuracy. Run `$precommit-fix` to repair failures, add meaningful tests/JSDoc and update stale docs, then rerun the check. Repository skills live in `.agents/skills/`.
