@@ -176,3 +176,35 @@ test("account SSR escapes fields, preserves locale and works without a published
   data.account = { mode: "workspaces" };
   assert.match(renderPage(data).head, /Your workspaces/);
 });
+
+test("recovery and join forms use localized labels without exposing reset tokens", () => {
+  for (const mode of [
+    "verify-email",
+    "forgot-password",
+    "reset-password",
+    "join",
+  ] as const) {
+    for (const locale of ["en", "hi"] as const) {
+      const data = { ...page({ mode, notice: "sent" as const }), locale };
+      const html = renderPage(data);
+      assert.ok(!html.html.includes("undefined"));
+      assert.ok(html.html.includes(`/ra/example/${mode}?lang=${locale}`));
+      assert.ok(!html.data.includes("token"));
+      const view = render(<App data={data} />);
+      assert.ok(screen.getByRole("status"));
+      if (mode === "reset-password")
+        assert.equal(
+          view.container.querySelector("input")?.getAttribute("autocomplete"),
+          "new-password",
+        );
+      if (mode === "join")
+        assert.equal(view.container.querySelector("input"), null);
+      view.unmount();
+    }
+  }
+  render(<App data={page({ mode: "login", notice: "reset" })} />);
+  assert.match(
+    screen.getByRole("status").textContent ?? "",
+    /previous sessions/,
+  );
+});

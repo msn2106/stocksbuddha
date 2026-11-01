@@ -12,6 +12,8 @@ import { createAuthRoutes } from "../auth/routes";
 import { MariaDbWorkspaceStore } from "../auth/workspaces";
 import { TenantOperations } from "./operations";
 import type { PublicAppDependencies } from "../app";
+import { authMailer } from "../auth/email";
+import { trustedProxies } from "../auth/client-ip";
 
 export type Persistence = {
   resolvePage: PublicAppDependencies["resolvePage"];
@@ -48,6 +50,7 @@ export async function createPersistence(
   }
   if (mode !== "mariadb")
     throw new Error("DATABASE_MODE must be fixtures or mariadb");
+  trustedProxies(env.AUTH_TRUSTED_PROXIES);
   const db = databaseFactory(databaseConfig(env));
   await db.initialize();
   try {
@@ -89,6 +92,8 @@ export async function createPersistence(
       databaseConfig(env),
       env.AUTH_SECRET,
       env.AUTH_BASE_URL,
+      undefined,
+      { mailer: authMailer(env), sharedRateLimit: true },
     );
   } catch (error) {
     await db.destroy();
@@ -100,6 +105,8 @@ export async function createPersistence(
       store: new MariaDbWorkspaceStore(db),
       operations: new TenantOperations(db),
       baseURL: env.AUTH_BASE_URL!,
+      trustedProxyAddresses: env.AUTH_TRUSTED_PROXIES,
+      emailEnabled: Boolean(env.RESEND_API_KEY && env.AUTH_EMAIL_FROM),
     }),
     resolvePage: createPublicSiteResolver(
       new MariaDbTenantRepository(db),

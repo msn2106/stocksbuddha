@@ -23,7 +23,7 @@ const memberId = randomUUID(),
   key = randomUUID();
 const origin = "http://localhost:3000";
 /** Control identity, stored membership, auth responses and transaction failures independently. */
-function harness() {
+function harness(options: Partial<AuthRoutesDependencies> = {}) {
   const workspace: Workspace = {
     tenant: structuredClone(tenant),
     membership: {
@@ -39,8 +39,10 @@ function harness() {
   const state = {
     signedIn: true,
     available: true,
+    membershipAvailable: true,
     workspaces: [workspace],
     authStatus: 200,
+    authCode: "",
     failure: null as Error | null,
     sessionFailure: false,
   };
@@ -57,7 +59,7 @@ function harness() {
           request.method === "POST" ? await request.text() : "",
           currentAuthTenant(),
         ]);
-        return new Response("{}", {
+        return new Response(JSON.stringify({ code: state.authCode }), {
           status: state.authStatus,
           headers: {
             "set-cookie":
@@ -89,7 +91,11 @@ function harness() {
       },
       find: async (id, slug) => {
         calls.push(["find", id, slug]);
-        return state.available && slug === tenant.slug ? workspace : null;
+        return state.available &&
+          state.membershipAvailable &&
+          slug === tenant.slug
+          ? workspace
+          : null;
       },
       tenant: async (slug) =>
         state.available && slug === tenant.slug ? tenant : null,
@@ -112,7 +118,7 @@ function harness() {
     },
   };
   const app = createPublicApp({
-    authentication: createAuthRoutes(dependencies),
+    authentication: createAuthRoutes({ ...dependencies, ...options }),
     resolvePage: async () => makePage(),
     renderPage: async (data) => ({
       template: "<!--app-html-->",
@@ -418,7 +424,26 @@ test("MariaDB workspace projections enforce active memberships and role policy w
   const db = {
     query: async (sql: string, params: unknown[]) => {
       calls.push([sql, params]);
-      if (sql.includes("SELECT t.slug")) return [{ slug: tenant.slug }];
+      if (sql.includes("JOIN tenants"))
+        return activeTenant && found
+          ? [
+              {
+                id: tenant.id,
+                slug: tenant.slug,
+                status: "active",
+                is_synthetic: 0,
+                display_name: tenant.profile.name,
+                legal_name: tenant.profile.legalName,
+                registration_number: tenant.profile.registration,
+                monogram: tenant.profile.monogram,
+                membership_id: memberId,
+                membership_role: role,
+                membership_status: "active",
+                membership_version: 1,
+                capabilities_json: overrides,
+              },
+            ]
+          : [];
       if (sql.includes("FROM tenants"))
         return activeTenant
           ? [
@@ -485,9 +510,215 @@ test("MariaDB workspace projections enforce active memberships and role policy w
   ]) {
     overrides = value;
     assert.equal(await store.find(userId, tenant.slug), null);
+    assert.deepEqual(await store.list(userId), []);
   }
   overrides = { allow: [], deny: [] };
   assert.ok(await store.find(userId, tenant.slug));
   activeTenant = false;
   assert.deepEqual(await store.list(userId), []);
+});
+
+test("workspace chooser serves many memberships and concurrent identities within a five-connection pool", async () => {
+  let active = 0,
+    peak = 0;
+  const identities = Array.from({ length: 5 }, () => randomUUID());
+  const calls: string[] = [];
+  const db = {
+    query: async (sql: string, params: string[]) => {
+      if (active === 5) throw new Error("pool_exhausted");
+      active++;
+      peak = Math.max(peak, active);
+      try {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        assert.match(sql, /WHERE m.user_id=\?/);
+        assert.match(sql, /m.status='active'/);
+        assert.match(sql, /t.status='active'/);
+        calls.push(params[0]);
+        return Array.from({ length: 12 }, (_, index) => ({
+          id: randomUUID(),
+          slug: `workspace-${index}`,
+          status: "active",
+          is_synthetic: 1,
+          display_name: `${params[0]} workspace ${index}`,
+          legal_name: "Synthetic Workspace",
+          registration_number: null,
+          monogram: "WS",
+          membership_id: randomUUID(),
+          membership_role: index % 2 ? "analyst" : "owner",
+          membership_status: "active",
+          membership_version: 3,
+          capabilities_json: '{"allow":[],"deny":[]}',
+        }));
+      } finally {
+        active--;
+      }
+    },
+  } as unknown as DataSource;
+  const store = new MariaDbWorkspaceStore(db);
+  const results = await Promise.all(identities.map((id) => store.list(id)));
+  for (const [index, workspaces] of results.entries()) {
+    assert.equal(workspaces.length, 12);
+    for (const [position, workspace] of workspaces.entries()) {
+      assert.equal(workspace.membership.userId, identities[index]);
+      assert.equal(workspace.membership.tenantId, workspace.tenant.id);
+      assert.equal(workspace.membership.version, 3);
+      assert.ok(workspace.tenant.profile.name.startsWith(identities[index]));
+      assert.deepEqual(
+        workspace.capabilities,
+        position % 2
+          ? ["research:publish"]
+          : [
+              "website:edit",
+              "research:publish",
+              "subscribers:read",
+              "staff:manage",
+            ],
+      );
+    }
+  }
+  assert.equal(calls.length, identities.length);
+  assert.deepEqual(calls, identities);
+  assert.equal(peak, 5);
+  assert.equal(active, 0);
+});
+
+test("workspace chooser excludes invalid or unsupported membership facts and propagates database errors", async () => {
+  const row = {
+    id: tenant.id,
+    slug: tenant.slug,
+    status: "active",
+    is_synthetic: 0,
+    display_name: tenant.profile.name,
+    legal_name: tenant.profile.legalName,
+    registration_number: tenant.profile.registration,
+    monogram: tenant.profile.monogram,
+    membership_id: memberId,
+    membership_role: "owner",
+    membership_status: "active",
+    membership_version: 1,
+    capabilities_json: "{}",
+  };
+  let rows: unknown[] = [];
+  const store = new MariaDbWorkspaceStore({
+    query: async () => rows,
+  } as unknown as DataSource);
+  for (const change of [
+    { status: "suspended" },
+    { membership_status: "revoked" },
+    { membership_role: "unknown" },
+    { capabilities_json: null },
+    { capabilities_json: { allow: ["staff:manage"] } },
+    { capabilities_json: { deny: ["website:edit"] } },
+  ]) {
+    rows = [{ ...row, ...change }];
+    assert.deepEqual(await store.list(userId), []);
+  }
+  rows = [row];
+  assert.equal((await store.list(userId)).length, 1);
+  rows = [{ ...row, capabilities_json: "invalid JSON" }];
+  await assert.rejects(store.list(userId), SyntaxError);
+  const failing = new MariaDbWorkspaceStore({
+    query: async () => {
+      throw new Error("unavailable");
+    },
+  } as unknown as DataSource);
+  await assert.rejects(failing.list(userId), /unavailable/);
+});
+
+test("verification, recovery and explicit joining retain tenant context and protect reset tokens", async () => {
+  const { request, state, calls } = harness({ emailEnabled: true });
+  const headers = { origin };
+  const base = "/ra/stocksbuddha";
+  const signup = await request(
+    `${base}/signup`,
+    "POST",
+    { email: "test@example.test", password: "test-password", name: "Test" },
+    headers,
+  );
+  assert.match(signup.body, /verify-email/);
+  state.authStatus = 403;
+  state.authCode = "EMAIL_NOT_VERIFIED";
+  assert.match(
+    (
+      await request(
+        `${base}/login`,
+        "POST",
+        { email: "test@example.test" },
+        headers,
+      )
+    ).body,
+    /verify-email/,
+  );
+  state.authStatus = 400;
+  state.authCode = "OTHER";
+  assert.equal(
+    (await request(`${base}/login`, "POST", {}, headers)).status,
+    400,
+  );
+  state.authStatus = 200;
+  for (const mode of ["verify-email", "forgot-password", "reset-password"]) {
+    assert.equal((await request(`${base}/${mode}`)).status, 200);
+    assert.equal((await request(`${base}/${mode}`, "POST", {})).status, 403);
+    const result = await request(
+      `${base}/${mode}`,
+      "POST",
+      { email: "test@example.test", password: "new-password" },
+      { ...headers, cookie: "sb-password-reset=abcdefghijklmnopqrstuvwx" },
+    );
+    assert.equal(result.status, 200);
+    state.authStatus = 400;
+    assert.equal(
+      (await request(`${base}/${mode}`, "POST", {}, headers)).status,
+      400,
+    );
+    state.authStatus = 200;
+  }
+  const token = "abcdefghijklmnopqrstuvwx";
+  const reset = await request(`${base}/reset-password?token=${token}`);
+  assert.equal(reset.status, 303);
+  assert.equal(reset.headers.location, `${base}/reset-password`);
+  assert.match(String(reset.headers["set-cookie"]), /HttpOnly/);
+  assert.ok(!reset.body.includes(token));
+  assert.match(
+    (await request(`${base}/reset-password?error=INVALID_TOKEN`)).body,
+    /credentials/,
+  );
+  assert.match(
+    (await request(`${base}/reset-password?token=bad`)).body,
+    /reset-password/,
+  );
+  assert.equal((await request(`${base}/join`)).status, 303);
+  state.membershipAvailable = false;
+  assert.equal((await request(`${base}/join`)).status, 200);
+  assert.equal((await request(`${base}/join`, "POST")).status, 403);
+  assert.equal(
+    (await request(`${base}/join`, "POST", {}, headers)).status,
+    303,
+  );
+  state.failure = new DatabaseConflict("enrollment_unavailable");
+  assert.equal(
+    (await request(`${base}/join`, "POST", {}, headers)).status,
+    403,
+  );
+  state.failure = new Error("internal");
+  assert.equal(
+    (await request(`${base}/join`, "POST", {}, headers)).status,
+    500,
+  );
+  state.signedIn = false;
+  assert.equal((await request(`${base}/join`)).status, 303);
+  assert.ok(
+    calls.some(
+      (call) =>
+        call[0] === "auth" && String(call[4]).includes("/ra/stocksbuddha/join"),
+    ),
+  );
+  const disabled = harness();
+  for (const mode of ["verify-email", "forgot-password", "reset-password"]) {
+    assert.match((await disabled.request(`${base}/${mode}`)).body, /service/);
+    assert.equal(
+      (await disabled.request(`${base}/${mode}`, "POST", {}, headers)).status,
+      503,
+    );
+  }
 });

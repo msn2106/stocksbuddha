@@ -46,7 +46,7 @@ test(
     const manifest = await loadManifest();
     try {
       await context.test(
-        "fresh and repeated migrations have one success per migration and exactly ten tables",
+        "fresh and repeated migrations have one success per migration and exactly eleven tables",
         async () => {
           await runMigrations(db, manifest, true);
           await runMigrations(db, manifest, true);
@@ -54,11 +54,11 @@ test(
             "SELECT COUNT(*) AS count FROM information_schema.tables WHERE table_schema=?",
             [name],
           );
-          assert.equal(Number(count), 10);
+          assert.equal(Number(count), 11);
           const [{ attempts }] = await db.query(
             "SELECT COUNT(*) AS attempts FROM migration_attempts",
           );
-          assert.equal(Number(attempts), 10);
+          assert.equal(Number(attempts), migrationClasses.length);
           assert.ok(
             (await runMigrations(db, manifest, false)).every(
               (row) => row.applied,
@@ -80,7 +80,7 @@ test(
           const runner = upgrade.createQueryRunner();
           await runner.connect();
           try {
-            for (const Class of migrationClasses.slice(0, -1))
+            for (const Class of migrationClasses.slice(0, 9))
               await new Class().up(runner);
             await seedDemo(upgrade, "dev");
             const legacyUser = randomUUID(),
@@ -93,9 +93,7 @@ test(
               "INSERT INTO auth_sessions(id,user_id,token,expires_at) VALUES (?,?,?,DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 1 DAY))",
               [legacySession, legacyUser, randomUUID()],
             );
-            await new migrationClasses[migrationClasses.length - 1]().up(
-              runner,
-            );
+            await new migrationClasses[9]().up(runner);
             assert.equal(
               (
                 await runner.query(
@@ -368,6 +366,76 @@ test(
           ],
         );
       const ops = new TenantOperations(db);
+      await context.test(
+        "workspace listing handles more memberships than pool connections and isolates concurrent users",
+        async () => {
+          const chooserUser = randomUUID();
+          await db.query(
+            "INSERT INTO auth_users(id,name,email,email_verified) VALUES (?,'Chooser',?,1)",
+            [chooserUser, `${chooserUser}@example.test`],
+          );
+          const expected: string[] = [];
+          for (let index = 0; index < 12; index++) {
+            const id = randomUUID(),
+              membership = randomUUID();
+            const status = index === 9 ? "suspended" : "active";
+            await db.query(
+              "INSERT INTO tenants(id,slug,status,is_synthetic,display_name,legal_name,monogram,settings_json) VALUES (?,?,?,1,'Chooser workspace','Synthetic test','WS',?)",
+              [
+                id,
+                `chooser-${String(index).padStart(2, "0")}`,
+                status,
+                canonicalJson({ schemaVersion: 1 }),
+              ],
+            );
+            await db.query(
+              "INSERT INTO tenant_memberships(id,tenant_id,user_id,role,status,revoked_at,profile_json,capabilities_json) VALUES (?,?,?,'owner',?,?,?,?)",
+              [
+                membership,
+                id,
+                chooserUser,
+                index === 10 ? "revoked" : "active",
+                index === 10 ? new Date() : null,
+                canonicalJson({ schemaVersion: 1 }),
+                canonicalJson({
+                  schemaVersion: 1,
+                  allow: [],
+                  deny: index === 11 ? ["website:edit"] : [],
+                }),
+              ],
+            );
+            if (index < 9) expected.push(id);
+          }
+          const pool = createDatabase({ ...config, database: name }, 5);
+          await pool.initialize();
+          try {
+            const store = new MariaDbWorkspaceStore(pool);
+            const users = [
+              chooserUser,
+              userId,
+              chooserUser,
+              secondId,
+              chooserUser,
+            ];
+            const results = await Promise.all(
+              users.map((id) => store.list(id)),
+            );
+            for (const [index, result] of results.entries()) {
+              assert.deepEqual(
+                result.map((item) => item.tenant.id),
+                users[index] === chooserUser ? expected : [tenantId],
+              );
+              assert.ok(
+                result.every((item) => item.membership.userId === users[index]),
+              );
+            }
+            const detail = await store.find(chooserUser, "chooser-00");
+            assert.deepEqual(results[0][0], detail);
+          } finally {
+            await pool.destroy();
+          }
+        },
+      );
       /** Generate a new explicit operation context while retaining the authenticated actor. */
       const operation = (overrides = {}) => ({
         token,
@@ -1062,6 +1130,179 @@ test(
             );
           } finally {
             await identity.close();
+          }
+        },
+      );
+      await context.test(
+        "shared auth limits, delivered verification, enrollment and single-use password recovery work together",
+        async () => {
+          const emails: { to: string; url: string; kind: string }[] = [];
+          const services = {
+            sharedRateLimit: true,
+            mailer: async (message: {
+              to: string;
+              url: string;
+              kind: "verify" | "reset";
+            }) => {
+              emails.push(message);
+            },
+          };
+          const first = createAuthentication(
+            { ...config, database: name },
+            "test-secret-at-least-thirty-two-characters",
+            "http://localhost:3000",
+            undefined,
+            services,
+          );
+          const second = createAuthentication(
+            { ...config, database: name },
+            "test-secret-at-least-thirty-two-characters",
+            "http://localhost:3000",
+            undefined,
+            services,
+          );
+          try {
+            const bucket = randomUUID();
+            const limits = [first, second].map(
+              (instance) => instance.auth.options.rateLimit!.customStorage!,
+            );
+            const results = await Promise.all(
+              Array.from({ length: 4 }, (_, i) =>
+                limits[i % 2].consume(bucket, { max: 3, window: 60 }),
+              ),
+            );
+            assert.equal(results.filter((result) => result.allowed).length, 3);
+            assert.ok(
+              results.find((result) => !result.allowed)!.retryAfter! > 0,
+            );
+            await db.query(
+              "UPDATE auth_rate_limits SET started_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 61 SECOND)",
+            );
+            assert.equal(
+              (await limits[0].consume(bucket, { max: 3, window: 60 })).allowed,
+              true,
+            );
+            const email = `${randomUUID()}@example.test`;
+            const origin = "http://localhost:3000";
+            const send = (path: string, body: unknown) =>
+              first.auth.handler(
+                new Request(`${origin}/api/auth/${path}`, {
+                  method: "POST",
+                  headers: {
+                    origin,
+                    "content-type": "application/json",
+                    "x-auth-client-ip": "203.0.113.98",
+                  },
+                  body: JSON.stringify(body),
+                }),
+              );
+            const signup = await withAuthTenant(tenantId, () =>
+              send("sign-up/email", {
+                email,
+                name: "Verification Test",
+                password: "old-password-123",
+                callbackURL: `${origin}/ra/stocksbuddha/join`,
+              }),
+            );
+            assert.equal(signup.status, 200);
+            assert.equal(signup.headers.getSetCookie().length, 0);
+            assert.equal(emails[0].kind, "verify");
+            assert.equal(
+              (
+                await send("sign-in/email", {
+                  email,
+                  password: "old-password-123",
+                })
+              ).status,
+              403,
+            );
+            const verification = await first.auth.handler(
+              new Request(emails[0].url),
+            );
+            assert.equal(verification.status, 302);
+            assert.equal(verification.headers.getSetCookie().length, 0);
+            const verifiedLogin = await send("sign-in/email", {
+              email,
+              password: "old-password-123",
+            });
+            assert.equal(verifiedLogin.status, 200);
+            const cookies = verifiedLogin.headers
+              .getSetCookie()
+              .map((cookie) => cookie.split(";")[0])
+              .join("; ");
+            const session = await first.auth.api.getSession({
+              headers: new Headers({ cookie: cookies }),
+            });
+            assert.ok(session?.user.emailVerified);
+            assert.ok(
+              await ops.enroll({
+                token: session!.session.token,
+                tenantId,
+                key: randomUUID(),
+              }),
+            );
+            const reset = await send("request-password-reset", {
+              email,
+              redirectTo: `${origin}/ra/stocksbuddha/reset-password`,
+            });
+            assert.equal(reset.status, 200);
+            const resetEmail = emails.find(
+              (message) => message.kind === "reset",
+            )!;
+            assert.equal(resetEmail.to, email);
+            const link = await first.auth.handler(new Request(resetEmail.url));
+            const token = new URL(
+              link.headers.get("location")!,
+            ).searchParams.get("token");
+            assert.ok(token);
+            assert.equal(
+              (
+                await send("reset-password", {
+                  token,
+                  newPassword: "new-password-456",
+                })
+              ).status,
+              200,
+            );
+            assert.equal(
+              await first.auth.api.getSession({
+                headers: new Headers({ cookie: cookies }),
+              }),
+              null,
+            );
+            assert.equal(
+              (
+                await send("reset-password", {
+                  token,
+                  newPassword: "other-password-789",
+                })
+              ).status,
+              400,
+            );
+            assert.equal(
+              (
+                await send("sign-in/email", {
+                  email,
+                  password: "old-password-123",
+                })
+              ).status,
+              401,
+            );
+            // A different client IP keeps this independent of the credential brute-force bucket above.
+            const login = await second.auth.handler(
+              new Request(`${origin}/api/auth/sign-in/email`, {
+                method: "POST",
+                headers: {
+                  origin,
+                  "content-type": "application/json",
+                  "x-auth-client-ip": "203.0.113.99",
+                },
+                body: JSON.stringify({ email, password: "new-password-456" }),
+              }),
+            );
+            assert.equal(login.status, 200);
+          } finally {
+            await Promise.all([first.close(), second.close()]);
           }
         },
       );

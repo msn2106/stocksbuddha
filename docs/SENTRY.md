@@ -135,3 +135,9 @@ Initial setup sent genuine failures through the running app, confirming browser 
 - [Server verification](https://stocks-buddha.sentry.io/issues/STOCKSBUDDHA-BACKEND-1)
 
 For later verification, introduce a temporary deliberate failure in a local route or browser event handler, start the actual app, exercise that path, confirm its issue and source lines in Sentry, then remove the trigger. Do not add permanent public error-test endpoints.
+
+## Tenant and request correlation
+
+Every HTTP request forks a Sentry isolation scope and receives a server-generated `X-Request-ID`. Error tags use `request_id` and `tenant_id`; scope/span attributes use `request.id` and `tenant.id` for logs and tracing. Tenant IDs are set only after server resolution, including before publication reads; unresolvable/platform requests stay `unresolved`. Browser-selected tenant headers and supplied request IDs do not determine these values. Concurrent request scopes are tested independently. These tags are diagnostics, not authorization.
+
+Existing collection restrictions remain in place. Password-reset bearer credentials in framework URL paths and token query parameters are additionally redacted before error/span export. Reset form hydration contains no token. Do not add identity email addresses, passwords, cookies, provider keys or message bodies to diagnostic context.

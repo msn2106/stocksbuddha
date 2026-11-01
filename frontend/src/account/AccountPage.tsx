@@ -36,9 +36,18 @@ export function AccountPage({ data }: { data: PageData }) {
   const base = data.tenant ? `/ra/${data.tenant.slug}` : "/ra/stocksbuddha";
   const tenant = data.tenant?.profile.name ?? t("auth.platform");
   const signup = account.mode === "signup";
-  const form = account.mode === "login" || signup;
+  const credentials = account.mode === "login" || signup;
+  const recovery = [
+    "verify-email",
+    "forgot-password",
+    "reset-password",
+  ].includes(account.mode);
+  const form = credentials || recovery || account.mode === "join";
   const suffix = `?lang=${locale}`;
-  const titleKey = `auth.${account.mode}.title` as UiMessageKey;
+  const messageMode = account.mode.replace(/-([a-z])/g, (_, char: string) =>
+    char.toUpperCase(),
+  );
+  const titleKey = `auth.${messageMode}.title` as UiMessageKey;
   return (
     <div
       className="account-shell"
@@ -91,7 +100,7 @@ export function AccountPage({ data }: { data: PageData }) {
         <section className="account-panel" aria-labelledby="account-title">
           <div className="account-panel-heading">
             <h1 id="account-title">{t(titleKey)}</h1>
-            {form && (
+            {credentials && (
               <p>
                 {t(
                   signup ? "auth.signup.description" : "auth.login.description",
@@ -105,6 +114,19 @@ export function AccountPage({ data }: { data: PageData }) {
           </div>
           {form ? (
             <>
+              {account.notice && (
+                <p role="status">
+                  {t(
+                    account.notice === "sent"
+                      ? "auth.email.sent"
+                      : "auth.reset.done",
+                  )}
+                </p>
+              )}
+              {recovery && <p>{t("auth.recovery.description")}</p>}
+              {account.mode === "join" && (
+                <p>{t("auth.join.description", { tenant })}</p>
+              )}
               {account.error && (
                 <p className="account-error" role="alert" id="account-error">
                   {t(
@@ -116,7 +138,7 @@ export function AccountPage({ data }: { data: PageData }) {
               )}
               <form
                 className="account-form"
-                action={`${base}/${signup ? "signup" : "login"}${suffix}`}
+                action={`${base}/${account.mode}${suffix}`}
                 method="post"
                 onSubmit={() => setPending(true)}
                 aria-describedby={account.error ? "account-error" : undefined}
@@ -136,58 +158,70 @@ export function AccountPage({ data }: { data: PageData }) {
                     />
                   </div>
                 )}
-                <div className="account-field">
-                  <label htmlFor="account-email">{t("auth.email")}</label>
-                  <input
-                    id="account-email"
-                    type="email"
-                    name="email"
-                    autoComplete="username"
-                    required
-                    maxLength={254}
-                    defaultValue={account.email}
-                    disabled={account.error === "service"}
-                  />
-                </div>
-                <div className="account-field">
-                  <label htmlFor="account-password">{t("auth.password")}</label>
-                  <div className="account-password">
+                {(credentials ||
+                  account.mode === "forgot-password" ||
+                  account.mode === "verify-email") && (
+                  <div className="account-field">
+                    <label htmlFor="account-email">{t("auth.email")}</label>
                     <input
-                      id="account-password"
-                      type={visible ? "text" : "password"}
-                      name="password"
-                      autoComplete={
-                        signup ? "new-password" : "current-password"
-                      }
-                      minLength={8}
-                      maxLength={128}
+                      id="account-email"
+                      type="email"
+                      name="email"
+                      autoComplete="username"
                       required
-                      aria-describedby={signup ? "password-hint" : undefined}
+                      maxLength={254}
+                      defaultValue={account.email}
                       disabled={account.error === "service"}
                     />
-                    <button
-                      type="button"
-                      aria-label={t(
-                        visible ? "auth.password.hide" : "auth.password.show",
-                      )}
-                      aria-pressed={visible}
-                      onClick={() => setVisible(!visible)}
-                      disabled={account.error === "service"}
-                    >
-                      {visible ? <EyeOff size={20} /> : <Eye size={20} />}
-                    </button>
                   </div>
-                  {signup && (
-                    <small id="password-hint">{t("auth.password.hint")}</small>
-                  )}
-                </div>
+                )}
+                {(credentials || account.mode === "reset-password") && (
+                  <div className="account-field">
+                    <label htmlFor="account-password">
+                      {t("auth.password")}
+                    </label>
+                    <div className="account-password">
+                      <input
+                        id="account-password"
+                        type={visible ? "text" : "password"}
+                        name="password"
+                        autoComplete={
+                          signup || account.mode === "reset-password"
+                            ? "new-password"
+                            : "current-password"
+                        }
+                        minLength={8}
+                        maxLength={128}
+                        required
+                        aria-describedby={signup ? "password-hint" : undefined}
+                        disabled={account.error === "service"}
+                      />
+                      <button
+                        type="button"
+                        aria-label={t(
+                          visible ? "auth.password.hide" : "auth.password.show",
+                        )}
+                        aria-pressed={visible}
+                        onClick={() => setVisible(!visible)}
+                        disabled={account.error === "service"}
+                      >
+                        {visible ? <EyeOff size={20} /> : <Eye size={20} />}
+                      </button>
+                    </div>
+                    {signup && (
+                      <small id="password-hint">
+                        {t("auth.password.hint")}
+                      </small>
+                    )}
+                  </div>
+                )}
                 <button
                   className="button primary account-submit"
                   disabled={pending || account.error === "service"}
                 >
                   {pending
                     ? t("auth.pending")
-                    : t(signup ? "auth.signup.action" : "auth.login.action")}
+                    : t(`auth.${messageMode}.action` as UiMessageKey)}
                   <ArrowRight size={19} aria-hidden="true" />
                 </button>
               </form>
@@ -197,6 +231,17 @@ export function AccountPage({ data }: { data: PageData }) {
                   {t(signup ? "auth.login.action" : "auth.signup.action")}
                 </a>
               </p>
+              {account.mode === "login" && (
+                <p>
+                  <a href={`${base}/forgot-password${suffix}`}>
+                    {t("auth.forgotPassword.title")}
+                  </a>
+                  {" · "}
+                  <a href={`${base}/verify-email${suffix}`}>
+                    {t("auth.verifyEmail.title")}
+                  </a>
+                </p>
+              )}
               {signup && (
                 <p className="account-footnote">
                   <LockKeyhole size={16} aria-hidden="true" />
@@ -234,7 +279,10 @@ export function AccountPage({ data }: { data: PageData }) {
                 </dl>
               )}
               {account.mode === "unavailable" && (
-                <p className="account-empty">{t("auth.unavailable.body")}</p>
+                <>
+                  <p className="account-empty">{t("auth.unavailable.body")}</p>
+                  <a href={`${base}/join${suffix}`}>{t("auth.join.action")}</a>
+                </>
               )}
               {account.mode === "workspaces" &&
                 (account.workspaces?.length ? (

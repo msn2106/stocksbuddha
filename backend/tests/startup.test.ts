@@ -10,6 +10,8 @@ import * as Sentry from "@sentry/node";
 import { startServer, type StartupOptions } from "../src/main";
 import type { PublicAppDependencies } from "../src/app";
 import { makePage } from "../../packages/contracts/tests/fixtures";
+import { requestMonitoring, monitorTenant } from "../src/monitoring";
+import type { Request, Response } from "express";
 
 test("the production server forwards handled request failures to Sentry without logging request data", async (context) => {
   const envelopes: string[] = [];
@@ -47,6 +49,14 @@ test("the production server forwards handled request failures to Sentry without 
     assert.ok(dependencies?.onError);
     dependencies.onError(new Error("renderer rejected"));
     dependencies.onError("opaque rejection");
+    requestMonitoring(
+      {} as Request,
+      { setHeader: () => {} } as unknown as Response,
+      () => {
+        monitorTenant("verified-tenant");
+        dependencies!.onError!(new Error("scoped rejection"));
+      },
+    );
     await Sentry.flush(2000);
     assert.ok(
       envelopes.some((envelope) =>
@@ -57,6 +67,11 @@ test("the production server forwards handled request failures to Sentry without 
       envelopes.some((envelope) => envelope.includes("opaque rejection")),
     );
     assert.ok(!envelopes.some((envelope) => envelope.includes('"cookies"')));
+    const scoped = envelopes.find((envelope) =>
+      envelope.includes("scoped rejection"),
+    );
+    assert.ok(scoped?.includes('"tenant_id":"verified-tenant"'));
+    assert.match(scoped!, /"request_id":"[0-9a-f-]{36}"/);
   } finally {
     await Sentry.close(2000);
   }

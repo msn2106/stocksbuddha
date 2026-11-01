@@ -1,5 +1,6 @@
 import express, { type Request, type RequestHandler } from "express";
 import type { PageData } from "@ra/contracts";
+import { requestMonitoring, monitorTenant } from "./monitoring";
 
 export type RenderedPage = {
   template: string;
@@ -37,6 +38,7 @@ export function createPublicApp({
 }: PublicAppDependencies) {
   const server = express();
   server.disable("x-powered-by");
+  server.use(requestMonitoring);
   server.use((_req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
@@ -74,7 +76,13 @@ export function createPublicApp({
       ),
     );
     server.get(
-      ["/ra/:slug/login", "/ra/:slug/signup"],
+      [
+        "/ra/:slug/login",
+        "/ra/:slug/signup",
+        "/ra/:slug/verify-email",
+        "/ra/:slug/forgot-password",
+        "/ra/:slug/reset-password",
+      ],
       async (req, res, next) => {
         const data = await resolvePage(
           `/ra/${req.params.slug}`,
@@ -88,7 +96,12 @@ export function createPublicApp({
           ...data,
           page: "account",
           account: {
-            mode: req.path.endsWith("/signup") ? "signup" : "login",
+            mode: req.path.split("/").at(-1) as
+              | "signup"
+              | "login"
+              | "verify-email"
+              | "forgot-password"
+              | "reset-password",
             error: "service",
           },
         } satisfies PageData;
@@ -120,6 +133,7 @@ export function createPublicApp({
       req.headers.cookie,
     );
     const tenant = data.tenant;
+    if (tenant) monitorTenant(tenant.id);
     res
       .status(tenant ? 200 : 404)
       .json(tenant ? data : { error: "Tenant not found" });
@@ -155,6 +169,7 @@ export function createPublicApp({
             account: account.account,
           }
         : publicData;
+      if (data.tenant) monitorTenant(data.tenant.id);
       const rendered = await renderPage(data, req);
       res
         .status(account ? res.statusCode : data.tenant ? 200 : 404)

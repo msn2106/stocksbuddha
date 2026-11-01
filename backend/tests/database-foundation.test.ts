@@ -20,6 +20,7 @@ import {
   MariaDbWebsiteRepository,
 } from "../src/database/repositories";
 import { TenantOperations } from "../src/database/operations";
+import { canAccessTenant } from "../src/access/authorization";
 import { createPersistence } from "../src/database/runtime";
 import { migrationClasses } from "../../database/catalog";
 import { websiteContentKeys } from "@ra/contracts";
@@ -342,6 +343,7 @@ function operationHarness() {
     member: {
       id: membershipId,
       user_id: userId,
+      tenant_id: tenant.id,
       role: "owner",
       status: "active",
       lock_version: 1,
@@ -467,6 +469,43 @@ test("guarded operations return stable receipts, detect stale state and preserve
   const { ops, state, context } = operationHarness();
   state.missingMember = true;
   assert.ok((await ops.enroll(context)).membershipId);
+});
+
+test("transactional website and staff operations agree with the shared capability policy", async () => {
+  for (const role of ["owner", "analyst", "support", "subscriber"] as const) {
+    for (const capability of ["website:edit", "staff:manage"] as const) {
+      const { state, ops, context } = operationHarness();
+      state.member.role = role;
+      const allowed = canAccessTenant(
+        { userId: state.user.id, platformRole: "owner" },
+        state.tenant,
+        [
+          {
+            userId: state.member.user_id,
+            tenantId: state.member.tenant_id,
+            role,
+            status: "active",
+          },
+        ],
+        capability,
+      );
+      const result =
+        capability === "website:edit"
+          ? ops.createDraft(context, snapshot)
+          : ops.changeMembership(context, state.target.id, 1, "owner", true);
+      if (allowed) assert.ok(await result);
+      else {
+        await assert.rejects(result, /forbidden/);
+        assert.equal(state.receipt, null);
+      }
+    }
+  }
+  for (const field of ["user_id", "tenant_id"] as const) {
+    const { state, ops, context } = operationHarness();
+    state.member[field] = randomUUID();
+    await assert.rejects(ops.createDraft(context, snapshot), /forbidden/);
+    assert.equal(state.receipt, null);
+  }
 });
 
 test("last-owner protection excludes owners with any unsupported capability overrides", async () => {

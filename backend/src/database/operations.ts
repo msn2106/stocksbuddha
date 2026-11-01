@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DataSource, EntityManager } from "typeorm";
 import { tenantSchema } from "@ra/contracts";
+import { canAccessTenant } from "../access/authorization";
 import {
   canonicalJson,
   digest,
@@ -77,7 +78,22 @@ export class TenantOperations {
     if (capability === "enroll") {
       if (!user.email_verified || member?.status === "revoked")
         throw new DatabaseConflict("enrollment_unavailable");
-    } else if (!member || member.status !== "active" || member.role !== "owner")
+    } else if (
+      !member ||
+      !canAccessTenant(
+        { userId: user.id, platformRole: null },
+        tenant,
+        [
+          {
+            userId: member.user_id,
+            tenantId: member.tenant_id,
+            role: member.role,
+            status: member.status,
+          },
+        ],
+        capability,
+      )
+    )
       throw new DatabaseConflict("forbidden");
     if (member) {
       const overrides = JSON.parse(member.capabilities_json);

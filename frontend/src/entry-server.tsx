@@ -2,6 +2,7 @@ import { renderToString } from "react-dom/server";
 import { App } from "./App";
 import { serializePage, type PageData } from "@ra/contracts";
 import { translator } from "./locales/messages";
+import type { UiMessageKey } from "./locales/messages";
 
 /**
  * Escape text for HTML metadata text nodes and quoted attribute values.
@@ -25,7 +26,7 @@ const escape = (value: string) =>
 export function render(data: PageData) {
   const t = translator(data.locale, data.website?.content);
   const title = data.account
-    ? `${t(`auth.${data.account.mode}.title`)} | ${data.tenant?.profile.name ?? t("auth.platform")}`
+    ? `${t(`auth.${data.account.mode.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase())}.title` as UiMessageKey)} | ${data.tenant?.profile.name ?? t("auth.platform")}`
     : data.tenant
       ? `${data.tenant.profile.name} | ${t("metadata.research")}`
       : t("metadata.notFoundTitle");

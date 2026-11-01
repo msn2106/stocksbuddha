@@ -8,6 +8,7 @@ import { CreateWebsites1793491200006 } from "./migrations/1793491200006-Websites
 import { CreateAudit1793491200007 } from "./migrations/1793491200007-Audit";
 import { AddPublication1793491200008 } from "./migrations/1793491200008-Publication";
 import { AddAuthTenantContext1793491200009 } from "./migrations/1793491200009-AuthTenantContext";
+import { CreateAuthRateLimits1793491200010 } from "./migrations/1793491200010-AuthRateLimits";
 
 /** Ordered immutable migrations shared by development and compiled release runners. */
 export const migrationClasses = [
@@ -21,4 +22,5 @@ export const migrationClasses = [
   CreateAudit1793491200007,
   AddPublication1793491200008,
   AddAuthTenantContext1793491200009,
+  CreateAuthRateLimits1793491200010,
 ];

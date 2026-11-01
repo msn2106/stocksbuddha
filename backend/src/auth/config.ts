@@ -3,12 +3,17 @@ import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { createPool } from "mysql2/promise";
 import type { DatabaseConfig } from "../../../database/config";
 import { currentAuthTenant } from "./tenant-context";
+import { databaseRateLimiter } from "./rate-limit";
+import type { AuthMailer } from "./email";
+
+export type AuthServices = { mailer?: AuthMailer; sharedRateLimit?: boolean };
 
 /** Define the pinned core auth mapping; username/OTP transports remain separate feature gates. */
 export function authOptions(
   database: ReturnType<typeof createPool>,
   secret: string,
   baseURL: string,
+  services: AuthServices = {},
 ): BetterAuthOptions {
   if (secret.length < 32)
     throw new Error(
@@ -22,8 +27,46 @@ export function authOptions(
     secret,
     baseURL,
     trustedOrigins: [origin],
-    rateLimit: { enabled: true, storage: "memory", window: 60, max: 100 },
-    emailAndPassword: { enabled: true },
+    rateLimit: {
+      enabled: true,
+      storage: "memory",
+      window: 60,
+      max: 100,
+      ...(services.sharedRateLimit
+        ? { customStorage: databaseRateLimiter(database) }
+        : {}),
+    },
+    emailAndPassword: {
+      enabled: true,
+      revokeSessionsOnPasswordReset: true,
+      ...(services.mailer
+        ? {
+            requireEmailVerification: true,
+            autoSignIn: false,
+            /** Deliver a tenant-scoped password-reset link through the configured mail service. */
+            sendResetPassword: async ({ user, url }) =>
+              services.mailer!({ to: user.email, url, kind: "reset" }),
+          }
+        : {}),
+    },
+    ...(services.mailer
+      ? {
+          emailVerification: {
+            sendOnSignUp: true,
+            sendOnSignIn: true,
+            autoSignInAfterVerification: false,
+            expiresIn: 3600,
+            /** Deliver an account-verification link without creating an authenticated session. */
+            sendVerificationEmail: async ({
+              user,
+              url,
+            }: {
+              user: { email: string };
+              url: string;
+            }) => services.mailer!({ to: user.email, url, kind: "verify" }),
+          },
+        }
+      : {}),
     databaseHooks: {
       user: {
         create: {
@@ -131,6 +174,7 @@ export function createAuthentication(
   secret: string,
   baseURL: string,
   factory = betterAuth,
+  services: AuthServices = {},
 ) {
   const pool = createPool({
     host: config.host,
@@ -145,7 +189,7 @@ export function createAuthentication(
     waitForConnections: false,
     connectTimeout: 3000,
   });
-  const auth = factory(authOptions(pool, secret, baseURL));
+  const auth = factory(authOptions(pool, secret, baseURL, services));
   return {
     auth,
     /** Close only the pool owned by this authentication instance. */

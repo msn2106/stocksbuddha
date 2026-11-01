@@ -5,6 +5,7 @@ import {
   type PageData,
 } from "@ra/contracts";
 import type { TenantRepository, WebsiteRepository } from "./repository";
+import { monitorTenant } from "../monitoring";
 
 /**
  * Build the language-preference cookie name for an immutable tenant identity.
@@ -48,6 +49,7 @@ export function createPublicSiteResolver(
     const tenant = await tenants.findBySlug(match[1]);
     if (!tenant || tenant.slug !== match[1] || tenant.status !== "active")
       return missing;
+    monitorTenant(tenant.id);
     const website = await websites.findPublished(tenant.id);
     // Check adapter output too: a bad query must fail closed rather than leak a
     // different organization's website or an unpublished revision.

@@ -9,6 +9,7 @@ import { ExpressAdapter } from "@nestjs/platform-express";
 import express from "express";
 import { createPublicApp } from "./app";
 import { createPersistence } from "./database/runtime";
+import { requestMetadata } from "./monitoring";
 
 /** Nest application root; startup registers the selected persistence shutdown provider. */
 class AppModule {}
@@ -57,8 +58,15 @@ export async function startServer({
     const server = buildApp({
       /** Report handled request failures to Sentry and retain the existing console diagnostic. */
       onError: (error) => {
-        Sentry.captureException(error);
-        Sentry.logger.error("Public request failed");
+        const metadata = requestMetadata();
+        const attributes = metadata
+          ? { request_id: metadata.requestId, tenant_id: metadata.tenantId }
+          : {};
+        Sentry.withScope((scope) => {
+          scope.setTags(attributes);
+          Sentry.captureException(error);
+        });
+        Sentry.logger.error("Public request failed", attributes);
         console.error(
           error instanceof Error ? error.message : "Render failure",
         );

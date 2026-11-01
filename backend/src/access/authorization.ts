@@ -34,7 +34,7 @@ const permissions: Record<TenantRole, readonly Capability[]> = {
  */
 export function canAccessTenant(
   principal: Principal | null,
-  tenant: Tenant,
+  tenant: Pick<Tenant, "id" | "status">,
   memberships: readonly Membership[],
   capability: Capability,
 ): boolean {

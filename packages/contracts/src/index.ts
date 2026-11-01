@@ -30,7 +30,17 @@ export type PageData = {
   account?: AccountView;
 };
 export type AccountView = {
-  mode: "login" | "signup" | "workspace" | "workspaces" | "unavailable";
+  mode:
+    | "login"
+    | "signup"
+    | "workspace"
+    | "workspaces"
+    | "unavailable"
+    | "verify-email"
+    | "forgot-password"
+    | "reset-password"
+    | "join";
+  notice?: "sent" | "reset";
   error?: "credentials" | "service";
   email?: string;
   name?: string;

@@ -1,6 +1,6 @@
 # MariaDB persistence
 
-The ten-table foundation uses TypeORM and mysql2. Ten ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
+The eleven-table foundation uses TypeORM and mysql2. Eleven ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
 
 ## Local setup
 
@@ -60,8 +60,14 @@ RUN_DATABASE_TESTS=true npm run test:database
 
 The DB suite reads dev connection settings, creates unique `sb_test_*` databases and removes only those databases afterward. Use a local disposable administrative user with CREATE/DROP DATABASE permissions. It never drops the configured dev/prod database. Without `RUN_DATABASE_TESTS=true`, it explicitly skips; ordinary tests then do not establish database correctness. `test:integration` discovers it too and uses the same opt-in.
 
+Do not grant database-creation privileges to the application user just to run tests. Use a separate disposable MariaDB server and test account. The account needs access to its isolated `stocksbuddha_dev` base database and full privileges on the disposable `sb_test_*` namespace, including CREATE/DROP DATABASE, ALTER, TRIGGER and audit writes. Set `DB_HOST`, `DB_PORT`, `DB_USER` and `DB_PASSWORD` in the test process environment to override `backend/.env`; do not replace your local application credentials. The suite covers chooser lists larger than a five-connection pool, concurrent users, tenant/membership filtering and equality with detail projections, in addition to migrations, authentication and transaction invariants.
+
 ## Authentication provenance migration and legacy users
 
-Migration `AddAuthTenantContext1793491200009` adds nullable signup/login RA FKs to `auth_users` / `auth_sessions`, plus two audit triggers. The ten-table count stays unchanged. It preserves existing rows with unknown (`NULL`) provenance; no users are automatically assigned to RAs. The migration operator needs ALTER/TRIGGER privileges, and the trigger definer must remain valid with audit insert access. See [implementation and partial-DDL recovery](../docs/DATABASE_IMPLEMENTATION.md).
+Migration `AddAuthTenantContext1793491200009` adds nullable signup/login RA FKs to `auth_users` / `auth_sessions`, plus two audit triggers. That migration does not add a table; the later authentication-limit migration brings the current foundation to eleven. It preserves existing rows with unknown (`NULL`) provenance; no users are automatically assigned to RAs. The migration operator needs ALTER/TRIGGER privileges, and the trigger definer must remain valid with audit insert access. See [implementation and partial-DDL recovery](../docs/DATABASE_IMPLEMENTATION.md).
 
 After `npm run db:migrate -- --target dev`, use [backfill-auth-tenant-context.sql](queries/backfill-auth-tenant-context.sql) in a single database-client connection. Substitute known emails/slugs in the signup block; run it separately for Stocks Buddha and Beta. Session backfill is optional and requires a known original session RA, not just the user's signup origin. The transaction blocks preserve existing non-NULL values and audit corrections without granting memberships or marking emails verified. See [authentication provenance](../docs/AUTHENTICATION.md#signup-and-login-ra-provenance).
+
+## Shared authentication limits
+
+Migration `CreateAuthRateLimits1793491200010` adds one table for expiring, hashed authentication counters. All application instances must share this table. Its row-locked consume operation prevents concurrent requests from bypassing limits. Runtime privileges include SELECT/INSERT/UPDATE/DELETE on this table; no runtime CREATE/DROP privileges are needed. Configure trusted proxies and verification/recovery delivery using [the authentication guide](../docs/AUTHENTICATION.md). Existing migrations stay immutable.
