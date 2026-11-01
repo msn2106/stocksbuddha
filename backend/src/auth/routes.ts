@@ -1,0 +1,362 @@
+import express, { type Response, type NextFunction } from "express";
+import { fromNodeHeaders, toNodeHandler } from "better-auth/node";
+import { slugSchema, type AccountView, type Tenant } from "@ra/contracts";
+import type { createAuthentication } from "./config";
+import type { Workspace, WorkspaceStore } from "./workspaces";
+import type { TenantOperations } from "../database/operations";
+import { DatabaseConflict } from "../database/operations";
+
+type Authentication = ReturnType<typeof createAuthentication>["auth"];
+export type AuthRoutesDependencies = {
+  auth: Pick<Authentication, "handler"> & {
+    api: Pick<Authentication["api"], "getSession">;
+  };
+  store: WorkspaceStore;
+  operations: Pick<TenantOperations, "changeMembership" | "enroll">;
+  baseURL: string;
+};
+
+/** Pass a safe account projection to the shared React SSR pipeline, excluding session tokens. */
+function accountPage(
+  res: Response,
+  next: NextFunction,
+  tenant: Tenant | null,
+  account: AccountView,
+  status = 200,
+) {
+  res.status(status);
+  res.locals.accountPage = {
+    tenant,
+    website: null,
+    page: "account",
+    locale: "en",
+    account,
+  };
+  next();
+}
+/** Expose only public workspace identity, the current member role and derived capabilities. */
+function projection(workspace: Workspace) {
+  return {
+    tenant: {
+      id: workspace.tenant.id,
+      slug: workspace.tenant.slug,
+      name: workspace.tenant.profile.name,
+    },
+    membership: workspace.membership,
+    capabilities: workspace.capabilities,
+  };
+}
+
+/** Mount Better Auth before body parsing and enforce fresh session/membership checks for every private request. */
+export function createAuthRoutes({
+  auth,
+  store,
+  operations,
+  baseURL,
+}: AuthRoutesDependencies) {
+  const router = express.Router();
+  const origin = new URL(baseURL).origin;
+  router.use(
+    [
+      "/api/auth",
+      "/api/session",
+      "/api/workspaces",
+      "/workspace",
+      "/login",
+      "/signup",
+      "/logout",
+      "/ra/:slug/login",
+      "/ra/:slug/signin",
+      "/ra/:slug/signup",
+      "/ra/:slug/logout",
+      "/ra/:slug/workspace",
+    ],
+    (req, res, next) => {
+      req.headers["x-auth-client-ip"] = req.socket.remoteAddress ?? "unknown";
+      res.setHeader(
+        "Content-Security-Policy",
+        "form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
+      );
+      next();
+    },
+  );
+  router.all("/api/auth/{*path}", toNodeHandler(auth));
+  router.use(
+    express.json({ limit: "8kb" }),
+    express.urlencoded({ extended: false, limit: "8kb" }),
+  );
+
+  router.get(["/login", "/signin", "/signup"], (req, res) =>
+    res.redirect(
+      302,
+      `/ra/stocksbuddha/${req.path === "/signup" ? "signup" : "login"}`,
+    ),
+  );
+  router.get("/ra/:slug/signin", (req, res) =>
+    res.redirect(
+      308,
+      `/ra/${encodeURIComponent(req.params.slug as string)}/login`,
+    ),
+  );
+  // Resolve tenant context from the route; never accept it from credentials or hidden fields.
+  router.use(
+    [
+      "/ra/:slug/login",
+      "/ra/:slug/signup",
+      "/ra/:slug/logout",
+      "/ra/:slug/workspace",
+    ],
+    async (req, res, next) => {
+      const slug = slugSchema.safeParse(req.params.slug);
+      const tenant = slug.success ? await store.tenant(slug.data) : null;
+      if (!tenant)
+        return res.status(404).json({ error: "workspace_not_found" });
+      res.locals.accountTenant = tenant;
+      next();
+    },
+  );
+  for (const signup of [false, true]) {
+    const path = `/ra/:slug/${signup ? "signup" : "login"}`;
+    const mode = signup ? "signup" : "login";
+    router.get(path, (_req, res, next) =>
+      accountPage(res, next, res.locals.accountTenant, { mode }),
+    );
+    router.post(path, async (req, res, next) => {
+      if (req.headers.origin !== origin)
+        return res.status(403).json({ error: "forbidden_origin" });
+      const response = await auth.handler(
+        new Request(
+          `${origin}/api/auth/${signup ? "sign-up" : "sign-in"}/email`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              origin,
+              "x-auth-client-ip": req.headers["x-auth-client-ip"] as string,
+            },
+            body: JSON.stringify({
+              email: req.body?.email,
+              password: req.body?.password,
+              ...(signup ? { name: req.body?.name } : {}),
+            }),
+          },
+        ),
+      );
+      if (!response.ok)
+        return accountPage(
+          res,
+          next,
+          res.locals.accountTenant,
+          {
+            mode,
+            error: "credentials",
+            email:
+              typeof req.body?.email === "string"
+                ? req.body.email.slice(0, 254)
+                : "",
+            name:
+              typeof req.body?.name === "string"
+                ? req.body.name.slice(0, 160)
+                : "",
+          },
+          response.status,
+        );
+      res.setHeader("Set-Cookie", response.headers.getSetCookie());
+      return res.redirect(
+        303,
+        `/ra/${res.locals.accountTenant.slug}/workspace`,
+      );
+    });
+  }
+  router.post(["/logout", "/ra/:slug/logout"], async (req, res) => {
+    if (req.headers.origin !== origin)
+      return res.status(403).json({ error: "forbidden_origin" });
+    const response = await auth.handler(
+      new Request(`${origin}/api/auth/sign-out`, {
+        method: "POST",
+        headers: fromNodeHeaders(req.headers),
+      }),
+    );
+    if (!response.ok)
+      return res.status(response.status).json({ error: "sign_out_failed" });
+    res.setHeader("Set-Cookie", response.headers.getSetCookie());
+    return res.redirect(
+      303,
+      `/ra/${res.locals.accountTenant?.slug ?? "stocksbuddha"}/login`,
+    );
+  });
+  router.use(
+    ["/workspace", "/ra/:slug/workspace", "/api/workspaces", "/api/session"],
+    async (req, res, next) => {
+      const identity = await auth.api.getSession({
+        headers: fromNodeHeaders(req.headers),
+      });
+      if (!identity) {
+        if (!req.originalUrl.startsWith("/api/"))
+          return res.redirect(
+            303,
+            `/ra/${res.locals.accountTenant?.slug ?? req.params.slug ?? "stocksbuddha"}/login`,
+          );
+        return res.status(401).json({ error: "unauthorized" });
+      }
+      res.locals.identity = identity;
+      next();
+    },
+  );
+  router.get("/api/session", (_req, res) => {
+    const { user, session } = res.locals.identity;
+    res.json({
+      user: { id: user.id, name: user.name, email: user.email },
+      expiresAt: session.expiresAt,
+    });
+  });
+  router.post("/api/workspaces/:slug/membership", async (req, res) => {
+    if (req.headers.origin !== origin)
+      return res.status(403).json({ error: "forbidden_origin" });
+    const slug = slugSchema.safeParse(req.params.slug);
+    const tenant = slug.success ? await store.tenant(slug.data) : null;
+    if (!tenant) return res.status(404).json({ error: "workspace_not_found" });
+    const key = req.get("Idempotency-Key") ?? "";
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+        key,
+      )
+    )
+      return res.status(400).json({ error: "invalid_operation_key" });
+    try {
+      return res.json(
+        await operations.enroll({
+          token: res.locals.identity.session.token,
+          tenantId: tenant.id,
+          key,
+        }),
+      );
+    } catch (error) {
+      if (!(error instanceof DatabaseConflict)) throw error;
+      return res
+        .status(
+          error.code === "unauthorized"
+            ? 401
+            : error.code === "idempotency_conflict"
+              ? 409
+              : 403,
+        )
+        .json({ error: error.code });
+    }
+  });
+  router.get(["/workspace", "/api/workspaces"], async (req, res, next) => {
+    const workspaces = await store.list(res.locals.identity.user.id);
+    if (req.path.startsWith("/api/"))
+      return res.json({ workspaces: workspaces.map(projection) });
+    return accountPage(res, next, null, {
+      mode: "workspaces",
+      workspaces: workspaces.map((workspace) => ({
+        slug: workspace.tenant.slug,
+        name: workspace.tenant.profile.name,
+        role: workspace.membership.role,
+      })),
+    });
+  });
+  router.get("/workspace/:slug", (req, res) =>
+    res.redirect(
+      302,
+      `/ra/${encodeURIComponent(req.params.slug as string)}/workspace`,
+    ),
+  );
+  router.use(
+    ["/ra/:slug/workspace", "/api/workspaces/:slug"],
+    async (req, res, next) => {
+      const parsed = slugSchema.safeParse(req.params.slug);
+      const workspace = parsed.success
+        ? await store.find(res.locals.identity.user.id, parsed.data)
+        : null;
+      if (!workspace) {
+        if (!req.originalUrl.startsWith("/api/"))
+          return accountPage(
+            res,
+            next,
+            res.locals.accountTenant,
+            { mode: "unavailable" },
+            404,
+          );
+        return res.status(404).json({ error: "workspace_not_found" });
+      }
+      res.locals.workspace = workspace;
+      next();
+    },
+  );
+  router.get(
+    ["/ra/:slug/workspace", "/api/workspaces/:slug"],
+    (req, res, next) => {
+      if (res.locals.accountPage) return next();
+      const workspace: Workspace = res.locals.workspace;
+      if (req.path.startsWith("/api/")) return res.json(projection(workspace));
+      return accountPage(res, next, workspace.tenant, {
+        mode: "workspace",
+        role: workspace.membership.role,
+        capabilities: workspace.capabilities,
+      });
+    },
+  );
+  router.get("/api/workspaces/:slug/members", async (_req, res) => {
+    const workspace: Workspace = res.locals.workspace;
+    if (!workspace.capabilities.includes("staff:manage"))
+      return res.status(403).json({ error: "forbidden" });
+    return res.json({ members: await store.members(workspace.tenant.id) });
+  });
+  router.patch("/api/workspaces/:slug/members/:id", async (req, res) => {
+    if (req.headers.origin !== origin)
+      return res.status(403).json({ error: "forbidden_origin" });
+    const workspace: Workspace = res.locals.workspace;
+    if (!workspace.capabilities.includes("staff:manage"))
+      return res.status(403).json({ error: "forbidden" });
+    const { role, active, version } = req.body ?? {};
+    const key = req.get("Idempotency-Key") ?? "";
+    const uuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    if (
+      !uuid.test(req.params.id as string) ||
+      !["owner", "analyst", "support", "subscriber"].includes(role) ||
+      typeof active !== "boolean" ||
+      !Number.isSafeInteger(version) ||
+      version < 1 ||
+      !uuid.test(key)
+    )
+      return res.status(400).json({ error: "invalid_membership_request" });
+    try {
+      const result = await operations.changeMembership(
+        {
+          token: res.locals.identity.session.token,
+          tenantId: workspace.tenant.id,
+          key,
+        },
+        req.params.id as string,
+        version,
+        role,
+        active,
+      );
+      return res.json(result);
+    } catch (error) {
+      if (!(error instanceof DatabaseConflict)) throw error;
+      const status =
+        error.code === "unauthorized"
+          ? 401
+          : [
+                "forbidden",
+                "tenant_unavailable",
+                "capability_overrides_not_enabled",
+              ].includes(error.code)
+            ? 403
+            : 409;
+      return res.status(status).json({ error: error.code });
+    }
+  });
+  router.use(
+    ["/workspace", "/ra/:slug/workspace", "/api/workspaces", "/api/session"],
+    (_req, res, next) =>
+      res.locals.accountPage
+        ? next()
+        : res.status(404).json({ error: "not_found" }),
+  );
+  return router;
+}

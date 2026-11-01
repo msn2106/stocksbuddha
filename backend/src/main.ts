@@ -65,6 +65,7 @@ export async function startServer({
       },
       resolvePage: persistence.resolvePage,
       ready: persistence.ready,
+      authentication: persistence.authentication,
       assets: vite
         ? vite.middlewares
         : express.Router().use(

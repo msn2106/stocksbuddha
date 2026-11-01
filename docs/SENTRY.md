@@ -23,7 +23,7 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:3000/ra/stocksbuddha`. This starts the backend with Vite middleware; a separate frontend development server is unnecessary. For a fixture-only development preview without a local database, use `DATABASE_MODE=fixtures npm run dev`. For database-backed development, retain the database settings in `backend/.env` and follow [DATABASE_DESIGN.md](DATABASE_DESIGN.md).
+Open `http://localhost:3000/ra/stocksbuddha`. This starts the backend with Vite middleware; a separate frontend development server is unnecessary. For a fixture-only development preview without a local database, use `DATABASE_MODE=fixtures npm run dev`. For database-backed development, retain the database settings in `backend/.env`, set `AUTH_SECRET` and `AUTH_BASE_URL`, and follow [authentication setup](AUTHENTICATION.md) and [DATABASE_DESIGN.md](DATABASE_DESIGN.md).
 
 ### Frontend and backend environment settings
 
@@ -109,7 +109,7 @@ Use these repository requirements when configuring the host:
 | Build                 | `npm run build`, with frontend production variables, matching release IDs and the Sentry upload token                                                                                 |
 | Start                 | `npm start`, preserving the Sentry preload and Node source-map flags in the backend workspace script                                                                                  |
 | Network               | Platform-assigned `PORT`; `HOST=0.0.0.0` where required by the host                                                                                                                   |
-| Runtime configuration | Backend production Sentry variables plus database configuration; no build upload token is needed at runtime                                                                           |
+| Runtime configuration | Backend production Sentry variables, database configuration, `AUTH_SECRET` and HTTPS `AUTH_BASE_URL`; no build upload token is needed at runtime                                      |
 | Build output          | Keep `backend/dist`, `frontend/dist/client`, `frontend/dist/server`, the compiled database CLI/manifest and required npm workspace/runtime files in their expected relative locations |
 | Health checks         | `/api/health` for process liveness and `/api/ready` for database readiness                                                                                                            |
 

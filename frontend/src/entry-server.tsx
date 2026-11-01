@@ -24,12 +24,18 @@ const escape = (value: string) =>
  */
 export function render(data: PageData) {
   const t = translator(data.locale, data.website?.content);
-  const title = data.tenant
-    ? `${data.tenant.profile.name} | ${t("metadata.research")}`
-    : t("metadata.notFoundTitle");
-  const description = data.tenant
-    ? data.website!.content["site.description"]
-    : t("metadata.notFoundDescription");
+  const title = data.account
+    ? `${t(`auth.${data.account.mode}.title`)} | ${data.tenant?.profile.name ?? t("auth.platform")}`
+    : data.tenant
+      ? `${data.tenant.profile.name} | ${t("metadata.research")}`
+      : t("metadata.notFoundTitle");
+  const description = data.account
+    ? t("auth.story.body", {
+        tenant: data.tenant?.profile.name ?? t("auth.platform"),
+      })
+    : data.tenant
+      ? data.website!.content["site.description"]
+      : t("metadata.notFoundDescription");
   return {
     lang: data.locale,
     html: renderToString(<App data={data} />),

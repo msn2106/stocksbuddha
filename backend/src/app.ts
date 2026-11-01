@@ -16,6 +16,7 @@ export type PublicAppDependencies = {
   ) => Promise<PageData>;
   renderPage: (data: PageData, request: Request) => Promise<RenderedPage>;
   assets?: RequestHandler;
+  authentication?: RequestHandler;
   onError?: (error: unknown) => void;
   ready?: () => Promise<boolean>;
 };
@@ -29,6 +30,7 @@ export function createPublicApp({
   resolvePage,
   renderPage,
   assets,
+  authentication,
   ready = async () => true,
   onError = (error) =>
     console.error(error instanceof Error ? error.message : "Render failure"),
@@ -57,6 +59,60 @@ export function createPublicApp({
       res.status(503).json({ status: "unavailable" });
     }
   });
+  if (authentication) server.use(authentication);
+  else {
+    server.get("/ra/:slug/signin", (req, res) =>
+      res.redirect(
+        308,
+        `/ra/${encodeURIComponent(req.params.slug as string)}/login`,
+      ),
+    );
+    server.get(["/login", "/signin", "/signup"], (req, res) =>
+      res.redirect(
+        302,
+        `/ra/stocksbuddha/${req.path === "/signup" ? "signup" : "login"}`,
+      ),
+    );
+    server.get(
+      ["/ra/:slug/login", "/ra/:slug/signup"],
+      async (req, res, next) => {
+        const data = await resolvePage(
+          `/ra/${req.params.slug}`,
+          req.query.lang,
+          req.headers.cookie,
+        );
+        if (!data.tenant)
+          return res.status(404).json({ error: "workspace_not_found" });
+        res.status(503);
+        res.locals.accountPage = {
+          ...data,
+          page: "account",
+          account: {
+            mode: req.path.endsWith("/signup") ? "signup" : "login",
+            error: "service",
+          },
+        } satisfies PageData;
+        next();
+      },
+    );
+    server.use(
+      [
+        "/api/auth",
+        "/api/session",
+        "/api/workspaces",
+        "/workspace",
+        "/logout",
+        "/ra/:slug/login",
+        "/ra/:slug/signup",
+        "/ra/:slug/logout",
+        "/ra/:slug/workspace",
+      ],
+      (_req, res, next) =>
+        res.locals.accountPage
+          ? next()
+          : res.status(503).json({ error: "authentication_unavailable" }),
+    );
+  }
   server.get("/api/ra/:slug", async (req, res) => {
     const data = await resolvePage(
       `/ra/${req.params.slug}`,
@@ -82,17 +138,26 @@ export function createPublicApp({
 
   if (assets) server.use(assets);
   server.use(async (req, res, next) => {
-    if (req.method !== "GET" && req.method !== "HEAD")
+    const account: PageData | undefined = res.locals.accountPage;
+    if (!account && req.method !== "GET" && req.method !== "HEAD")
       return res.status(405).send("Method not allowed");
     try {
-      const data = await resolvePage(
-        req.path,
+      const publicData = await resolvePage(
+        account?.tenant ? `/ra/${account.tenant.slug}` : req.path,
         req.query.lang,
         req.headers.cookie,
       );
+      const data = account
+        ? {
+            ...publicData,
+            tenant: account.tenant,
+            page: "account" as const,
+            account: account.account,
+          }
+        : publicData;
       const rendered = await renderPage(data, req);
       res
-        .status(data.tenant ? 200 : 404)
+        .status(account ? res.statusCode : data.tenant ? 200 : 404)
         .type("html")
         .send(
           rendered.template

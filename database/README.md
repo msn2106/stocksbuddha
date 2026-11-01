@@ -4,7 +4,7 @@ The ten-table foundation uses TypeORM and mysql2. Nine ordered application migra
 
 ## Local setup
 
-Copy `backend/.env.example` to ignored `backend/.env`, replace both local passwords, then:
+Copy `backend/.env.example` to ignored `backend/.env`, replace both local passwords, set a unique random `AUTH_SECRET` and the exact `AUTH_BASE_URL` origin, then:
 
 ```sh
 docker compose --env-file backend/.env up -d --wait db
@@ -13,7 +13,9 @@ npm run db:seed:demo -- --target dev
 npm run dev
 ```
 
-Compose runs only MariaDB 11.4.8, pinned by image digest, on loopback port 3307 with a persistent volume. This is a tested local baseline, not a verified Hostinger version. A fresh image creates `stocksbuddha_dev`; provision `stocksbuddha_prod` separately. Do not stop a database with `down -v` unless its data should be deleted. No frontend/backend containers are required.
+Compose runs only MariaDB 11.4.8, pinned by image digest, on loopback port 3307 by default (`DB_PORT` can select another host port) with a persistent volume. This is a tested local baseline, not a verified Hostinger version. A fresh image creates `stocksbuddha_dev`; provision `stocksbuddha_prod` separately. Do not stop a database with `down -v` unless its data should be deleted. No frontend/backend containers are required. See [authentication setup and routes](../docs/AUTHENTICATION.md) for session and membership behavior.
+
+If port 3307 is already allocated, set `DB_PORT=3308` (or another unused port) in `backend/.env`, then rerun Compose. The application and CLI read that same setting. Use `docker-compose` instead of `docker compose` if your installation provides the standalone command.
 
 Without a local `.env`, nonproduction startup retains fixture-preview mode. MariaDB failures never fall back to fixtures. Production defaults to MariaDB; fixture production previews require both `DATABASE_MODE=fixtures` and `ALLOW_PUBLIC_PREVIEW=true`.
 

@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
+import { createPublicApp } from "../../src/app";
+import { createAuthRoutes } from "../../src/auth/routes";
+import {
+  MariaDbWorkspaceStore,
+  type Workspace,
+} from "../../src/auth/workspaces";
 import { createDatabase, databaseConfig } from "../../../database/config";
 import { loadManifest } from "../../../database/manifest";
 import { runMigrations } from "../../../database/runner";
@@ -173,6 +180,7 @@ test(
         },
       );
       const tenantId = tenants[0].id;
+      const tenant = tenants[0];
       const snapshot = snapshotFromFixture(
         tenants[0],
         websites.find((row) => row.tenantId === tenantId)!,
@@ -516,6 +524,219 @@ test(
               [result.user.id],
             );
             assert.equal(Number(count.count), 0);
+            // Exercise signed cookies through the mounted HTTP adapter and actual database.
+            const server = createServer(
+              createPublicApp({
+                authentication: createAuthRoutes({
+                  auth: identity.auth,
+                  store: new MariaDbWorkspaceStore(db),
+                  operations: ops,
+                  baseURL: "http://localhost:3000",
+                }),
+                resolvePage: createPublicSiteResolver(
+                  new MariaDbTenantRepository(db),
+                  new MariaDbWebsiteRepository(db),
+                ),
+                renderPage: async () => ({
+                  template: "",
+                  lang: "en",
+                  html: "",
+                  head: "",
+                  data: "",
+                }),
+                onError: () => {},
+              }),
+            );
+            await new Promise<void>((resolve) =>
+              server.listen(0, "127.0.0.1", resolve),
+            );
+            try {
+              const address = server.address();
+              assert.ok(address && typeof address !== "string");
+              const base = `http://127.0.0.1:${address.port}`;
+              const origin = "http://localhost:3000";
+              assert.equal(
+                (await fetch(`${base}/workspace`, { redirect: "manual" }))
+                  .status,
+                303,
+              );
+              assert.equal((await fetch(`${base}/api/workspaces`)).status, 401);
+              const login = await fetch(`${base}/api/auth/sign-in/email`, {
+                method: "POST",
+                headers: { origin, "content-type": "application/json" },
+                body: JSON.stringify({
+                  email: "auth.example@example.test",
+                  password: "validation-password-123",
+                }),
+              });
+              assert.equal(login.status, 200);
+              const setCookies = login.headers.getSetCookie();
+              assert.ok(
+                setCookies.some(
+                  (cookie) =>
+                    /HttpOnly/i.test(cookie) && /SameSite=Lax/i.test(cookie),
+                ),
+              );
+              assert.ok(setCookies.every((cookie) => !/Domain=/i.test(cookie)));
+              const cookie = setCookies
+                .map((value) => value.split(";")[0])
+                .join("; ");
+              const headers = {
+                cookie,
+                origin,
+                "idempotency-key": randomUUID(),
+              };
+              assert.equal(
+                (
+                  await fetch(`${base}/api/session`, {
+                    headers: { cookie: cookie + "tampered" },
+                  })
+                ).status,
+                401,
+              );
+              const workspacePath = `${base}/api/workspaces/${tenant.slug}`;
+              assert.equal(
+                (await fetch(workspacePath, { headers })).status,
+                404,
+              );
+              assert.equal(
+                (
+                  await fetch(`${workspacePath}/membership`, {
+                    method: "POST",
+                    headers,
+                  })
+                ).status,
+                403,
+              );
+              await db.query(
+                "UPDATE auth_users SET email_verified=1 WHERE id=?",
+                [result.user.id],
+              );
+              assert.equal(
+                (
+                  await fetch(`${workspacePath}/membership`, {
+                    method: "POST",
+                    headers,
+                  })
+                ).status,
+                200,
+              );
+              const workspace = (await (
+                await fetch(workspacePath, { headers })
+              ).json()) as Pick<Workspace, "membership" | "capabilities">;
+              assert.equal(workspace.membership.role, "subscriber");
+              assert.deepEqual(workspace.capabilities, []);
+              assert.equal(
+                (await fetch(`${workspacePath}/members`, { headers })).status,
+                403,
+              );
+              assert.equal(
+                (await fetch(`${base}/api/workspaces/beta`, { headers }))
+                  .status,
+                404,
+              );
+              await db.query(
+                "UPDATE tenant_memberships SET role='owner' WHERE tenant_id=? AND user_id=?",
+                [tenant.id, result.user.id],
+              );
+              assert.equal(
+                (await fetch(`${workspacePath}/members`, { headers })).status,
+                200,
+              );
+              const patch = {
+                ...headers,
+                "content-type": "application/json",
+                "idempotency-key": randomUUID(),
+              };
+              const changed = await fetch(
+                `${workspacePath}/members/${workspace.membership.id}`,
+                {
+                  method: "PATCH",
+                  headers: patch,
+                  body: JSON.stringify({
+                    role: "support",
+                    active: true,
+                    version: 1,
+                  }),
+                },
+              );
+              assert.equal(changed.status, 200);
+              assert.equal(
+                (await fetch(`${workspacePath}/members`, { headers })).status,
+                403,
+              );
+              await db.query(
+                "UPDATE tenants SET status='suspended' WHERE id=?",
+                [tenant.id],
+              );
+              assert.equal(
+                (await fetch(workspacePath, { headers })).status,
+                404,
+              );
+              await db.query("UPDATE tenants SET status='active' WHERE id=?", [
+                tenant.id,
+              ]);
+              await db.query(
+                "UPDATE tenant_memberships SET status='revoked',revoked_at=UTC_TIMESTAMP(3) WHERE tenant_id=? AND user_id=?",
+                [tenant.id, result.user.id],
+              );
+              assert.equal(
+                (await fetch(workspacePath, { headers })).status,
+                404,
+              );
+              const signout = await fetch(`${base}/api/auth/sign-out`, {
+                method: "POST",
+                headers,
+              });
+              assert.equal(signout.status, 200);
+              assert.equal(
+                (await fetch(`${base}/api/session`, { headers })).status,
+                401,
+              );
+              const formLogin = await fetch(`${base}/ra/${tenant.slug}/login`, {
+                method: "POST",
+                redirect: "manual",
+                headers: {
+                  origin,
+                  "content-type": "application/x-www-form-urlencoded",
+                },
+                body: new URLSearchParams({
+                  email: "auth.example@example.test",
+                  password: "validation-password-123",
+                }),
+              });
+              assert.equal(formLogin.status, 303);
+              const expiredCookie = formLogin.headers
+                .getSetCookie()
+                .map((value) => value.split(";")[0])
+                .join("; ");
+              await db.query(
+                "UPDATE auth_sessions SET created_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 2 HOUR),expires_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 1 HOUR) WHERE user_id=?",
+                [result.user.id],
+              );
+              assert.equal(
+                (
+                  await fetch(`${base}/api/session`, {
+                    headers: { cookie: expiredCookie },
+                  })
+                ).status,
+                401,
+              );
+              assert.equal(
+                (
+                  await fetch(`${base}/api/session`, {
+                    headers: { cookie: cookie + "tampered" },
+                  })
+                ).status,
+                401,
+              );
+            } finally {
+              server.closeAllConnections();
+              await new Promise<void>((resolve, reject) =>
+                server.close((error) => (error ? reject(error) : resolve())),
+              );
+            }
+
             await db.query("DELETE FROM auth_sessions WHERE user_id=?", [
               result.user.id,
             ]);

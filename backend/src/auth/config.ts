@@ -14,13 +14,20 @@ export function authOptions(
       "Authentication secret must contain at least 32 characters",
     );
   const origin = new URL(baseURL).origin;
+  if (baseURL !== origin || !/^https?:$/.test(new URL(baseURL).protocol))
+    throw new Error("AUTH_BASE_URL must be an HTTP(S) origin without a path");
   return {
     database,
     secret,
     baseURL,
     trustedOrigins: [origin],
+    rateLimit: { enabled: true, storage: "memory", window: 60, max: 100 },
     emailAndPassword: { enabled: true },
     advanced: {
+      useSecureCookies: origin.startsWith("https://"),
+      defaultCookieAttributes: { httpOnly: true, sameSite: "lax", path: "/" },
+      // Express supplies the socket address; forwarded headers have no authority.
+      ipAddress: { ipAddressHeaders: ["x-auth-client-ip"] },
       database: {
         /** Generate the UUID string representation shared by all authentication tables. */
         generateId: () => randomUUID(),
@@ -59,6 +66,9 @@ export function authOptions(
     },
     session: {
       modelName: "auth_sessions",
+      expiresIn: 60 * 60 * 24 * 7,
+      // Absolute expiry avoids extending DB sessions without renewing the browser cookie.
+      disableSessionRefresh: true,
       cookieCache: { enabled: false },
       fields: {
         userId: "user_id",
@@ -80,7 +90,7 @@ export function authOptions(
   };
 }
 
-/** Create an explicitly owned auth pool and framework instance without mounting public authentication endpoints. */
+/** Create an explicitly owned auth pool and framework instance for the HTTP authentication boundary. */
 export function createAuthentication(
   config: DatabaseConfig,
   secret: string,

@@ -19,7 +19,6 @@ test("SSR content, tenant metadata, unknown paths, and API boundaries", async ({
   for (const route of [
     "/ra/missing",
     "/ra/admin",
-    "/ra/alpha/login",
     "/api/ra/missing",
     "/api/other",
   ])

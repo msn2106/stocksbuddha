@@ -72,15 +72,13 @@ test("mobile navigation closes on selection and Escape restores focus to its tog
   );
 });
 
-test("login and policy dialogs display scoped content and return focus to their opener", async () => {
+test("login links retain tenant context and policy dialogs display scoped content", async () => {
   const user = userEvent.setup();
   render(<App data={makePage()} />);
-  const opener = screen.getByRole("button", { name: "Log in" });
-  await user.click(opener);
-  assert.ok(screen.getByRole("dialog"));
-  await user.keyboard("{Escape}");
-  await waitFor(() => assert.equal(screen.queryByRole("dialog"), null));
-  assert.equal(document.activeElement, opener);
+  assert.equal(
+    screen.getByRole("link", { name: "Log in" }).getAttribute("href"),
+    "/ra/example/login?lang=en",
+  );
   for (const name of ["Terms of service", "Privacy policy", "Refund policy"]) {
     await user.click(screen.getByRole("button", { name }));
     assert.ok(
@@ -176,14 +174,9 @@ test("sample, subscription and investor dialogs display their distinct content a
   const nav = screen.getByRole("navigation", { name: "Mobile navigation" });
   fireEvent.keyDown(nav, { key: "Tab" });
   assert.ok(screen.getByRole("navigation", { name: "Mobile navigation" }));
-  await user.click(within(nav).getByRole("button", { name: "Member log in" }));
+  await user.click(within(nav).getByRole("link", { name: "Member log in" }));
   assert.equal(
     screen.queryByRole("navigation", { name: "Mobile navigation" }),
     null,
-  );
-  await user.click(
-    within(screen.getByRole("dialog")).getByRole("button", {
-      name: "Continue exploring",
-    }),
   );
 });

@@ -19,7 +19,6 @@ import { AccessibilityControls } from "../components/AccessibilityControls";
 type Modal =
   | "subscription"
   | "sample"
-  | "login"
   | "charter"
   | "complaints"
   | "grievance"
@@ -33,12 +32,14 @@ type Modal =
  * @param props - Tenant identity and optional footer styling flag.
  * @returns The public tenant-home link with the shared translated tagline.
  */
-function Brand({
+export function Brand({
   tenant,
   footer = false,
+  tagline,
 }: {
   tenant: Tenant;
   footer?: boolean;
+  tagline?: string;
 }) {
   const { t, locale } = useLanguage();
   return (
@@ -52,14 +53,14 @@ function Brand({
       </span>
       <span>
         {tenant.profile.name}
-        <small>{t("brand.tagline")} </small>
+        <small>{tagline ?? t("brand.tagline")} </small>
       </span>
     </a>
   );
 }
 
 /**
- * Render the controlled preview dialog for subscription, sample, login or policy information.
+ * Render the controlled preview dialog for subscription, sample or policy information.
  * @param props - Selected dialog (null closes it), close callback, tenant and opener reference.
  * On close, focus returns to the recorded opener only if it remains in the document.
  * @returns An accessible dialog with placeholder information; no authentication or purchase occurs.
@@ -87,13 +88,11 @@ function InfoDialog({
   const title =
     modal === "subscription"
       ? t("dialog.subscription.title")
-      : modal === "login"
-        ? t("dialog.login.title")
-        : modal === "sample"
-          ? t("dialog.sample.title")
-          : modal
-            ? policyTitles[modal]
-            : "";
+      : modal === "sample"
+        ? t("dialog.sample.title")
+        : modal
+          ? policyTitles[modal]
+          : "";
   return (
     <Dialog.Root
       open={modal !== null}
@@ -121,11 +120,9 @@ function InfoDialog({
           <Dialog.Description>
             {modal === "subscription"
               ? t("dialog.subscription.description")
-              : modal === "login"
-                ? t("dialog.login.description")
-                : modal === "sample"
-                  ? t("dialog.sample.description")
-                  : t("dialog.policy.description")}
+              : modal === "sample"
+                ? t("dialog.sample.description")
+                : t("dialog.policy.description")}
           </Dialog.Description>
           {modal === "sample" ? (
             <div className="sample-outline">
@@ -148,7 +145,7 @@ function InfoDialog({
               <BookOpen size={24} aria-hidden="true" />
               <p>{t("dialog.subscription.note")} </p>
             </div>
-          ) : modal !== "login" ? (
+          ) : (
             <div className="dialog-note">
               <FileText size={24} aria-hidden="true" />
               <p>
@@ -161,7 +158,7 @@ function InfoDialog({
                 {t("analyst.pendingDocuments")}{" "}
               </p>
             </div>
-          ) : null}
+          )}
           <Dialog.Close className="button primary dialog-button">
             {t("common.continueExploring")}{" "}
             <ArrowRight size={17} aria-hidden="true" />
@@ -274,9 +271,12 @@ export function PublicWebsite({ data }: { data: PageData }) {
             <a href={`${base}#investor`}>{t("nav.investor")} </a>
           </nav>
           <div className="header-actions">
-            <button className="login-button" onClick={() => openModal("login")}>
+            <a
+              className="login-button"
+              href={`/ra/${tenant.slug}/login?lang=${locale}`}
+            >
               {t("nav.login")} <ArrowUpRight size={15} aria-hidden="true" />
-            </button>
+            </a>
             <a href={`${base}#plans`} className="button primary small">
               {t("nav.subscribe")}{" "}
             </a>
@@ -309,14 +309,13 @@ export function PublicWebsite({ data }: { data: PageData }) {
                 <ArrowUpRight size={18} />
               </a>
             ))}
-            <button
-              onClick={() => {
-                navigate();
-                openModal("login");
-              }}
+            <a
+              href={`/ra/${tenant.slug}/login?lang=${locale}`}
+              onClick={navigate}
             >
-              {t("nav.memberLogin")} <ArrowUpRight size={18} />
-            </button>
+              {t("nav.memberLogin")}{" "}
+              <ArrowUpRight size={18} aria-hidden="true" />
+            </a>
           </nav>
         )}
       </header>

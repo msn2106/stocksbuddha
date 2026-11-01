@@ -104,7 +104,7 @@ These four tables describe proposed storage for the documented core authenticati
 
 All authentication IDs use the UUID convention, including accounts, sessions and verifications. Map framework camelCase fields to snake_case database columns. Application additions such as `platform_role` must be server-owned (`input: false`) and omitted from ordinary public auth responses. Passwords and tokens are never part of public contracts.
 
-The four-table count is conditional on the selected auth features. The PRDs also mention username login and retained administrator OTP protection: these require an explicit plugin/schema proof. If a chosen feature requires extra columns or tables, update this document rather than omit security behavior to keep the count at ten. The pinned core authentication mapping is now installed and integration-tested; public authentication endpoints and these additional plugins remain unmounted (see implementation status).
+The four-table count is conditional on the selected auth features. The PRDs also mention username login and retained administrator OTP protection: these require an explicit plugin/schema proof. If a chosen feature requires extra columns or tables, update this document rather than omit security behavior to keep the count at ten. The pinned core authentication mapping and email/password endpoints are installed and integration-tested. MariaDB mode mounts tenant account/workspace routes and membership APIs; username and administrator OTP plugins remain deferred (see [authentication status](AUTHENTICATION.md)).
 
 ### 5.1 `auth_users`
 

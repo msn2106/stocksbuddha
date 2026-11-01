@@ -62,6 +62,16 @@ async function request(
 }
 
 test("public route handlers select success/not-found/method/redirect responses with controlled adapters", async () => {
+  for (const path of [
+    "/api/auth/get-session",
+    "/api/session",
+    "/api/workspaces",
+    "/workspace/stocksbuddha",
+    "/ra/example/login",
+    "/ra/example/signup",
+  ]) {
+    assert.equal((await request({}, path)).status, 503);
+  }
   assert.equal((await request({}, "/api/ready")).status, 200);
   assert.equal(
     (await request({ ready: async () => false }, "/api/ready")).status,

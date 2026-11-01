@@ -96,6 +96,28 @@ test("pinned auth schema maps only the four reviewed tables and keeps platform f
       "a-long-local-secret-with-at-least-32-characters",
       "http://localhost:3000",
     );
+    assert.throws(() =>
+      authOptions(
+        pool,
+        "a-secret-at-least-32-characters-long",
+        "ftp://example.test",
+      ),
+    );
+    assert.throws(() =>
+      authOptions(
+        pool,
+        "a-secret-at-least-32-characters-long",
+        "https://example.test/path",
+      ),
+    );
+    assert.equal(
+      authOptions(
+        pool,
+        "a-secret-at-least-32-characters-long",
+        "https://example.test",
+      ).advanced?.useSecureCookies,
+      true,
+    );
     assert.deepEqual(Object.keys(getSchema(options)).sort(), [
       "auth_accounts",
       "auth_sessions",
@@ -168,11 +190,22 @@ test("runtime selection is explicit, rejects unavailable schema and closes the o
     DB_ENV: "dev",
     DB_USER: "local",
     DB_PASSWORD: "local",
+    AUTH_SECRET: "test-secret-with-at-least-32-characters",
+    AUTH_BASE_URL: "http://localhost:3000",
   };
   const runtime = await createPersistence(env, factory);
   assert.ok(await runtime.ready());
   await runtime.close();
   assert.equal(closed, 1);
+  for (const invalid of [
+    { AUTH_SECRET: "" },
+    { AUTH_BASE_URL: "" },
+    { AUTH_SECRET: "short" },
+    { NODE_ENV: "production" },
+  ]) {
+    await assert.rejects(createPersistence({ ...env, ...invalid }, factory));
+  }
+  closed = 1;
   fail = true;
   await assert.rejects(runtime.ready());
   await assert.rejects(createPersistence(env, factory), /schema is not ready/);
