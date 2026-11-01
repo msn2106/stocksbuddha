@@ -105,9 +105,7 @@ test("unavailable pages omit tenant content and editorial layouts follow configu
     [...view.container.querySelectorAll("main section[id]")].map(
       (section) => section.id,
     ),
-    page.website!.layout.sections.filter(
-      (id) => id !== "principles" && id !== "hero",
-    ),
+    page.website!.layout.sections.filter((id) => id !== "principles"),
   );
   assert.equal(
     screen.queryByRole("group", {
@@ -177,6 +175,92 @@ test("sample, subscription and investor dialogs display their distinct content a
   await user.click(within(nav).getByRole("link", { name: "Member log in" }));
   assert.equal(
     screen.queryByRole("navigation", { name: "Mobile navigation" }),
+    null,
+  );
+});
+
+test("published navigation, images, footer and section presentation use the supplied revision", () => {
+  const page = makePage();
+  page.website!.layout.navigation = [
+    { section: "about", label: { en: "Meet the analyst", hi: "विश्लेषक" } },
+  ];
+  page.website!.layout.images = {
+    about: {
+      src: "https://example.test/analyst.jpg",
+      alt: { en: "Research analyst", hi: "विश्लेषक" },
+    },
+  };
+  page.website!.layout.sectionStyles = { about: "stacked" };
+  page.website!.layout.footer = "compact";
+  page.website!.content["footer.explore"] = "Explore our work";
+  const view = render(<App data={page} />);
+  assert.equal(
+    screen.getByRole("link", { name: "Meet the analyst" }).getAttribute("href"),
+    "/ra/example?lang=en#about",
+  );
+  assert.equal(
+    screen.getByRole("img", { name: "Research analyst" }).getAttribute("src"),
+    "https://example.test/analyst.jpg",
+  );
+  assert.ok(view.container.querySelector("#about.section-layout-stacked"));
+  assert.ok(view.container.querySelector('footer[data-footer="compact"]'));
+  assert.ok(screen.getByRole("heading", { name: "Explore our work" }));
+});
+
+test("private preview renders optional contact links and configured media without exposing editor controls", async () => {
+  const page = makePage();
+  page.preview = true;
+  page.tenant!.synthetic = false;
+  page.website!.contact = {
+    email: "research@example.test",
+    phone: "+919999999999",
+  };
+  page.website!.layout.navigation = [
+    { section: "hero", label: { en: "Introduction", hi: "परिचय" } },
+  ];
+  page.website!.layout.images = {
+    hero: {
+      src: "https://example.test/hero.jpg",
+      alt: { en: "Research overview", hi: "शोध" },
+    },
+    research: {
+      src: "https://example.test/chart.jpg",
+      alt: { en: "Research process", hi: "शोध" },
+    },
+  };
+  const view = render(<App data={page} />);
+  assert.ok(screen.getByText(/Private draft preview/));
+  assert.equal(
+    screen.getByRole("link", { name: "Introduction" }).getAttribute("href"),
+    "/ra/example/workspace/website/preview?lang=en#hero",
+  );
+  assert.equal(
+    screen
+      .getByRole("link", { name: "research@example.test" })
+      .getAttribute("href"),
+    "mailto:research@example.test",
+  );
+  assert.ok(screen.getByRole("link", { name: "+919999999999" }));
+  assert.ok(screen.getByRole("img", { name: "Research overview" }));
+  assert.ok(screen.getByRole("img", { name: "Research process" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+  assert.equal(
+    within(screen.getByRole("navigation", { name: "Mobile navigation" }))
+      .getByRole("link", { name: "Introduction" })
+      .getAttribute("href"),
+    "/ra/example/workspace/website/preview?lang=en#hero",
+  );
+  assert.equal(screen.queryByRole("button", { name: "Save draft" }), null);
+  view.rerender(
+    <App
+      data={{
+        ...page,
+        website: { ...page.website!, contact: { phone: "+919999999999" } },
+      }}
+    />,
+  );
+  assert.equal(
+    screen.queryByRole("link", { name: "research@example.test" }),
     null,
   );
 });

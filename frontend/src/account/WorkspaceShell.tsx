@@ -1,3 +1,4 @@
+import { WebsiteEditor } from "../websites/WebsiteEditor";
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
@@ -10,6 +11,7 @@ import {
   BookOpen,
   FileText,
   Settings,
+  PanelsTopLeft,
   LogOut,
   UserRound,
 } from "lucide-react";
@@ -49,7 +51,16 @@ export function WorkspaceShell({ data }: { data: PageData }) {
       <a className="skip-link" href="#workspace-content">
         {t("a11y.skipToContent")}
       </a>
-      <header className="workspace-header">
+      <header
+        className="workspace-header"
+        aria-label={t(
+          platform
+            ? "org.platformWorkspace"
+            : investor
+              ? "org.investorAccount"
+              : "org.organisationWorkspace",
+        )}
+      >
         <div className="workspace-brand">
           {data.tenant ? (
             <Brand
@@ -178,6 +189,18 @@ export function WorkspaceShell({ data }: { data: PageData }) {
                 {t("org.team")}
               </a>
             )}
+            {!platform &&
+              !investor &&
+              account.role === "owner" &&
+              account.capabilities?.includes("website:edit") && (
+                <a
+                  href={`${base}/website`}
+                  aria-current={section === "website" ? "page" : undefined}
+                >
+                  <PanelsTopLeft size={19} aria-hidden="true" />
+                  Edit website
+                </a>
+              )}
             {[
               [BookOpen, "org.research"],
               [FileText, "org.documents"],
@@ -207,11 +230,23 @@ export function WorkspaceShell({ data }: { data: PageData }) {
           </div>
         </aside>
         <main
+          aria-label={t(
+            platform
+              ? "org.platformWorkspace"
+              : investor
+                ? "org.investorAccount"
+                : "org.organisationWorkspace",
+          )}
           id="workspace-content"
           className="workspace-content"
           tabIndex={-1}
         >
-          {section === "overview" ? (
+          {section === "website" &&
+          !platform &&
+          !investor &&
+          account.role === "owner" ? (
+            <WebsiteEditor tenant={data.tenant!} />
+          ) : section === "overview" ? (
             <h1 className="sr-only">{t("org.overview")}</h1>
           ) : (
             <>

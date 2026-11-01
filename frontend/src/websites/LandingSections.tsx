@@ -193,7 +193,16 @@ export function LandingSections({
             </span>
           </div>
         </div>
-        {website.layout.template === "classic" && <ResearchCompass />}
+        {website.layout.images?.hero ? (
+          <img
+            className="section-feature-image"
+            src={website.layout.images.hero.src}
+            alt={website.layout.images.hero.alt[locale]}
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          website.layout.template === "classic" && <ResearchCompass />
+        )}
       </section>
     ),
     principles: (
@@ -292,15 +301,25 @@ export function LandingSections({
         id="about"
         aria-labelledby="about-title"
       >
-        <div className="profile-placeholder">
-          <div className="portrait-mark" aria-hidden="true">
-            {tenant.profile.monogram}
-            <span />
+        {website.layout.images?.about ? (
+          <img
+            className="section-feature-image"
+            src={website.layout.images.about.src}
+            alt={website.layout.images.about.alt[locale]}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <div className="profile-placeholder">
+            <div className="portrait-mark" aria-hidden="true">
+              {tenant.profile.monogram}
+              <span />
+            </div>
+            <span>{t("about.portraitLabel")} </span>
+            <p>{tenant.profile.legalName}</p>
+            <small>{t("about.photoPending")} </small>
           </div>
-          <span>{t("about.portraitLabel")} </span>
-          <p>{tenant.profile.legalName}</p>
-          <small>{t("about.photoPending")} </small>
-        </div>
+        )}
         <div className="about-copy">
           <p className="section-label">{t("about.eyebrow")} </p>
           <h2 id="about-title">
@@ -321,7 +340,7 @@ export function LandingSections({
             <small>
               {tenant.synthetic
                 ? t("demo.organization")
-                : `${t("analyst.registeredRole")} · ${tenant.profile.registration}`}
+                : `${t("analyst.registeredRole")}${tenant.profile.registration ? ` · ${tenant.profile.registration}` : ""}`}
             </small>
           </div>
         </div>
@@ -465,6 +484,11 @@ export function LandingSections({
     ),
   };
   return (
-    <SectionRenderer sections={sections} order={website.layout.sections} />
+    <SectionRenderer
+      sections={sections}
+      order={website.layout.sections}
+      layout={website.layout}
+      locale={locale}
+    />
   );
 }

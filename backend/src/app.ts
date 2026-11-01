@@ -189,14 +189,16 @@ export function createPublicApp({
         req.query.lang,
         req.headers.cookie,
       );
-      const data = account
-        ? {
-            ...publicData,
-            tenant: accountTenant(account, publicData),
-            page: "account" as const,
-            account: account.account,
-          }
-        : publicData;
+      const data =
+        res.locals.websitePreview ??
+        (account
+          ? {
+              ...publicData,
+              tenant: accountTenant(account, publicData),
+              page: "account" as const,
+              account: account.account,
+            }
+          : publicData);
       if (data.tenant) monitorTenant(data.tenant.id);
       const rendered = await renderPage(data, req);
       res

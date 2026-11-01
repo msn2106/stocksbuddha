@@ -76,7 +76,7 @@ Self-enrollment never grants staff roles, changes an existing staff role, reacti
 
 Active membership and an active tenant are mandatory. Missing, revoked, suspended or foreign workspaces return the same 404; browser requests to an active tenant without membership receive a branded unavailable view. Unknown nested workspace routes cannot fall through to the public renderer. Unsupported capability overrides fail closed. Platform ownership grants no automatic tenant membership. The members API scopes reads and transaction inputs to the server-resolved immutable tenant ID. Role/status changes are reflected on the next request without signing in again.
 
-Website editing, research publication and subscriber business screens are not part of these overview routes; their future endpoints must enforce the listed capabilities too. Subscriber membership is not a purchase entitlement.
+Website editing uses separate owner-only routes enforcing `website:edit`; research publication and subscriber business screens remain future work and must enforce their listed capabilities. Subscriber membership is not a purchase entitlement.
 
 The workspace chooser reads tenant/membership projections in one joined query scoped to the authenticated user, rather than launching lookups per membership. List and detail views share projection/capability checks. Transactional website and membership operations use the same `canAccessTenant` capability policy on locked tenant/membership facts; stored session validation, lock order, unsupported-override rejection and last-owner checks remain inside the transaction.
 
@@ -84,7 +84,7 @@ The workspace chooser reads tenant/membership projections in one joined query sc
 
 `npm run test:unit` covers auth forms, private routing, membership/capability guards, forged identity fields, origin checks, safe failures and workspace projections. `RUN_DATABASE_TESTS=true npm run test:database` tests real signed cookies through HTTP against disposable MariaDB databases, verified enrollment, owner-only updates, role changes, revocation, sign-out and tampering, alongside existing transactional/concurrency tests. The real-DB suite also verifies old-schema upgrades, repeatable backfill queries, cross-RA sign-ins, global/null contexts, retained history after session deletion and rollback when an audit insert fails. The ordinary integration suite explicitly skips MariaDB unless opted in. Component tests cover localized forms and workspace states, and Playwright checks tenant navigation, responsive layout, hydration, keyboard focus and axe scans at desktop/tablet/mobile widths.
 
-Google/username auth, administrator OTP/MFA and the editor/business screens remain separate work. Platform bootstrap, RA Admin/team invitations and blank authenticated shells are implemented; see [organisation access](ORGANISATION_ACCESS.md). Verification and recovery are configured through Hostinger SMTP as described below. No production deployment is included.
+Google/username auth, administrator OTP/MFA and additional business screens remain separate work. The owner-only [website editor](WEBSITE_EDITOR.md) uses fresh tenant membership checks and the existing transactional publishing operations. Platform bootstrap, RA Admin/team invitations and blank authenticated shells are implemented; see [organisation access](ORGANISATION_ACCESS.md). Verification and recovery are configured through Hostinger SMTP as described below. No production deployment is included.
 
 ## Verification and password recovery
 

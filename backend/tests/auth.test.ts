@@ -14,7 +14,7 @@ import { MariaDbWorkspaceStore, type Workspace } from "../src/auth/workspaces";
 import { DatabaseConflict } from "../src/database/operations";
 import { currentAuthTenant } from "../src/auth/tenant-context";
 import { tenants } from "../src/tenants/tenants";
-import { makePage } from "../../packages/contracts/tests/fixtures";
+import { makePage, makeWebsite } from "../../packages/contracts/tests/fixtures";
 import { canAccessTenant, type TenantRole } from "../src/access/authorization";
 
 const tenant = tenants[0];
@@ -123,7 +123,7 @@ function harness(options: Partial<AuthRoutesDependencies> = {}) {
     resolvePage: async () => makePage(),
     renderPage: async (data) => ({
       template: "<!--app-html-->",
-      html: JSON.stringify(data.account ?? "public"),
+      html: JSON.stringify(data.preview ? data : (data.account ?? "public")),
       head: "",
       data: "",
       lang: "en",
@@ -1208,4 +1208,212 @@ test("tenant credential and recovery forms preserve throttling status, retry del
     assert.equal(result.headers["retry-after"], "10");
     assert.equal(JSON.parse(result.body).error, "throttled");
   }
+});
+
+test("website editor scopes reads, saves and previews to fresh tenant owners and rejects foreign writes", async () => {
+  const site = makeWebsite();
+  const snapshot = {
+    schemaVersion: 1 as const,
+    publicProfile: tenant.profile,
+    branding: site.branding,
+    languages: site.languages,
+    layout: site.layout,
+    content: site.content,
+  };
+  const saved = { id: randomUUID(), revision: 2, version: 1 };
+  const writes: unknown[] = [];
+  const h = harness({
+    websiteOperations: {
+      readWebsite: async (context) => {
+        writes.push(context);
+        return { ...saved, snapshot };
+      },
+      createDraft: async (context, value) => {
+        writes.push([context, value]);
+        return saved;
+      },
+      saveDraft: async (context, id, version, value) => {
+        writes.push([context, id, version, value]);
+        return { ...saved, version: version + 1 };
+      },
+      publish: async () => {
+        throw new DatabaseConflict("stale_publication");
+      },
+    },
+  });
+  const api = `/api/workspaces/${tenant.slug}/website`;
+  assert.equal(
+    (await h.request(`/ra/${tenant.slug}/workspace/website`)).status,
+    200,
+  );
+  assert.equal((await h.request(api)).status, 200);
+  const preview = await h.request(
+    `/ra/${tenant.slug}/workspace/website/preview?lang=hi`,
+  );
+  assert.equal(preview.status, 200);
+  assert.equal(JSON.parse(preview.body).locale, "hi");
+  assert.equal(JSON.parse(preview.body).preview, true);
+  assert.match(
+    String(preview.headers["content-security-policy"]),
+    /frame-ancestors 'self'/,
+  );
+  assert.equal(
+    (
+      await h.request(
+        api,
+        "POST",
+        { action: "save", id: null, version: 0, snapshot },
+        { origin: "https://attacker.test" },
+      )
+    ).status,
+    403,
+  );
+  const headers = { origin, "idempotency-key": randomUUID() };
+  const body = { action: "save", id: null, version: 0, snapshot };
+  assert.equal((await h.request(api, "POST", body, headers)).status, 200);
+  assert.deepEqual((writes.at(-1) as unknown[])[0], {
+    token: "server-token",
+    tenantId: tenant.id,
+    key: headers["idempotency-key"],
+  });
+  assert.equal(
+    (
+      await h.request(
+        api,
+        "POST",
+        { ...body, action: "publish", ...saved },
+        headers,
+      )
+    ).status,
+    409,
+  );
+  for (const role of ["analyst", "support", "subscriber"] as const) {
+    h.workspace.membership.role = role;
+    assert.equal((await h.request(api)).status, 403);
+    assert.equal(
+      (await h.request(`/ra/${tenant.slug}/workspace/website/preview`)).status,
+      403,
+    );
+    assert.equal((await h.request(api, "POST", body, headers)).status, 403);
+  }
+  h.workspace.membership.role = "owner";
+  h.workspace.capabilities = [];
+  assert.equal((await h.request(api)).status, 403);
+  h.state.signedIn = false;
+  assert.equal((await h.request(api)).status, 401);
+});
+
+test("website mutations validate envelopes, propagate safe field errors and retain concurrency failures", async () => {
+  const site = makeWebsite();
+  const snapshot = {
+    schemaVersion: 1 as const,
+    publicProfile: tenant.profile,
+    branding: site.branding,
+    languages: site.languages,
+    layout: site.layout,
+    content: site.content,
+  };
+  const id = randomUUID();
+  let failure: unknown;
+  let complete = true;
+  const writes: unknown[][] = [];
+  const h = harness({
+    websiteOperations: {
+      readWebsite: async () => ({
+        id,
+        version: 3,
+        revision: 2,
+        snapshot: { ...snapshot, content: complete ? snapshot.content : {} },
+      }),
+      createDraft: async (...args) => {
+        if (failure) throw failure;
+        writes.push(args);
+        return { id, version: 1, revision: 2 };
+      },
+      saveDraft: async (...args) => {
+        if (failure) throw failure;
+        writes.push(args);
+        return { id, version: 4, revision: 2 };
+      },
+      publish: async (...args) => {
+        if (failure) throw failure;
+        writes.push(args);
+        return { id, version: 4, revision: 2 };
+      },
+    },
+  });
+  const api = `/api/workspaces/${tenant.slug}/website`;
+  const headers = { origin, "idempotency-key": randomUUID() };
+  const body = { action: "save", id, version: 3, snapshot };
+  for (const change of [
+    { action: "unknown" },
+    { id: "invalid" },
+    { id: 123 },
+    { version: "3" },
+    { version: -1 },
+    { version: 0 },
+    { action: "publish", id: null },
+    { action: "rebase", id: null },
+  ])
+    assert.equal(
+      (await h.request(api, "POST", { ...body, ...change }, headers)).status,
+      400,
+    );
+  assert.equal((await h.request(api, "POST", body, { origin })).status, 400);
+  assert.equal((await h.request(api, "POST", undefined, headers)).status, 400);
+  assert.equal((await h.request(api, "POST", body, headers)).status, 200);
+  assert.equal(
+    (await h.request(api, "POST", { ...body, action: "rebase" }, headers))
+      .status,
+    200,
+  );
+  assert.equal(writes.at(-1)?.[4], true);
+  assert.equal(
+    (await h.request(api, "POST", { ...body, action: "publish" }, headers))
+      .status,
+    200,
+  );
+  for (const code of [
+    "unauthorized",
+    "forbidden",
+    "tenant_unavailable",
+    "stale_draft",
+    "idempotency_conflict",
+  ]) {
+    failure = new DatabaseConflict(code);
+    const response = await h.request(api, "POST", body, headers);
+    assert.equal(
+      response.status,
+      ["unauthorized", "forbidden", "tenant_unavailable"].includes(code)
+        ? 403
+        : 409,
+    );
+    assert.equal(JSON.parse(response.body).error, code);
+  }
+  const { websiteSnapshotSchema } = await import("@ra/contracts");
+  const invalid = websiteSnapshotSchema.safeParse({});
+  assert.equal(invalid.success, false);
+  if (!invalid.success) failure = invalid.error;
+  const validation = await h.request(api, "POST", body, headers);
+  assert.equal(validation.status, 422);
+  assert.ok(JSON.parse(validation.body).issues.length);
+  for (const message of [
+    "Default language must be enabled",
+    "HTML is not supported in website snapshots",
+    "Snapshot exceeds 512 KiB",
+  ]) {
+    failure = new Error(message);
+    const response = await h.request(api, "POST", body, headers);
+    assert.equal(response.status, 422);
+    assert.deepEqual(JSON.parse(response.body).issues, [message]);
+  }
+  failure = new Error("private database detail");
+  const failed = await h.request(api, "POST", body, headers);
+  assert.equal(failed.status, 500);
+  assert.equal(failed.body.includes("private database detail"), false);
+  const preview = `/ra/${tenant.slug}/workspace/website/preview`;
+  const defaultLanguage = await h.request(`${preview}?lang=unsupported`);
+  assert.equal(JSON.parse(defaultLanguage.body).locale, "en");
+  complete = false;
+  assert.equal((await h.request(preview)).status, 422);
 });

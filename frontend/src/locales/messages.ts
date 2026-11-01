@@ -1,6 +1,11 @@
 import english from "./en.json";
 import hindi from "./hi.json";
-import type { Locale, WebsiteContent, WebsiteContentKey } from "@ra/contracts";
+import {
+  optionalWebsiteContentKeys,
+  type Locale,
+  type WebsiteContent,
+  type WebsiteContentKey,
+} from "@ra/contracts";
 import { supportedLocales } from "@ra/contracts/locales";
 
 export type UiMessageKey = keyof typeof english;
@@ -22,7 +27,7 @@ export const localeOptions = supportedLocales.map((code) => ({
 
 /**
  * Create a translator bound to one render's locale and website content.
- * Shared UI keys take precedence over tenant content. Interpolation replaces named
+ * Shared controls stay application-owned; approved public copy may be overridden by tenant content. Interpolation replaces named
  * placeholders literally in one pass; values are not recursively translated or
  * HTML-escaped, so render the returned string as text rather than raw HTML.
  * @param locale - Shared UI catalogue to use, with English as the runtime fallback.
@@ -34,11 +39,21 @@ export function translator(locale: Locale, content?: WebsiteContent) {
   const catalogue: Catalogue = catalogues[locale] ?? english;
   return (key: MessageKey, values: Record<string, string> = {}): string => {
     // Shared controls are application-owned and cannot be overridden by tenants.
-    const message = Object.hasOwn(english, key)
-      ? catalogue[key as UiMessageKey]
-      : content && Object.hasOwn(content, key)
-        ? content[key as WebsiteContentKey]
+    const override =
+      optionalWebsiteContentKeys.includes(
+        key as (typeof optionalWebsiteContentKeys)[number],
+      ) &&
+      content &&
+      Object.hasOwn(content, key)
+        ? content[key as keyof WebsiteContent]
         : undefined;
+    const message =
+      override ??
+      (Object.hasOwn(english, key)
+        ? catalogue[key as UiMessageKey]
+        : content && Object.hasOwn(content, key)
+          ? content[key as WebsiteContentKey]
+          : undefined);
     if (message === undefined)
       throw new Error(
         `Unknown translation key or missing website content: ${key}`,

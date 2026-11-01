@@ -70,7 +70,7 @@ test("publication schema rejects unsafe layout, incomplete languages, publicatio
       s.content.hi!["site.hero"] = "Missing placeholder";
     },
     (s) => {
-      Object.assign(s.content.en!, { "nav.subscribe": "Injected control" });
+      Object.assign(s.content.en!, { "auth.signout": "Injected control" });
     },
     (s) => {
       s.publishedAt = null;
@@ -94,8 +94,8 @@ test("publication schema rejects unsafe layout, incomplete languages, publicatio
   delete single.content.hi;
   assert.equal(websiteRevisionSchema.safeParse(single).success, true);
   const reordered = makeWebsite();
-  reordered.content.en!["site.hero"] = "{first} {second} {first}";
-  reordered.content.hi!["site.hero"] = "{second} {first}";
+  reordered.content.en!["about.belief"] = "{name} {name}";
+  reordered.content.hi!["about.belief"] = "{name}";
   assert.equal(websiteRevisionSchema.safeParse(reordered).success, true);
 });
 
@@ -108,4 +108,31 @@ test("bootstrap serialization preserves data while escaping script termination a
   assert.equal(result.includes("\u2028"), false);
   assert.equal(result.includes("\u2029"), false);
   assert.deepEqual(JSON.parse(result), page);
+});
+
+test("website configuration accepts public copy and safe media while rejecting broken links and unsupported placeholders", () => {
+  const website = makeWebsite();
+  website.content.en!["nav.subscribe"] = "Explore plans";
+  website.layout.navigation = [
+    { section: "research", label: { en: "Our research", hi: "शोध" } },
+  ];
+  website.layout.images = {
+    hero: {
+      src: "https://example.test/portrait.jpg",
+      alt: { en: "Analyst", hi: "विश्लेषक" },
+    },
+  };
+  assert.ok(websiteRevisionSchema.safeParse(website).success);
+  website.layout.images.hero!.src = "javascript:alert(1)";
+  assert.equal(websiteRevisionSchema.safeParse(website).success, false);
+  delete website.layout.images;
+  website.layout.sections = website.layout.sections.filter(
+    (section) => section !== "faq",
+  );
+  website.layout.navigation[0].section = "faq";
+  assert.equal(websiteRevisionSchema.safeParse(website).success, false);
+  website.layout.navigation = [];
+  website.content.en!["site.hero"] = "Hello {unexpected}";
+  website.content.hi!["site.hero"] = "Hello {unexpected}";
+  assert.equal(websiteRevisionSchema.safeParse(website).success, false);
 });

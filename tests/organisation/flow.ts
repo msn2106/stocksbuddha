@@ -1,3 +1,5 @@
+import englishWebsite from "../../backend/src/websites/seeds/stocksbuddha/en.json" with { type: "json" };
+import hindiWebsite from "../../backend/src/websites/seeds/stocksbuddha/hi.json" with { type: "json" };
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
@@ -146,6 +148,97 @@ test("owner creates an organisation and admin invitation; admin accepts and invi
     (await new AxeBuilder({ page: analyst }).analyze()).violations,
   ).toEqual([]);
   await analyst.keyboard.press("Escape");
+  // Exercise the editor against real sessions and transactional MariaDB persistence.
+  await admin.goto("/ra/new-ra/workspace");
+  await admin.getByRole("link", { name: "Edit website", exact: true }).click();
+  await expect(admin.getByLabel("Website name", { exact: true })).toHaveValue(
+    "New RA Research",
+  );
+  await admin
+    .getByLabel("Website name", { exact: true })
+    .fill("New RA Published");
+  await admin.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(admin.getByRole("status")).toContainText("Draft saved");
+  const draftResponse = await admin.request.get(
+    "/api/workspaces/new-ra/website",
+  );
+  const draft = await draftResponse.json();
+  expect(draft.id).toBeTruthy();
+  expect((await request.get("/ra/new-ra")).status()).toBe(404);
+  const completed = await admin.request.post("/api/workspaces/new-ra/website", {
+    headers: {
+      origin: "http://127.0.0.1:3111",
+      "Idempotency-Key": crypto.randomUUID(),
+    },
+    data: {
+      action: "save",
+      id: draft.id,
+      version: draft.version,
+      snapshot: {
+        ...draft.snapshot,
+        languages: { default: "en", enabled: ["en", "hi"] },
+        content: { en: englishWebsite, hi: hindiWebsite },
+      },
+    },
+  });
+  expect(completed.status()).toBe(200);
+  await admin.reload();
+  await admin.getByRole("button", { name: "Sections", exact: true }).click();
+  await admin
+    .getByLabel("Hero headline", { exact: true })
+    .fill("Research with a clear perspective");
+  await admin.getByRole("button", { name: "Save draft", exact: true }).click();
+  await expect(admin.getByRole("status")).toContainText("Draft saved");
+  await admin.getByRole("button", { name: "Preview", exact: true }).click();
+  await expect(
+    admin
+      .frameLocator('iframe[title="Website draft preview"]')
+      .getByRole("heading", { level: 1 }),
+  ).toHaveText("Research with a clear perspective");
+  expect(
+    (
+      await request.get("/ra/new-ra/workspace/website/preview", {
+        maxRedirects: 0,
+      })
+    ).status(),
+  ).not.toBe(200);
+  expect(
+    (await analyst.request.get("/api/workspaces/new-ra/website")).status(),
+  ).toBe(403);
+  expect(
+    (await owner.request.get("/api/workspaces/new-ra/website")).status(),
+  ).not.toBe(200);
+  for (const width of [1440, 768, 390]) {
+    await admin.setViewportSize({ width, height: 900 });
+    await admin.getByRole("button", { name: "Branding", exact: true }).click();
+    expect(
+      await admin.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    expect(
+      (await new AxeBuilder({ page: admin }).analyze()).violations,
+    ).toEqual([]);
+    await admin.screenshot({
+      path: `/tmp/stocksbuddha-editor-${width}.png`,
+      fullPage: true,
+    });
+    await admin.getByRole("button", { name: "Sections", exact: true }).click();
+  }
+  await admin.setViewportSize({ width: 1440, height: 900 });
+  admin.once("dialog", (dialog) => dialog.accept());
+  await admin
+    .getByRole("button", { name: "Publish website", exact: true })
+    .click();
+  await expect(admin.getByRole("status")).toContainText("Website published");
+  await admin.goto("/ra/new-ra");
+  await expect(admin.getByRole("heading", { level: 1 })).toHaveText(
+    "Research with a clear perspective",
+  );
+  await admin.getByRole("link", { name: "हिन्दी", exact: true }).click();
+  await expect(admin.getByRole("heading", { level: 1 })).toHaveText(
+    hindiWebsite["site.hero"],
+  );
   expect(errors).toEqual([]);
   await ownerContext.close();
   await adminContext.close();

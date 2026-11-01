@@ -195,6 +195,11 @@ export function PublicWebsite({ data }: { data: PageData }) {
   if (!data.tenant || !data.website)
     return (
       <>
+        {data.preview && (
+          <div className="draft-preview-banner" role="status">
+            Private draft preview · visitors still see your published website
+          </div>
+        )}
         <a href="#main" className="skip-link">
           {t("a11y.skipToContent")}
         </a>
@@ -218,7 +223,13 @@ export function PublicWebsite({ data }: { data: PageData }) {
     );
   const tenant = data.tenant;
   const website = data.website;
-  const base = `/ra/${tenant.slug}?lang=${locale}`;
+  const base = `${data.preview ? `/ra/${tenant.slug}/workspace/website/preview` : `/ra/${tenant.slug}`}?lang=${locale}`;
+  const navigation =
+    website.layout.navigation ??
+    (["research", "approach", "about", "investor"] as const).map((section) => ({
+      section,
+      label: { en: t(`nav.${section}`), hi: t(`nav.${section}`) },
+    }));
   const theme = {
     "--primary": website.branding.accent,
     "--visual-surface": website.branding.surface,
@@ -234,6 +245,11 @@ export function PublicWebsite({ data }: { data: PageData }) {
       data-tenant={tenant.id}
       data-revision={website.revision}
     >
+      {data.preview && (
+        <div className="draft-preview-banner" role="status">
+          Private draft preview · visitors still see your published website
+        </div>
+      )}
       <a href="#main" className="skip-link">
         {t("a11y.skipToContent")}{" "}
       </a>
@@ -248,7 +264,7 @@ export function PublicWebsite({ data }: { data: PageData }) {
             <span className="status-dot" />
             {tenant.synthetic
               ? t("demo.websiteNotice")
-              : `${t("analyst.registeredRole")} · ${tenant.profile.registration}`}
+              : `${t("analyst.registeredRole")}${tenant.profile.registration ? ` · ${tenant.profile.registration}` : ""}`}
           </span>
           <span className="registration-right">{t("brand.motto")} </span>
         </div>
@@ -265,10 +281,11 @@ export function PublicWebsite({ data }: { data: PageData }) {
         <div className="container header-inner">
           <Brand tenant={tenant} />
           <nav className="desktop-nav" aria-label={t("nav.mainLabel")}>
-            <a href={`${base}#research`}>{t("nav.research")} </a>
-            <a href={`${base}#approach`}>{t("nav.approach")} </a>
-            <a href={`${base}#about`}>{t("nav.about")} </a>
-            <a href={`${base}#investor`}>{t("nav.investor")} </a>
+            {navigation.map((item) => (
+              <a key={item.section} href={`${base}#${item.section}`}>
+                {item.label[locale]}
+              </a>
+            ))}
           </nav>
           <div className="header-actions">
             <a
@@ -298,14 +315,13 @@ export function PublicWebsite({ data }: { data: PageData }) {
             className="mobile-nav container"
             aria-label={t("nav.mobileLabel")}
           >
-            {[
-              [t("nav.research"), "research"],
-              [t("nav.approach"), "approach"],
-              [t("nav.about"), "about"],
-              [t("nav.investor"), "investor"],
-            ].map(([name, id]) => (
-              <a key={id} href={`${base}#${id}`} onClick={navigate}>
-                {name}
+            {navigation.map((item) => (
+              <a
+                key={item.section}
+                href={`${base}#${item.section}`}
+                onClick={navigate}
+              >
+                {item.label[locale]}
                 <ArrowUpRight size={18} />
               </a>
             ))}
@@ -326,7 +342,7 @@ export function PublicWebsite({ data }: { data: PageData }) {
           openModal={openModal}
         />
       </main>
-      <footer>
+      <footer data-footer={website.layout.footer ?? "columns"}>
         <div className="container">
           <div className="footer-top">
             <div>
@@ -362,7 +378,19 @@ export function PublicWebsite({ data }: { data: PageData }) {
                   ? t("demo.tenant")
                   : tenant.profile.registration}
               </p>
-              <p>{t("analyst.contactPending")} </p>
+              {website.contact?.email && (
+                <a href={`mailto:${website.contact.email}`}>
+                  {website.contact.email}
+                </a>
+              )}
+              {website.contact?.phone && (
+                <a href={`tel:${website.contact.phone}`}>
+                  {website.contact.phone}
+                </a>
+              )}
+              {!website.contact?.email && !website.contact?.phone && (
+                <p>{t("analyst.contactPending")} </p>
+              )}
             </div>
           </div>
           <div className="risk-disclosure">

@@ -107,6 +107,7 @@ export async function createPersistence(
       auth: authentication.auth,
       store: new MariaDbWorkspaceStore(db),
       operations: new TenantOperations(db),
+      websiteOperations: new TenantOperations(db),
       baseURL: env.AUTH_BASE_URL!,
       trustedProxyAddresses: env.AUTH_TRUSTED_PROXIES,
       emailEnabled: Boolean(mailer),

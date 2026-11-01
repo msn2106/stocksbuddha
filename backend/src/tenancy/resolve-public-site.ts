@@ -90,6 +90,14 @@ export function createPublicSiteResolver(
         branding: website.branding,
         languages: website.languages,
         layout: website.layout,
+        ...(website.publicProfile
+          ? {
+              contact: {
+                email: website.publicProfile.contactEmail,
+                phone: website.publicProfile.contactPhone,
+              },
+            }
+          : {}),
         content,
       },
       page: "landing",

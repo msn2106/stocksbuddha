@@ -631,3 +631,20 @@ test("RA Admin membership management cannot appoint another administrator throug
     /forbidden/,
   );
 });
+
+test("editor reads validate checksums and current membership before returning draft data", async () => {
+  const { ops, state, context } = operationHarness();
+  const draft = await ops.readWebsite(context);
+  assert.equal(draft.id, state.draft.id);
+  assert.deepEqual(draft.snapshot, snapshot);
+  state.draft.snapshot_sha256 = "corrupted";
+  await assert.rejects(ops.readWebsite(context), /invalid_snapshot_checksum/);
+  state.draft.snapshot_sha256 = digest(snapshot);
+  state.member.role = "analyst";
+  await assert.rejects(ops.readWebsite(context), /forbidden/);
+  state.member.role = "owner";
+  state.missingDraft = true;
+  const empty = await ops.readWebsite(context);
+  assert.equal(empty.id, null);
+  assert.deepEqual(empty.snapshot.content, { en: {} });
+});

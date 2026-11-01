@@ -18,6 +18,8 @@ export {
 } from "./website";
 export {
   websiteContentKeys,
+  editableWebsiteContentKeys,
+  optionalWebsiteContentKeys,
   type WebsiteContent,
   type WebsiteContentKey,
 } from "./content";
@@ -27,6 +29,7 @@ export type PageData = {
   website: PublicWebsite | null;
   page: "landing" | "not-found" | "account";
   locale: Locale;
+  preview?: boolean;
   account?: AccountView;
 };
 export type AccountView = {
@@ -43,7 +46,7 @@ export type AccountView = {
     | "invitation";
   audience?: "investor" | "organisation" | "platform";
   area?: "investor" | "organisation" | "platform";
-  section?: "overview" | "organisations" | "team";
+  section?: "overview" | "organisations" | "team" | "website";
   profile?: { name: string; email: string; emailVerified: boolean };
   organisations?: {
     id: string;
@@ -85,3 +88,10 @@ export function serializePage(data: PageData): string {
     .replace(/\u2028/g, "\\u2028")
     .replace(/\u2029/g, "\\u2029");
 }
+
+export {
+  websiteSnapshotSchema,
+  publicProfileSchema,
+  type Snapshot,
+  type WebsiteEditorState,
+} from "./editor";

@@ -1,3 +1,7 @@
+import {
+  mountWebsiteEditor,
+  type WebsiteOperations,
+} from "../websites/editor-routes";
 import express, { type Response, type NextFunction } from "express";
 import { randomUUID } from "node:crypto";
 import { fromNodeHeaders, toNodeHandler } from "better-auth/node";
@@ -27,6 +31,7 @@ export type AuthRoutesDependencies = {
   };
   store: WorkspaceStore;
   operations: Pick<TenantOperations, "changeMembership" | "enroll">;
+  websiteOperations?: WebsiteOperations;
   baseURL: string;
   trustedProxyAddresses?: string;
   emailEnabled?: boolean;
@@ -70,6 +75,7 @@ export function createAuthRoutes({
   auth,
   store,
   operations,
+  websiteOperations,
   baseURL,
   trustedProxyAddresses,
   emailEnabled = false,
@@ -115,6 +121,7 @@ export function createAuthRoutes({
   router.all("/api/auth/{*path}", (req, res) =>
     withAuthTenant(null, () => authHandler(req, res)),
   );
+  router.use("/api/workspaces/:slug/website", express.json({ limit: "600kb" }));
   router.use(
     express.json({ limit: "8kb" }),
     express.urlencoded({ extended: false, limit: "8kb" }),
@@ -508,6 +515,7 @@ export function createAuthRoutes({
       });
     },
   );
+  if (websiteOperations) mountWebsiteEditor(router, websiteOperations, origin);
   router.get("/api/workspaces/:slug/members", async (_req, res) => {
     const workspace: Workspace = res.locals.workspace;
     if (!workspace.capabilities.includes("staff:manage"))
@@ -570,7 +578,7 @@ export function createAuthRoutes({
       "/api/session",
     ],
     (_req, res, next) =>
-      res.locals.accountPage
+      res.locals.accountPage || res.locals.websitePreview
         ? next()
         : res.status(404).json({ error: "not_found" }),
   );

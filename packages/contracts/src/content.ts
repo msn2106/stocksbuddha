@@ -88,4 +88,60 @@ export const websiteContentKeys = [
   "site.description",
 ] as const;
 export type WebsiteContentKey = (typeof websiteContentKeys)[number];
-export type WebsiteContent = Record<WebsiteContentKey, string>;
+export type WebsiteContent = Record<WebsiteContentKey, string> &
+  Partial<Record<(typeof optionalWebsiteContentKeys)[number], string>>;
+
+// Optional public copy overrides keep existing immutable publications compatible.
+export const optionalWebsiteContentKeys = [
+  "nav.research",
+  "investor.charter",
+  "investor.complaints",
+  "investor.grievance",
+  "policies.terms",
+  "policies.privacy",
+  "policies.refund",
+  "analyst.legalName",
+  "analyst.registrationSupplied",
+  "analyst.pendingDocuments",
+  "analyst.information",
+  "analyst.registeredRole",
+  "nav.mainLabel",
+  "nav.approach",
+  "nav.about",
+  "nav.investor",
+  "nav.login",
+  "nav.subscribe",
+  "nav.closeMenu",
+  "nav.openMenu",
+  "nav.mobileLabel",
+  "nav.memberLogin",
+  "expectations.headingStart",
+  "expectations.headingEnd",
+  "expectations.decisionsTitle",
+  "expectations.decisionsDescription",
+  "expectations.riskTitle",
+  "expectations.riskDescription",
+  "investor.headingStart",
+  "investor.headingEnd",
+  "investor.description",
+  "investor.awaitingPublication",
+  "investor.scores",
+  "investor.externalPortal",
+  "investor.odr",
+  "footer.explore",
+  "footer.research",
+  "footer.analyst",
+  "footer.policies",
+  "analyst.role",
+  "analyst.contactPending",
+  "disclosures.marketRisk",
+  "disclosures.registration",
+  "disclosures.preview",
+  "footer.copyright",
+  "footer.backToTop",
+  "disclosures.accessibility",
+] as const;
+export const editableWebsiteContentKeys = [
+  ...websiteContentKeys,
+  ...optionalWebsiteContentKeys,
+] as const;

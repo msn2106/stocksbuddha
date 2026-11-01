@@ -104,6 +104,7 @@ const app = createPublicApp({
     mailer,
     emailEnabled: true,
     operations: new TenantOperations(db),
+    websiteOperations: new TenantOperations(db),
     baseURL: origin,
   }),
   resolvePage: createPublicSiteResolver(

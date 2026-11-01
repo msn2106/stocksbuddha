@@ -2839,3 +2839,303 @@ html[data-contrast="high"] *::after {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* The website editor uses the organisation workspace's quiet green identity. */
+.website-editor {
+  max-width: 1180px;
+  margin-inline: auto;
+  min-width: 0;
+}
+.editor-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+.editor-heading h1 {
+  margin: 6px 0 10px;
+  font-size: 36px;
+}
+.editor-heading p,
+.editor-panel > p,
+.editor-help {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.editor-heading a,
+.editor-preview a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.editor-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  border-block: 1px solid var(--border);
+  padding-block: 18px;
+}
+.editor-toolbar > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.website-editor button:not(.primary) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  background: white;
+  border-radius: 6px;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+}
+.website-editor button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.editor-status {
+  font-weight: 600;
+}
+.editor-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  margin: 28px 0 0;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+.editor-tabs button[aria-current="page"] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+.editor-panel {
+  border: 0;
+  padding: 28px 0;
+  margin: 0;
+  min-width: 0;
+}
+.editor-panel h2 {
+  font-size: 26px;
+  margin: 0 0 10px;
+}
+.editor-panel h3 {
+  font-size: 23px;
+}
+.editor-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-block: 18px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.editor-panel input:not([type="checkbox"]),
+.editor-panel select,
+.editor-panel textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 400;
+}
+.editor-panel textarea {
+  resize: vertical;
+  line-height: 1.6;
+}
+.editor-panel small {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 14px;
+}
+.editor-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 24px;
+}
+.editor-panel .editor-check {
+  flex-direction: row;
+  align-items: center;
+}
+.editor-check input {
+  width: 20px;
+  height: 20px;
+}
+.editor-nav-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 14px;
+}
+.editor-nav-row label {
+  flex: 1 1 160px;
+}
+.editor-section-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(0, 2fr);
+  gap: 32px;
+  align-items: start;
+}
+.editor-section-list {
+  position: sticky;
+  top: 20px;
+}
+.editor-section-list > div {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  border-bottom: 1px solid var(--border);
+  padding: 8px 0;
+}
+.editor-section-list > div > button:first-child {
+  flex: 1;
+  align-items: flex-start;
+  flex-direction: column;
+  text-align: left;
+}
+.editor-section-list .selected > button:first-child {
+  background: var(--visual-surface, #edf2ec);
+  color: var(--primary);
+}
+.editor-section-list > div > button:not(:first-child) {
+  padding: 8px;
+  border: 0;
+}
+.editor-error {
+  white-space: pre-line;
+  max-height: 300px;
+  overflow: auto;
+}
+.editor-success {
+  background: #edf6ef;
+  padding: 14px;
+  color: #244b3b;
+  border-left: 3px solid #244b3b;
+}
+.editor-preview {
+  margin-block: 24px;
+  background: #e8ece9;
+  padding: 12px;
+  overflow: auto;
+}
+.editor-preview > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 0 16px;
+}
+.editor-preview iframe {
+  display: block;
+  max-width: 100%;
+  height: 720px;
+  border: 1px solid var(--border);
+  margin-inline: auto;
+  background: white;
+}
+.draft-preview-banner {
+  padding: 12px;
+  background: #244b3b;
+  color: white;
+  text-align: center;
+  font:
+    16px/1.5 Arial,
+    sans-serif;
+}
+.section-custom-image {
+  width: 100%;
+  max-height: 480px;
+  object-fit: cover;
+  display: block;
+  grid-column: 1 / -1;
+  border-radius: 8px;
+  margin-bottom: 24px;
+}
+.section-layout-stacked.hero,
+.section-layout-stacked.about-grid,
+.section-layout-stacked .section-top,
+.section-layout-stacked .approach-grid,
+.section-layout-stacked .expectations-grid,
+.section-layout-stacked .investor-grid,
+.section-layout-stacked .research-grid {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.section-layout-reversed.hero > .hero-copy,
+.section-layout-reversed.about-grid > .profile-placeholder,
+.section-layout-reversed .approach-grid > :first-child,
+.section-layout-reversed .investor-grid > :first-child {
+  order: 2;
+}
+.section-layout-reversed .research-grid,
+.section-layout-reversed .principles-inner,
+.section-layout-reversed .expectations-grid {
+  direction: rtl;
+}
+.section-layout-reversed .research-grid > *,
+.section-layout-reversed .principles-inner > *,
+.section-layout-reversed .expectations-grid > * {
+  direction: ltr;
+}
+@media (max-width: 800px) {
+  .editor-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .editor-heading h1 {
+    font-size: 30px;
+  }
+  .editor-fields,
+  .editor-section-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .editor-section-list {
+    position: static;
+  }
+  .editor-toolbar > div {
+    width: 100%;
+  }
+  .editor-toolbar button {
+    flex: 1 1 auto;
+  }
+}
+footer[data-footer="compact"] .footer-top {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+}
+@media (max-width: 600px) {
+  footer[data-footer="compact"] .footer-top {
+    grid-template-columns: 1fr;
+  }
+}
+.section-feature-image {
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  border-radius: 8px;
+  align-self: center;
+}
+.section-custom-image {
+  aspect-ratio: 16 / 7;
+}
+
+.editor-tabs button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}

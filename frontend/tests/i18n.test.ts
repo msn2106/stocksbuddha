@@ -59,9 +59,14 @@ test("each render uses its supplied tenant content, with literal values and inte
 });
 test("tenant content cannot override shared controls or fall back to another site", () => {
   const content = {
-    "nav.subscribe": "Forged control",
+    "auth.signout": "Forged control",
+    "nav.subscribe": "Explore research",
   } as unknown as WebsiteContent;
-  assert.equal(translator("en", content)("nav.subscribe"), "Subscribe");
+  assert.equal(translator("en", content)("nav.subscribe"), "Explore research");
+  assert.equal(
+    translator("en", content)("auth.signout"),
+    catalogues.en["auth.signout"],
+  );
   assert.throws(() => translator("en")("site.hero"), /missing website content/);
   assert.throws(() => {
     // @ts-expect-error English sentences are not keys.

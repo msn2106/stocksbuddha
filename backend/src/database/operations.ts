@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DataSource, EntityManager } from "typeorm";
-import { tenantSchema } from "@ra/contracts";
+import { sectionIds, tenantSchema } from "@ra/contracts";
 import { canAccessTenant } from "../access/authorization";
 import {
   canonicalJson,
@@ -176,6 +176,52 @@ export class TenantOperations {
         }),
       ],
     );
+  }
+
+  /** Read the latest private draft or current publication only after fresh tenant authorization. */
+  async readWebsite(context: Operation) {
+    return this.db.transaction(async (manager) => {
+      const { tenant } = await this.authorize(manager, context, "website:edit");
+      const [row] = await manager.query(
+        "SELECT * FROM website_revisions WHERE tenant_id=? AND (status='draft' OR revision=?) ORDER BY (status='draft') DESC,revision DESC LIMIT 1",
+        [tenant.id, tenant.published_revision],
+      );
+      if (!row)
+        return {
+          id: null,
+          revision: 0,
+          version: 0,
+          snapshot: {
+            schemaVersion: 1 as const,
+            publicProfile: {
+              name: tenant.display_name,
+              legalName: tenant.legal_name,
+              registration: tenant.registration_number,
+              monogram: tenant.monogram,
+            },
+            branding: {
+              accent: "#244b3b",
+              surface: "#edf2ec",
+              font: "classic" as const,
+            },
+            languages: { default: "en" as const, enabled: ["en" as const] },
+            layout: { template: "classic" as const, sections: [...sectionIds] },
+            content: { en: {} },
+          },
+        };
+      const stored =
+        typeof row.snapshot_json === "string"
+          ? JSON.parse(row.snapshot_json)
+          : row.snapshot_json;
+      if (digest(stored) !== row.snapshot_sha256)
+        throw new DatabaseConflict("invalid_snapshot_checksum");
+      return {
+        id: row.status === "draft" ? row.id : null,
+        revision: row.revision,
+        version: row.status === "draft" ? row.lock_version : 0,
+        snapshot: validateSnapshot(stored),
+      };
+    });
   }
 
   /** Create a partial website draft from the current publication generation, safely replaying retries. */

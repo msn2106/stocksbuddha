@@ -141,3 +141,22 @@ test("language defaults and preferences are scoped to tenant, without mixed-lang
     "en",
   );
 });
+
+test("published profile and public contacts come from the frozen snapshot instead of working tenant values", async () => {
+  const profile = {
+    ...tenants[1].profile,
+    name: "Published Alpha",
+    contactEmail: "published@example.test",
+    contactPhone: "+919999999999",
+  };
+  const resolve = createPublicSiteResolver(new SeedTenantRepository(), {
+    findPublished: async () => ({ ...websites[1], publicProfile: profile }),
+  });
+  const page = await resolve("/ra/alpha");
+  assert.equal(page.tenant?.profile.name, "Published Alpha");
+  assert.deepEqual(page.website?.contact, {
+    email: "published@example.test",
+    phone: "+919999999999",
+  });
+  assert.equal(serializePage(page).includes("Alpha Research"), false);
+});

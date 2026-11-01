@@ -1,12 +1,27 @@
 import { z } from "zod";
 import { supportedLocales } from "./locales";
-import { websiteContentKeys } from "./content";
+import {
+  websiteContentKeys,
+  editableWebsiteContentKeys,
+  type WebsiteContent,
+} from "./content";
 
 const localeSchema = z.enum(supportedLocales);
-const contentSchema = z.record(
-  z.enum(websiteContentKeys),
-  z.string().trim().min(1).max(3000),
-);
+const contentSchema = z
+  .partialRecord(
+    z.enum(editableWebsiteContentKeys),
+    z.string().trim().min(1).max(3000),
+  )
+  .superRefine((content, ctx) => {
+    for (const key of websiteContentKeys)
+      if (!content[key])
+        ctx.addIssue({
+          code: "custom",
+          path: [key],
+          message: "Required content",
+        });
+  })
+  .transform((content) => content as WebsiteContent);
 export const sectionIds = [
   "hero",
   "principles",
@@ -53,6 +68,59 @@ export const websiteRevisionSchema = z
     layout: z
       .object({
         template: z.enum(["classic", "editorial"]),
+        footer: z.enum(["columns", "compact"]).optional(),
+        navigation: z
+          .array(
+            z
+              .object({
+                section: z.enum(sectionIds),
+                label: z
+                  .object({
+                    en: z.string().trim().min(1).max(60),
+                    hi: z.string().trim().min(1).max(60),
+                  })
+                  .strict(),
+              })
+              .strict(),
+          )
+          .max(9)
+          .refine(
+            (v) => new Set(v.map((n) => n.section)).size === v.length,
+            "Duplicate navigation items",
+          )
+          .optional(),
+        sectionStyles: z
+          .partialRecord(
+            z.enum(sectionIds),
+            z.enum(["default", "stacked", "reversed"]),
+          )
+          .optional(),
+        images: z
+          .partialRecord(
+            z.enum(sectionIds),
+            z
+              .object({
+                src: z
+                  .url()
+                  .max(2048)
+                  .refine((value) => {
+                    const url = new URL(value);
+                    return (
+                      url.protocol === "https:" &&
+                      !url.username &&
+                      !url.password
+                    );
+                  }, "Use an HTTPS image URL"),
+                alt: z
+                  .object({
+                    en: z.string().trim().min(1).max(200),
+                    hi: z.string().trim().min(1).max(200),
+                  })
+                  .strict(),
+              })
+              .strict(),
+          )
+          .optional(),
         sections: z
           .array(z.enum(sectionIds))
           .min(1)
@@ -70,6 +138,13 @@ export const websiteRevisionSchema = z
   })
   .strict()
   .superRefine((site, ctx) => {
+    for (const item of site.layout.navigation ?? []) {
+      if (!site.layout.sections.includes(item.section))
+        ctx.addIssue({
+          code: "custom",
+          message: "Navigation must link to an enabled section",
+        });
+    }
     if (!site.languages.enabled.includes(site.languages.default))
       ctx.addIssue({
         code: "custom",
@@ -99,7 +174,23 @@ export const websiteRevisionSchema = z
       [...new Set([...value.matchAll(/\{(\w+)\}/g)].map((m) => m[1]))]
         .sort()
         .join(",");
-    for (const key of websiteContentKeys) {
+    for (const key of editableWebsiteContentKeys) {
+      for (const locale of site.languages.enabled) {
+        const value = site.content[locale]?.[key];
+        if (
+          value &&
+          [...value.matchAll(/\{(\w+)\}/g)].some(
+            (match) =>
+              match[1] !== "name" ||
+              !["about.belief", "about.analystIntroduction"].includes(key),
+          )
+        )
+          ctx.addIssue({
+            code: "custom",
+            path: ["content", locale, key],
+            message: "Unsupported placeholder",
+          });
+      }
       const base = site.content[site.languages.default]?.[key];
       for (const locale of site.languages.enabled) {
         const value = site.content[locale]?.[key];
@@ -118,5 +209,6 @@ export type PublicWebsite = Pick<
   "tenantId" | "revision" | "branding" | "languages" | "layout"
 > & {
   publishedAt: string;
+  contact?: { email?: string | null; phone?: string | null };
   content: import("./content").WebsiteContent;
 };

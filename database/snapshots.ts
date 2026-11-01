@@ -1,43 +1,14 @@
 import { createHash } from "node:crypto";
 import {
-  tenantSchema,
   websiteRevisionSchema,
-  websiteContentKeys,
+  websiteSnapshotSchema,
+  publicProfileSchema,
+  type Snapshot,
   type Tenant,
 } from "@ra/contracts";
 import { z } from "zod";
 
-export const publicProfileSchema = tenantSchema.shape.profile
-  .extend({
-    contactEmail: z.string().email().max(254).nullable().optional(),
-    contactPhone: z
-      .string()
-      .regex(/^\+[1-9]\d{1,14}$/)
-      .nullable()
-      .optional(),
-  })
-  .strict();
-const draftSchema = z
-  .object({
-    schemaVersion: z.literal(1),
-    publicProfile: publicProfileSchema.partial(),
-    branding: websiteRevisionSchema.shape.branding.partial(),
-    languages: websiteRevisionSchema.shape.languages,
-    layout: websiteRevisionSchema.shape.layout.partial(),
-    content: z
-      .object({
-        en: z
-          .partialRecord(z.enum(websiteContentKeys), z.string().max(3000))
-          .optional(),
-        hi: z
-          .partialRecord(z.enum(websiteContentKeys), z.string().max(3000))
-          .optional(),
-      })
-      .strict(),
-  })
-  .strict();
-export type Snapshot = z.infer<typeof draftSchema>;
-
+export { publicProfileSchema, type Snapshot } from "@ra/contracts";
 /** Serialize supported JSON with sorted object keys and preserved array order for stable digests. */
 export function canonicalJson(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -58,7 +29,7 @@ export function digest(value: unknown) {
 
 /** Validate a partial draft or complete publication without rewriting persisted snapshot data. */
 export function validateSnapshot(input: unknown, publish = false): Snapshot {
-  const snapshot = draftSchema.parse(input);
+  const snapshot = websiteSnapshotSchema.parse(input);
   if (Buffer.byteLength(canonicalJson(snapshot)) > 524288)
     throw new Error("Snapshot exceeds 512 KiB");
   if (!snapshot.languages.enabled.includes(snapshot.languages.default))
