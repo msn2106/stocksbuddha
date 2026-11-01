@@ -1,3 +1,4 @@
+import { accountTenant } from "./auth/account-tenant";
 import express, { type Request, type RequestHandler } from "express";
 import type { PageData } from "@ra/contracts";
 import { requestMonitoring, monitorTenant } from "./monitoring";
@@ -191,7 +192,7 @@ export function createPublicApp({
       const data = account
         ? {
             ...publicData,
-            tenant: account.tenant,
+            tenant: accountTenant(account, publicData),
             page: "account" as const,
             account: account.account,
           }

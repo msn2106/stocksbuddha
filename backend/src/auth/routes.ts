@@ -7,6 +7,7 @@ import type { Workspace, WorkspaceStore } from "./workspaces";
 import type { TenantOperations } from "../database/operations";
 import { DatabaseConflict } from "../database/operations";
 import { withAuthTenant } from "./tenant-context";
+import { authFailure } from "./response-error";
 import { clientIp, trustedProxies } from "./client-ip";
 import { monitorTenant } from "../monitoring";
 import type { OrganisationService } from "../organisations/service";
@@ -160,7 +161,6 @@ export function createAuthRoutes({
     [
       "/ra/:slug/login",
       "/ra/:slug/signup",
-      "/ra/:slug/logout",
       "/ra/:slug/workspace",
       "/ra/:slug/account",
       "/ra/:slug/verify-email",
@@ -258,7 +258,7 @@ export function createAuthRoutes({
           {
             mode,
             audience,
-            error: "credentials",
+            error: authFailure(response, res),
             email:
               typeof req.body?.email === "string"
                 ? req.body.email.slice(0, 254)
@@ -336,7 +336,7 @@ export function createAuthRoutes({
     res.setHeader("Set-Cookie", response.headers.getSetCookie());
     return res.redirect(
       303,
-      `/ra/${res.locals.accountTenant?.slug ?? "stocksbuddha"}/login`,
+      `/ra/${slugSchema.safeParse(req.params.slug).success ? req.params.slug : "stocksbuddha"}/login`,
     );
   });
   router.use(

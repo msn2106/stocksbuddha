@@ -68,6 +68,7 @@ for (const email of [
   "admin@example.test",
   "analyst@example.test",
   "investor@example.test",
+  "logout@example.test",
 ]) {
   const result = await identity.auth.api.signUpEmail({
     body: {
@@ -84,6 +85,14 @@ for (const email of [
       result.user.id,
     ]);
 }
+// Keep working branding distinct from the published snapshot for public-page regressions.
+await db.query(
+  "UPDATE tenants SET display_name='UNPUBLISHED PRIVATE BETA',legal_name='PRIVATE LEGAL BETA',registration_number='PRIVATE-REG' WHERE slug='beta'",
+);
+await db.query(
+  "INSERT INTO tenant_memberships(id,tenant_id,user_id,role,status,profile_json,capabilities_json) SELECT ?,t.id,u.id,'subscriber','active','{\"schemaVersion\":1}','{}' FROM tenants t CROSS JOIN auth_users u WHERE t.slug='beta' AND u.email='logout@example.test'",
+  [randomUUID()],
+);
 messages.length = 0;
 const service = new OrganisationService(db),
   store = new MariaDbWorkspaceStore(db);
@@ -104,6 +113,11 @@ const app = createPublicApp({
   assets: express
     .Router()
     .get("/__test/mail", (_req, res) => res.json(messages))
+    .post("/__test/suspend-beta", async (req, res) => {
+      if (req.headers.origin !== origin) return res.sendStatus(403);
+      await db.query("UPDATE tenants SET status='suspended' WHERE slug='beta'");
+      return res.sendStatus(204);
+    })
     .use("/assets", express.static("frontend/dist/client/assets")),
   renderPage: async (data) => {
     const renderer = await import(

@@ -308,3 +308,45 @@ test("platform verification and recovery stay outside RAs and never grant owner 
     });
   }
 });
+
+test("anonymous account pages never expose unpublished tenant branding in HTML or hydration", async ({
+  page,
+}) => {
+  for (const route of [
+    "login",
+    "signup",
+    "verify-email",
+    "forgot-password",
+    "reset-password",
+  ]) {
+    await page.goto(`/ra/beta/${route}?lang=hi`);
+    await expect(page.locator("html")).toHaveAttribute("lang", "hi");
+    const html = await page.content();
+    expect(html).not.toContain("UNPUBLISHED PRIVATE BETA");
+    expect(html).not.toContain("PRIVATE LEGAL BETA");
+    expect(html).not.toContain("PRIVATE-REG");
+    expect(html).toContain("Beta Research");
+  }
+});
+
+test("tenant logout still invalidates the global session after suspension", async ({
+  page,
+}) => {
+  await signIn(page, "/ra/beta/login", "logout@example.test");
+  await expect(page).toHaveURL(/\/ra\/beta\/account$/);
+  expect((await page.request.get("/api/session")).status()).toBe(200);
+  expect(
+    (
+      await page.request.post("/__test/suspend-beta", {
+        headers: { origin: "http://127.0.0.1:3111" },
+      })
+    ).status(),
+  ).toBe(204);
+  expect((await page.request.get("/api/workspaces/beta")).status()).toBe(404);
+  const response = await page.request.post("/ra/beta/logout", {
+    headers: { origin: "http://127.0.0.1:3111" },
+    maxRedirects: 0,
+  });
+  expect(response.status()).toBe(303);
+  expect((await page.request.get("/api/session")).status()).toBe(401);
+});

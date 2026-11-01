@@ -65,6 +65,7 @@ function harness(options: Partial<AuthRoutesDependencies> = {}) {
             "set-cookie":
               "better-auth.session_token=signed; HttpOnly; SameSite=Lax; Path=/",
             "content-type": "application/json",
+            "retry-after": "10",
           },
         });
       },
@@ -1157,4 +1158,54 @@ test("recovery cannot restore a missing tenant membership or let subscribers ent
   app.workspace.membership.role = "subscriber";
   assert.equal((await app.request("/ra/stocksbuddha/workspace")).status, 403);
   assert.equal((await app.request("/ra/stocksbuddha/account")).status, 200);
+});
+
+test("tenant logout revokes the shared session even when the organisation is unavailable", async () => {
+  const { request, state, calls } = harness();
+  state.available = false;
+  assert.equal(
+    (
+      await request("/ra/stocksbuddha/logout", "POST", undefined, {
+        origin: "https://evil.test",
+      })
+    ).status,
+    403,
+  );
+  const result = await request("/ra/stocksbuddha/logout", "POST", undefined, {
+    origin,
+  });
+  assert.equal(result.status, 303);
+  assert.equal(result.headers.location, "/ra/stocksbuddha/login");
+  assert.ok(result.headers["set-cookie"]);
+  assert.ok(
+    calls.some(
+      (call) => call[0] === "auth" && String(call[1]).endsWith("/sign-out"),
+    ),
+  );
+  assert.equal(
+    (await request("/logout", "POST", undefined, { origin })).headers.location,
+    "/ra/stocksbuddha/login",
+  );
+});
+
+test("tenant credential and recovery forms preserve throttling status, retry delay and a distinct error", async () => {
+  const { request, state } = harness({ emailEnabled: true });
+  state.authStatus = 429;
+  for (const mode of [
+    "login",
+    "signup",
+    "verify-email",
+    "forgot-password",
+    "reset-password",
+  ]) {
+    const result = await request(
+      `/ra/stocksbuddha/${mode}`,
+      "POST",
+      { email: "u@example.test", password: "password123" },
+      { origin },
+    );
+    assert.equal(result.status, 429);
+    assert.equal(result.headers["retry-after"], "10");
+    assert.equal(JSON.parse(result.body).error, "throttled");
+  }
 });

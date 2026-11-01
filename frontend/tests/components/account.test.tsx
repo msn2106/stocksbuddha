@@ -195,3 +195,36 @@ test("recovery and join forms use localized labels without exposing reset tokens
     /previous sessions/,
   );
 });
+
+test("throttled sign-in shows a localized wait message and permits retry without retaining passwords", () => {
+  for (const locale of ["en", "hi"] as const) {
+    const data = {
+      ...page({
+        mode: "login",
+        error: "throttled" as const,
+        email: "retry@example.test",
+      }),
+      locale,
+    };
+    const view = render(<App data={data} />);
+    assert.match(
+      screen.getByRole("alert").textContent!,
+      locale === "en" ? /Too many attempts/ : /बहुत अधिक प्रयास/,
+    );
+    const password = screen.getByLabelText(
+      locale === "en" ? "Password" : "पासवर्ड",
+      { exact: true },
+    ) as HTMLInputElement;
+    assert.equal(password.value, "");
+    assert.equal(password.disabled, false);
+    assert.equal(
+      screen
+        .getByRole("button", {
+          name: locale === "en" ? "Sign in" : "साइन इन करें",
+        })
+        .hasAttribute("disabled"),
+      false,
+    );
+    view.unmount();
+  }
+});

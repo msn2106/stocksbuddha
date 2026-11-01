@@ -3,6 +3,7 @@ import { fromNodeHeaders } from "better-auth/node";
 import type { AccountView, Tenant } from "@ra/contracts";
 import type { AuthRoutesDependencies } from "../auth/routes";
 import type { AuthMailer } from "../auth/email";
+import { authFailure } from "../auth/response-error";
 import { withAuthTenant } from "../auth/tenant-context";
 import { OrganisationService } from "./service";
 import { DatabaseConflict } from "../database/operations";
@@ -89,7 +90,7 @@ export function createOrganisationRoutes({
         {
           mode: "login",
           audience: "platform",
-          error: response.ok ? "access" : "credentials",
+          error: response.ok ? "access" : authFailure(response, res),
         },
         response.ok ? 403 : response.status,
       );

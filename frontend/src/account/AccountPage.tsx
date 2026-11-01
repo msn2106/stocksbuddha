@@ -199,13 +199,15 @@ export function AccountPage({ data }: { data: PageData }) {
               {account.error && (
                 <p className="account-error" role="alert" id="account-error">
                   {t(
-                    account.error === "service"
-                      ? "auth.error.service"
-                      : account.error === "access"
-                        ? "org.accessDenied"
-                        : account.error === "invitation"
-                          ? "org.invitationInvalid"
-                          : "auth.error.credentials",
+                    account.error === "throttled"
+                      ? "auth.error.throttled"
+                      : account.error === "service"
+                        ? "auth.error.service"
+                        : account.error === "access"
+                          ? "org.accessDenied"
+                          : account.error === "invitation"
+                            ? "org.invitationInvalid"
+                            : "auth.error.credentials",
                   )}
                 </p>
               )}

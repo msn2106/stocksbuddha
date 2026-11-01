@@ -1,6 +1,7 @@
 import express, { type Response, type NextFunction } from "express";
 import type { AccountView, Tenant } from "@ra/contracts";
 import type { AuthRoutesDependencies } from "./routes";
+import { authFailure } from "./response-error";
 import { withAuthTenant } from "./tenant-context";
 
 type Page = (
@@ -146,7 +147,7 @@ export function mountAccountRecovery(
           mode,
           ...(response.ok
             ? { notice: "sent" as const }
-            : { error: "credentials" as const }),
+            : { error: authFailure(response, res) }),
         },
         response.ok ? 200 : response.status,
       );

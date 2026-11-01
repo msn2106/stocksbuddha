@@ -65,7 +65,7 @@ export type AccountView = {
   invitedRole?: string;
   signedIn?: boolean;
   notice?: "sent" | "reset" | "invited";
-  error?: "credentials" | "service" | "access" | "invitation";
+  error?: "credentials" | "service" | "access" | "invitation" | "throttled";
   email?: string;
   name?: string;
   role?: string;

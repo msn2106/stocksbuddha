@@ -126,6 +126,7 @@
   "auth.new": "New here?",
   "auth.existing": "Already have an account?",
   "auth.note": "Creating an account does not start a subscription or grant access to paid research.",
+  "auth.error.throttled": "Too many attempts. Please wait a moment before trying again.",
   "auth.error.credentials": "We couldn’t complete that request. Check your details and try again.",
   "auth.error.service": "Account services are unavailable in this preview. Please try again when the service is available.",
   "auth.workspace.title": "Your workspace",
