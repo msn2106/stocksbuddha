@@ -1,23 +1,33 @@
 # MariaDB persistence
 
-The ten-table foundation uses TypeORM and mysql2. Nine ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
+The ten-table foundation uses TypeORM and mysql2. Ten ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
 
 ## Local setup
 
 Copy `backend/.env.example` to ignored `backend/.env`, replace both local passwords, set a unique random `AUTH_SECRET` and the exact `AUTH_BASE_URL` origin, then:
 
 ```sh
-docker compose --env-file backend/.env up -d --wait db
+docker compose --env-file backend/.env up -d --wait
 npm run db:migrate -- --target dev
 npm run db:seed:demo -- --target dev
 npm run dev
 ```
 
-Compose runs only MariaDB 11.4.8, pinned by image digest, on loopback port 3307 by default (`DB_PORT` can select another host port) with a persistent volume. This is a tested local baseline, not a verified Hostinger version. A fresh image creates `stocksbuddha_dev`; provision `stocksbuddha_prod` separately. Do not stop a database with `down -v` unless its data should be deleted. No frontend/backend containers are required. See [authentication setup and routes](../docs/AUTHENTICATION.md) for session and membership behavior.
+Compose runs MariaDB 11.4.8 and DbGate Community 7.3.2, both pinned by image digest and bound to loopback. MariaDB uses port 3307 by default (`DB_PORT` can select another host port) with a persistent volume. This is a local baseline, not a verified Hostinger version. A fresh image creates `stocksbuddha_dev`; provision `stocksbuddha_prod` separately. Do not stop a database with `down -v` unless its data should be deleted. No frontend/backend containers are required. See [authentication setup and routes](../docs/AUTHENTICATION.md) for session and membership behavior.
 
 If port 3307 is already allocated, set `DB_PORT=3308` (or another unused port) in `backend/.env`, then rerun Compose. The application and CLI read that same setting. Use `docker-compose` instead of `docker compose` if your installation provides the standalone command.
 
 Without a local `.env`, nonproduction startup retains fixture-preview mode. MariaDB failures never fall back to fixtures. Production defaults to MariaDB; fixture production previews require both `DATABASE_MODE=fixtures` and `ALLOW_PUBLIC_PREVIEW=true`.
+
+## Local browser database client
+
+Open [DbGate](http://localhost:8082) after Compose starts. Log in with username `stocksbuddha` and your local `DB_PASSWORD` from `backend/.env`. The local MariaDB connection and `stocksbuddha_dev` database are preconfigured. Browse tables, edit development rows and run SQL in the browser; use migration files for every intended schema change so deployed dev/prod get the same structure. Direct row edits bypass application validation and transactional business audit operations; the database triggers still audit authentication inserts. Use direct edits for deliberate local development adjustments, and use the reviewed backfill transactions for provenance corrections.
+
+Set `DBGATE_PORT` in `backend/.env` if port 8082 is occupied. Both containers start together with the setup command above and continue running when you close the browser. Saved queries/settings use the separate `dbgate_data` volume; table data stays in `database_data`. To stop the tools while preserving their data, use `docker compose --env-file backend/.env stop`. To start only MariaDB, append `db` to the setup command.
+
+DbGate connects internally to `db:3306`, independently of your host `DB_PORT`. Beekeeper Studio connects to `127.0.0.1`, your configured `DB_PORT`, user `stocksbuddha`, the same `DB_PASSWORD`, and database `stocksbuddha_dev`, with local SSL/SSH disabled. Neither client requires the application server to be running.
+
+This Compose file is for local development only. Do not deploy its database console or reuse its local credentials for hosted environments. Continue using Beekeeper for deployed dev/prod through their approved connection settings.
 
 ## Migration workflow
 
@@ -49,3 +59,9 @@ RUN_DATABASE_TESTS=true npm run test:database
 ```
 
 The DB suite reads dev connection settings, creates unique `sb_test_*` databases and removes only those databases afterward. Use a local disposable administrative user with CREATE/DROP DATABASE permissions. It never drops the configured dev/prod database. Without `RUN_DATABASE_TESTS=true`, it explicitly skips; ordinary tests then do not establish database correctness. `test:integration` discovers it too and uses the same opt-in.
+
+## Authentication provenance migration and legacy users
+
+Migration `AddAuthTenantContext1793491200009` adds nullable signup/login RA FKs to `auth_users` / `auth_sessions`, plus two audit triggers. The ten-table count stays unchanged. It preserves existing rows with unknown (`NULL`) provenance; no users are automatically assigned to RAs. The migration operator needs ALTER/TRIGGER privileges, and the trigger definer must remain valid with audit insert access. See [implementation and partial-DDL recovery](../docs/DATABASE_IMPLEMENTATION.md).
+
+After `npm run db:migrate -- --target dev`, use [backfill-auth-tenant-context.sql](queries/backfill-auth-tenant-context.sql) in a single database-client connection. Substitute known emails/slugs in the signup block; run it separately for Stocks Buddha and Beta. Session backfill is optional and requires a known original session RA, not just the user's signup origin. The transaction blocks preserve existing non-NULL values and audit corrections without granting memberships or marking emails verified. See [authentication provenance](../docs/AUTHENTICATION.md#signup-and-login-ra-provenance).

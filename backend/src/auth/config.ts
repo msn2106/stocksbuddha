@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { createPool } from "mysql2/promise";
 import type { DatabaseConfig } from "../../../database/config";
+import { currentAuthTenant } from "./tenant-context";
 
 /** Define the pinned core auth mapping; username/OTP transports remain separate feature gates. */
 export function authOptions(
@@ -23,6 +24,24 @@ export function authOptions(
     trustedOrigins: [origin],
     rateLimit: { enabled: true, storage: "memory", window: 60, max: 100 },
     emailAndPassword: { enabled: true },
+    databaseHooks: {
+      user: {
+        create: {
+          /** Persist the first signup origin from trusted request context, ignoring client-supplied provenance. */
+          before: async (user) => ({
+            data: { ...user, signupTenantId: currentAuthTenant() },
+          }),
+        },
+      },
+      session: {
+        create: {
+          /** Record this session's login origin without changing global identity or tenant membership. */
+          before: async (session) => ({
+            data: { ...session, loginTenantId: currentAuthTenant() },
+          }),
+        },
+      },
+    },
     advanced: {
       useSecureCookies: origin.startsWith("https://"),
       defaultCookieAttributes: { httpOnly: true, sameSite: "lax", path: "/" },
@@ -41,6 +60,13 @@ export function authOptions(
         updatedAt: "updated_at",
       },
       additionalFields: {
+        signupTenantId: {
+          type: "string",
+          fieldName: "signup_tenant_id",
+          required: false,
+          input: false,
+          returned: false,
+        },
         platform_role: {
           type: "string",
           required: false,
@@ -66,6 +92,15 @@ export function authOptions(
     },
     session: {
       modelName: "auth_sessions",
+      additionalFields: {
+        loginTenantId: {
+          type: "string",
+          fieldName: "login_tenant_id",
+          required: false,
+          input: false,
+          returned: false,
+        },
+      },
       expiresIn: 60 * 60 * 24 * 7,
       // Absolute expiry avoids extending DB sessions without renewing the browser cookie.
       disableSessionRefresh: true,

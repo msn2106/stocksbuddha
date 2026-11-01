@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import { migrationClasses } from "../../../database/catalog";
 import { createPublicApp } from "../../src/app";
 import { createAuthRoutes } from "../../src/auth/routes";
 import {
@@ -26,6 +28,7 @@ import {
 import { TenantOperations } from "../../src/database/operations";
 import { createPublicSiteResolver } from "../../src/tenancy/resolve-public-site";
 import { createAuthentication } from "../../src/auth/config";
+import { withAuthTenant } from "../../src/auth/tenant-context";
 
 test(
   "MariaDB: fresh migrations, constraints, auth, publishing, retries and recovery",
@@ -55,12 +58,158 @@ test(
           const [{ attempts }] = await db.query(
             "SELECT COUNT(*) AS attempts FROM migration_attempts",
           );
-          assert.equal(Number(attempts), 9);
+          assert.equal(Number(attempts), 10);
           assert.ok(
             (await runMigrations(db, manifest, false)).every(
               (row) => row.applied,
             ),
           );
+        },
+      );
+      await context.test(
+        "upgrading legacy users preserves unknown origins and the documented backfill is scoped and repeatable",
+        async () => {
+          const upgradeName = `${name}_upgrade`;
+          await admin.query(`CREATE DATABASE \`${upgradeName}\``);
+          const upgrade = createDatabase(
+            { ...config, database: upgradeName },
+            3,
+            0,
+          );
+          await upgrade.initialize();
+          const runner = upgrade.createQueryRunner();
+          await runner.connect();
+          try {
+            for (const Class of migrationClasses.slice(0, -1))
+              await new Class().up(runner);
+            await seedDemo(upgrade, "dev");
+            const legacyUser = randomUUID(),
+              legacySession = randomUUID();
+            await runner.query(
+              "INSERT INTO auth_users(id,name,email) VALUES (?,'Legacy','legacy@example.test')",
+              [legacyUser],
+            );
+            await runner.query(
+              "INSERT INTO auth_sessions(id,user_id,token,expires_at) VALUES (?,?,?,DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 1 DAY))",
+              [legacySession, legacyUser, randomUUID()],
+            );
+            await new migrationClasses[migrationClasses.length - 1]().up(
+              runner,
+            );
+            assert.equal(
+              (
+                await runner.query(
+                  "SELECT signup_tenant_id FROM auth_users WHERE id=?",
+                  [legacyUser],
+                )
+              )[0].signup_tenant_id,
+              null,
+            );
+            assert.equal(
+              (
+                await runner.query(
+                  "SELECT login_tenant_id FROM auth_sessions WHERE id=?",
+                  [legacySession],
+                )
+              )[0].login_tenant_id,
+              null,
+            );
+            assert.deepEqual(
+              await runner.query(
+                "SELECT id FROM audit_events WHERE entity_id IN (?,?)",
+                [legacyUser, legacySession],
+              ),
+              [],
+            );
+            const source = await readFile(
+              new URL(
+                "../../../database/queries/backfill-auth-tenant-context.sql",
+                import.meta.url,
+              ),
+              "utf8",
+            );
+            const signupBlock = source
+              .split("-- 2.")[1]
+              .split("-- 3.")[0]
+              .replace(
+                "replace-with-stocksbuddha-user-email",
+                "legacy@example.test",
+              );
+            const sessionBlock = source
+              .split("-- 4.")[1]
+              .split("-- 5.")[0]
+              .replace(
+                "replace-with-a-session-id-from-the-query-above",
+                legacySession,
+              )
+              .replace(
+                "replace-with-the-session-owner-email",
+                "legacy@example.test",
+              );
+            /** Execute the delivered SQL on one connection so variables and transactions retain their scope. */
+            async function runBlock(block: string) {
+              // Start after the first newline, which ends the section heading comment.
+              const sql = block
+                .slice(block.indexOf("\n") + 1)
+                .replace(/^--.*$/gm, "");
+              for (const statement of sql
+                .split(/;\s*(?:\n|$)/)
+                .filter((part) => part.trim()))
+                await runner.query(statement);
+            }
+            await runBlock(signupBlock);
+            await runBlock(signupBlock);
+            await runBlock(signupBlock.replace("'stocksbuddha'", "'beta'"));
+            assert.equal(
+              (
+                await runner.query(
+                  "SELECT signup_tenant_id FROM auth_users WHERE id=?",
+                  [legacyUser],
+                )
+              )[0].signup_tenant_id,
+              tenants[0].id,
+            );
+            await runBlock(sessionBlock);
+            await runBlock(sessionBlock);
+            assert.equal(
+              (
+                await runner.query(
+                  "SELECT login_tenant_id FROM auth_sessions WHERE id=?",
+                  [legacySession],
+                )
+              )[0].login_tenant_id,
+              tenants[0].id,
+            );
+            assert.equal(
+              (
+                await runner.query(
+                  "SELECT id FROM audit_events WHERE entity_id IN (?,?)",
+                  [legacyUser, legacySession],
+                )
+              ).length,
+              2,
+            );
+            assert.equal(
+              (
+                await runner.query(
+                  "SELECT email_verified FROM auth_users WHERE id=?",
+                  [legacyUser],
+                )
+              )[0].email_verified,
+              0,
+            );
+            assert.deepEqual(
+              await runner.query(
+                "SELECT id FROM tenant_memberships WHERE user_id=?",
+                [legacyUser],
+              ),
+              [],
+            );
+          } finally {
+            await runner.release();
+            await upgrade.destroy();
+            await admin.query(`DROP DATABASE \`${upgradeName}\``);
+          }
         },
       );
       await context.test(
@@ -743,6 +892,173 @@ test(
             await assert.rejects(
               ops.enroll(operation({ token: session.token! })),
               /unauthorized/,
+            );
+          } finally {
+            await identity.close();
+          }
+        },
+      );
+      await context.test(
+        "signup origins, cross-RA logins and durable audit history stay separate from memberships",
+        async () => {
+          const identity = createAuthentication(
+            { ...config, database: name },
+            "a-local-validation-secret-with-at-least-32-chars",
+            "http://localhost:3000",
+          );
+          try {
+            await assert.rejects(
+              withAuthTenant(tenants[0].id, () =>
+                identity.auth.api.signUpEmail({
+                  body: {
+                    name: "Forged",
+                    email: "context@example.test",
+                    password: "context-password-123",
+                    signupTenantId: tenants[2].id,
+                  } as never,
+                }),
+              ),
+              /not allowed/,
+            );
+            const signedUp = await withAuthTenant(tenants[0].id, () =>
+              identity.auth.api.signUpEmail({
+                body: {
+                  name: "Context User",
+                  email: "context@example.test",
+                  password: "context-password-123",
+                } as never,
+              }),
+            );
+            const [user] = await db.query(
+              "SELECT signup_tenant_id FROM auth_users WHERE id=?",
+              [signedUp.user.id],
+            );
+            assert.equal(user.signup_tenant_id, tenants[0].id);
+            assert.equal("signupTenantId" in signedUp.user, false);
+            const [firstSession] = await db.query(
+              "SELECT id,login_tenant_id FROM auth_sessions WHERE token=?",
+              [signedUp.token],
+            );
+            assert.equal(firstSession.login_tenant_id, tenants[0].id);
+            const betaLogin = await withAuthTenant(tenants[2].id, () =>
+              identity.auth.api.signInEmail({
+                body: {
+                  email: "context@example.test",
+                  password: "context-password-123",
+                  loginTenantId: tenants[0].id,
+                } as never,
+              }),
+            );
+            const [secondSession] = await db.query(
+              "SELECT id,login_tenant_id FROM auth_sessions WHERE token=?",
+              [betaLogin.token],
+            );
+            assert.equal(secondSession.login_tenant_id, tenants[2].id);
+            const [unchanged] = await db.query(
+              "SELECT signup_tenant_id FROM auth_users WHERE id=?",
+              [signedUp.user.id],
+            );
+            assert.equal(unchanged.signup_tenant_id, tenants[0].id);
+            assert.deepEqual(
+              await db.query(
+                "SELECT id FROM tenant_memberships WHERE user_id=?",
+                [signedUp.user.id],
+              ),
+              [],
+            );
+            const audit = await db.query(
+              "SELECT action,tenant_id,entity_id FROM audit_events WHERE actor_user_id=? AND action IN ('auth.signup','auth.login')",
+              [signedUp.user.id],
+            );
+            assert.equal(audit.length, 3);
+            assert.ok(
+              audit.some(
+                (row: {
+                  action: string;
+                  tenant_id: string;
+                  entity_id: string;
+                }) =>
+                  row.action === "auth.login" &&
+                  row.tenant_id === tenants[2].id &&
+                  row.entity_id === secondSession.id,
+              ),
+            );
+            const global = await identity.auth.api.signInEmail({
+              body: {
+                email: "context@example.test",
+                password: "context-password-123",
+              },
+            });
+            const [globalSession] = await db.query(
+              "SELECT login_tenant_id FROM auth_sessions WHERE token=?",
+              [global.token],
+            );
+            assert.equal(globalSession.login_tenant_id, null);
+            const [platformEvent] = await db.query(
+              "SELECT scope,tenant_id FROM audit_events WHERE actor_user_id=? AND scope='platform'",
+              [signedUp.user.id],
+            );
+            assert.equal(platformEvent.tenant_id, null);
+            await assert.rejects(
+              withAuthTenant(tenants[2].id, () =>
+                identity.auth.api.signInEmail({
+                  body: {
+                    email: "context@example.test",
+                    password: "wrong-password-123",
+                  },
+                }),
+              ),
+            );
+            assert.equal(
+              (
+                await db.query(
+                  "SELECT id FROM audit_events WHERE actor_user_id=?",
+                  [signedUp.user.id],
+                )
+              ).length,
+              4,
+            );
+            await db.query("DELETE FROM auth_sessions WHERE user_id=?", [
+              signedUp.user.id,
+            ]);
+            assert.equal(
+              (
+                await db.query(
+                  "SELECT id FROM audit_events WHERE actor_user_id=?",
+                  [signedUp.user.id],
+                )
+              ).length,
+              4,
+            );
+            // A trigger failure must roll back the session insertion, not permit unaudited logins.
+            await db.query(
+              "CREATE TRIGGER reject_auth_test BEFORE INSERT ON audit_events FOR EACH ROW BEGIN IF NEW.action='auth.login' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Injected auth audit failure'; END IF; END",
+            );
+            try {
+              await assert.rejects(
+                withAuthTenant(tenants[0].id, () =>
+                  identity.auth.api.signInEmail({
+                    body: {
+                      email: "context@example.test",
+                      password: "context-password-123",
+                    },
+                  }),
+                ),
+              );
+              assert.deepEqual(
+                await db.query("SELECT id FROM auth_sessions WHERE user_id=?", [
+                  signedUp.user.id,
+                ]),
+                [],
+              );
+            } finally {
+              await db.query("DROP TRIGGER reject_auth_test");
+            }
+            await assert.rejects(
+              db.query("UPDATE auth_users SET signup_tenant_id=? WHERE id=?", [
+                randomUUID(),
+                signedUp.user.id,
+              ]),
             );
           } finally {
             await identity.close();

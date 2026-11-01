@@ -5,6 +5,7 @@ import type { DataSource } from "typeorm";
 import { createPool } from "mysql2/promise";
 import { getSchema } from "better-auth/db";
 import { authOptions, createAuthentication } from "../src/auth/config";
+import { currentAuthTenant, withAuthTenant } from "../src/auth/tenant-context";
 import { databaseConfig, createDatabase } from "../../database/config";
 import {
   canonicalJson,
@@ -144,6 +145,73 @@ test("pinned auth schema maps only the four reviewed tables and keeps platform f
       (() => ({})) as never,
     );
     await identity.close();
+  } finally {
+    await pool.end();
+  }
+});
+
+test("auth provenance hooks use isolated server context and keep both fields server-owned", async () => {
+  const pool = createPool({ host: "127.0.0.1" });
+  try {
+    const options = authOptions(
+      pool,
+      "a-secret-at-least-32-characters-long",
+      "http://localhost:3000",
+    );
+    assert.equal(options.user?.additionalFields?.signupTenantId.input, false);
+    assert.equal(
+      options.user?.additionalFields?.signupTenantId.returned,
+      false,
+    );
+    assert.equal(options.session?.additionalFields?.loginTenantId.input, false);
+    assert.equal(
+      options.session?.additionalFields?.loginTenantId.returned,
+      false,
+    );
+    const userHook = options.databaseHooks!.user!.create!.before!;
+    const sessionHook = options.databaseHooks!.session!.create!.before!;
+    assert.equal(currentAuthTenant(), null);
+    const contexts = await Promise.all(
+      [tenant.id, tenants[2].id].map((tenantId) =>
+        withAuthTenant(tenantId, async () => {
+          await Promise.resolve();
+          const user = await userHook(
+            { id: "user", signupTenantId: "forged" } as never,
+            null,
+          );
+          const session = await sessionHook(
+            { id: "session", loginTenantId: "forged" } as never,
+            null,
+          );
+          assert.ok(user && typeof user === "object");
+          assert.ok(session && typeof session === "object");
+          assert.equal(
+            (user.data as Record<string, unknown>).signupTenantId,
+            tenantId,
+          );
+          assert.equal(
+            (session.data as Record<string, unknown>).loginTenantId,
+            tenantId,
+          );
+          return currentAuthTenant();
+        }),
+      ),
+    );
+    assert.deepEqual(contexts, [tenant.id, tenants[2].id]);
+    assert.equal(currentAuthTenant(), null);
+    const global = await userHook({ id: "global" } as never, null);
+    assert.ok(global && typeof global === "object");
+    assert.equal((global.data as Record<string, unknown>).signupTenantId, null);
+    await assert.rejects(
+      withAuthTenant(tenant.id, async () => {
+        throw new Error("failed request");
+      }),
+    );
+    assert.equal(currentAuthTenant(), null);
+    assert.equal(
+      withAuthTenant(tenant.id, () => withAuthTenant(null, currentAuthTenant)),
+      null,
+    );
   } finally {
     await pool.end();
   }

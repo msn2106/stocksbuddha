@@ -12,6 +12,7 @@ import {
 } from "../src/auth/routes";
 import { MariaDbWorkspaceStore, type Workspace } from "../src/auth/workspaces";
 import { DatabaseConflict } from "../src/database/operations";
+import { currentAuthTenant } from "../src/auth/tenant-context";
 import { tenants } from "../src/tenants/tenants";
 import { makePage } from "../../packages/contracts/tests/fixtures";
 import { canAccessTenant, type TenantRole } from "../src/access/authorization";
@@ -54,6 +55,7 @@ function harness() {
           request.headers.get("cookie"),
           request.headers.get("x-auth-client-ip"),
           request.method === "POST" ? await request.text() : "",
+          currentAuthTenant(),
         ]);
         return new Response("{}", {
           status: state.authStatus,
@@ -204,6 +206,8 @@ test("auth forms forward only credentials, preserve cookies, reject foreign orig
         name: "Name",
         platform_role: "owner",
         role: "owner",
+        signupTenantId: "forged",
+        loginTenantId: "forged",
       },
       { origin },
     );
@@ -211,6 +215,9 @@ test("auth forms forward only credentials, preserve cookies, reject foreign orig
     assert.equal(result.headers.location, "/ra/stocksbuddha/workspace");
     assert.ok(result.headers["set-cookie"]);
     assert.equal(String(calls.at(-1)).includes("platform_role"), false);
+    assert.equal(String(calls.at(-1)?.[4]).includes("forged"), false);
+    assert.equal(calls.at(-1)?.[5], tenant.id);
+    assert.equal(currentAuthTenant(), null);
     state.authStatus = 400;
     assert.match(
       (await request(path, "POST", {}, { origin })).body,
@@ -244,6 +251,7 @@ test("auth forms forward only credentials, preserve cookies, reject foreign orig
     200,
   );
   assert.equal(calls.at(-1)?.[3], "unknown");
+  assert.equal(calls.at(-1)?.[5], null);
   const publicPage = await request("/ra/stocksbuddha");
   assert.equal(publicPage.headers["content-security-policy"], undefined);
 });

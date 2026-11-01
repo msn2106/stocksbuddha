@@ -1,3 +1,4 @@
+# Local development tools only; deployed dev/prod databases use separate provisioning.
 services:
   db:
     image: mariadb:11.4.8@sha256:bc474f00629f0123c10f9e1bca193a45d18af15a274cf0656acda64f1086c3b6
@@ -16,5 +17,41 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+  dbgate:
+    image: dbgate/dbgate:7.3.2@sha256:fc68e7c433963bff17af7372ce87f4b94873551a1c1b124220c8c04a22a80311
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${DBGATE_PORT:-8082}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      LOGIN: stocksbuddha
+      PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD for the local database}
+      CONNECTIONS: local
+      LABEL_local: Stocks Buddha - local development
+      SERVER_local: db
+      PORT_local: "3306"
+      USER_local: stocksbuddha
+      PASSWORD_local: ${DB_PASSWORD:?Set DB_PASSWORD for the local database}
+      ENGINE_local: mariadb@dbgate-plugin-mysql
+      DATABASE_local: stocksbuddha_dev
+      SINGLE_CONNECTION: local
+      SINGLE_DATABASE: stocksbuddha_dev
+      SHELL_CONNECTION: "false"
+      SHELL_SCRIPTING: "false"
+    volumes:
+      - dbgate_data:/root/.dbgate
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
 volumes:
   database_data:
+  dbgate_data:

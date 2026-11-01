@@ -5,6 +5,7 @@ import type { createAuthentication } from "./config";
 import type { Workspace, WorkspaceStore } from "./workspaces";
 import type { TenantOperations } from "../database/operations";
 import { DatabaseConflict } from "../database/operations";
+import { withAuthTenant } from "./tenant-context";
 
 type Authentication = ReturnType<typeof createAuthentication>["auth"];
 export type AuthRoutesDependencies = {
@@ -80,7 +81,10 @@ export function createAuthRoutes({
       next();
     },
   );
-  router.all("/api/auth/{*path}", toNodeHandler(auth));
+  const authHandler = toNodeHandler(auth);
+  router.all("/api/auth/{*path}", (req, res) =>
+    withAuthTenant(null, () => authHandler(req, res)),
+  );
   router.use(
     express.json({ limit: "8kb" }),
     express.urlencoded({ extended: false, limit: "8kb" }),
@@ -124,22 +128,24 @@ export function createAuthRoutes({
     router.post(path, async (req, res, next) => {
       if (req.headers.origin !== origin)
         return res.status(403).json({ error: "forbidden_origin" });
-      const response = await auth.handler(
-        new Request(
-          `${origin}/api/auth/${signup ? "sign-up" : "sign-in"}/email`,
-          {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              origin,
-              "x-auth-client-ip": req.headers["x-auth-client-ip"] as string,
+      const response = await withAuthTenant(res.locals.accountTenant.id, () =>
+        auth.handler(
+          new Request(
+            `${origin}/api/auth/${signup ? "sign-up" : "sign-in"}/email`,
+            {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                origin,
+                "x-auth-client-ip": req.headers["x-auth-client-ip"] as string,
+              },
+              body: JSON.stringify({
+                email: req.body?.email,
+                password: req.body?.password,
+                ...(signup ? { name: req.body?.name } : {}),
+              }),
             },
-            body: JSON.stringify({
-              email: req.body?.email,
-              password: req.body?.password,
-              ...(signup ? { name: req.body?.name } : {}),
-            }),
-          },
+          ),
         ),
       );
       if (!response.ok)

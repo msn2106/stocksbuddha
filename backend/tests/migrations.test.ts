@@ -76,7 +76,10 @@ test("migration runner checks history, holds/relinquishes locks and records fail
       return migration;
     },
   );
-  assert.equal((await runMigrations(current.db, manifest, false)).length, 9);
+  assert.equal(
+    (await runMigrations(current.db, manifest, false)).length,
+    migrationClasses.length,
+  );
   assert.ok(
     (await runMigrations(current.db, manifest, true)).every(
       (row) => row.applied,
@@ -85,7 +88,7 @@ test("migration runner checks history, holds/relinquishes locks and records fail
   assert.equal(
     current.state.writes.filter((sql) => sql.includes("status='succeeded'"))
       .length,
-    9,
+    migrationClasses.length,
   );
   current.state.fail = true;
   await assert.rejects(
@@ -183,12 +186,12 @@ test("catalog migrations expose ordered immutable DDL and refuse destructive rev
     assert.match(sql[0], /^(CREATE TABLE|ALTER TABLE)/);
     await assert.rejects(migration.down(), /recovery/i);
   }
-  assert.equal(new Set(names).size, 9);
+  assert.equal(new Set(names).size, migrationClasses.length);
 });
 
 test("release manifests hash registered source files, require compiled production input and reject unreadable manifests", async () => {
   const manifest = await loadManifest();
-  assert.equal(Object.keys(manifest.checksums).length, 9);
+  assert.equal(Object.keys(manifest.checksums).length, migrationClasses.length);
   assert.deepEqual(
     await loadManifest(true, async () => JSON.stringify(manifest)),
     manifest,

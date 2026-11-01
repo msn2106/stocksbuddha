@@ -108,18 +108,21 @@ The four-table count is conditional on the selected auth features. The PRDs also
 
 ### 5.1 `auth_users`
 
-| Column           | SQL type         | Null? | Default          | Purpose                                         |
-| ---------------- | ---------------- | ----- | ---------------- | ----------------------------------------------- |
-| `id`             | UUID             | No    | —                | Primary identity                                |
-| `name`           | VARCHAR(160)     | No    | —                | Global display name; not the RA-local profile   |
-| `email`          | VARCHAR(254)     | No    | —                | Normalized global login email, unique           |
-| `email_verified` | TINYINT UNSIGNED | No    | `0`              | Framework-owned verification state              |
-| `image`          | VARCHAR(2048)    | Yes   | NULL             | Validated avatar URL; not trusted HTML          |
-| `platform_role`  | ASCII(16)        | Yes   | NULL             | NULL or `owner`; no automatic tenant membership |
-| `created_at`     | DATETIME(3)      | No    | UTC_TIMESTAMP(3) | Creation                                        |
-| `updated_at`     | DATETIME(3)      | No    | UTC_TIMESTAMP(3) | Update                                          |
+| Column             | SQL type         | Null? | Default          | Purpose                                                        |
+| ------------------ | ---------------- | ----- | ---------------- | -------------------------------------------------------------- |
+| `id`               | UUID             | No    | —                | Primary identity                                               |
+| `name`             | VARCHAR(160)     | No    | —                | Global display name; not the RA-local profile                  |
+| `email`            | VARCHAR(254)     | No    | —                | Normalized global login email, unique                          |
+| `email_verified`   | TINYINT UNSIGNED | No    | `0`              | Framework-owned verification state                             |
+| `image`            | VARCHAR(2048)    | Yes   | NULL             | Validated avatar URL; not trusted HTML                         |
+| `signup_tenant_id` | UUID             | Yes   | NULL             | First signup RA provenance only; no membership or access grant |
+| `platform_role`    | ASCII(16)        | Yes   | NULL             | NULL or `owner`; no automatic tenant membership                |
+| `created_at`       | DATETIME(3)      | No    | UTC_TIMESTAMP(3) | Creation                                                       |
+| `updated_at`       | DATETIME(3)      | No    | UTC_TIMESTAMP(3) | Update                                                         |
 
 Keys: primary `(id)`; unique `uq_auth_users_email (email)`. Email normalization must agree with the pinned authentication framework. Recommended review decision: ASCII/punycode domain and case-folded login email, with a case-insensitive unique key. Confirm whether the default accent-insensitive collation is acceptable; otherwise use a reviewed case-insensitive, accent-sensitive available collation or a separate normalized key. This is a blocking auth-schema decision, not permission to conflate distinct addresses.
+
+`signup_tenant_id -> tenants.id` uses DELETE/UPDATE RESTRICT and index `ix_signup_tenant`. It is set only at account creation from server-resolved tenant context, remains nullable for legacy/global accounts, and is not returned by ordinary auth APIs. It does not change global email uniqueness. Known legacy origins can be backfilled using the [reviewed SQL](../database/queries/backfill-auth-tenant-context.sql), with a separate correction audit event. Never infer first signup from current memberships.
 
 Platform-role changes require a dedicated authorized operation, audit and fresh server-side authorization reads. Do not rely on a stale role embedded in a long-lived session.
 
@@ -147,20 +150,21 @@ TEXT permits at most 65,535 bytes per field; reject oversize values without trun
 
 ### 5.3 `auth_sessions`
 
-| Column       | SQL type    | Null? | Default          | Purpose                                                     |
-| ------------ | ----------- | ----- | ---------------- | ----------------------------------------------------------- |
-| `id`         | UUID        | No    | —                | Session identity                                            |
-| `user_id`    | UUID        | No    | —                | Identity FK                                                 |
-| `token`      | ASCII(255)  | No    | —                | Framework session token, unique and sensitive               |
-| `expires_at` | DATETIME(3) | No    | —                | Expiry                                                      |
-| `ip_address` | ASCII(45)   | Yes   | NULL             | IPv4/IPv6 text from trusted request boundary                |
-| `user_agent` | TEXT        | Yes   | NULL             | Optional device metadata, application cap 4,096 UTF-8 bytes |
-| `created_at` | DATETIME(3) | No    | UTC_TIMESTAMP(3) | Creation                                                    |
-| `updated_at` | DATETIME(3) | No    | UTC_TIMESTAMP(3) | Refresh/update                                              |
+| Column            | SQL type    | Null? | Default          | Purpose                                                       |
+| ----------------- | ----------- | ----- | ---------------- | ------------------------------------------------------------- |
+| `id`              | UUID        | No    | —                | Session identity                                              |
+| `user_id`         | UUID        | No    | —                | Identity FK                                                   |
+| `token`           | ASCII(255)  | No    | —                | Framework session token, unique and sensitive                 |
+| `expires_at`      | DATETIME(3) | No    | —                | Expiry                                                        |
+| `ip_address`      | ASCII(45)   | Yes   | NULL             | IPv4/IPv6 text from trusted request boundary                  |
+| `login_tenant_id` | UUID        | Yes   | NULL             | Session creation RA provenance; never selected/current tenant |
+| `user_agent`      | TEXT        | Yes   | NULL             | Optional device metadata, application cap 4,096 UTF-8 bytes   |
+| `created_at`      | DATETIME(3) | No    | UTC_TIMESTAMP(3) | Creation                                                      |
+| `updated_at`      | DATETIME(3) | No    | UTC_TIMESTAMP(3) | Refresh/update                                                |
 
 Keys: primary `(id)`; unique `uq_auth_sessions_token (token)`; indexes `(user_id)` and `(expires_at)`; FK `user_id -> auth_users.id`, DELETE/UPDATE RESTRICT. Database check: `expires_at > created_at`; prove compatibility with generated framework timestamps.
 
-No `tenant_id` or current-tenant field: two browser tabs can use different RAs. Every protected request resolves tenant and membership independently. Global session revocation deletes the session under the framework contract; tenant revocation changes membership. Sensitive token storage must follow the actual adapter; this proposal does not claim the database stores only token hashes.
+There is no current-tenant field: two browser tabs can use different RAs. Nullable `login_tenant_id -> tenants.id` (DELETE/UPDATE RESTRICT; index `ix_login_tenant(login_tenant_id,created_at)`) records only the origin of this session. It never authorizes another request or changes when a tab navigates to another RA. Every protected request resolves tenant and membership independently. Global session revocation deletes the session under the framework contract; tenant revocation changes membership. Sensitive token storage must follow the actual adapter; this proposal does not claim the database stores only token hashes.
 
 Disable Better Auth cookie session caching for protected operations and do not use cached session claims as proof of current access. Validate against authoritative session storage on each protected request; inside the business transaction perform the final authoritative session-expiry/existence and role check immediately before the guarded write. A global logout racing after that final check may allow that already-authorized in-flight operation to finish; subsequent authorization checks deny it. Stronger cancellation of in-flight work would require coordinated auth-revocation locking and is not claimed here. Tenant membership revocation has the serialized semantics in section 10.1. See [Better Auth session caching and revocation](https://better-auth.com/docs/concepts/session-management).
 
@@ -276,7 +280,7 @@ Keys: primary `(id)`; unique `uq_audit_operation (operation_key)` (NULL allowed 
 
 Checks enforce scope/tenant consistency, actor type/user consistency, and require tenant/user fields when membership is present. A service validates that membership belongs to the actor user, because the listed FKs do not prove that extra equality. Platform operators can perform explicitly authorized tenant-scoped administration without membership; those events have an actor user but no membership. Entity IDs are polymorphic diagnostics and do not have generic referential integrity.
 
-Events are append-only in application APIs. Use a table-specific INSERT/SELECT-only grant where Hostinger privileges permit; operational retention uses a separate privileged procedure. Audit writes accompany application-owned business mutations in the same TypeORM transaction. This guarantee does not extend across the authentication adapter's separate connection/transaction: a Better Auth after-hook can run after its transaction commits, so an audit/enrollment failure cannot roll back that auth commit. Recover through section 10.3. Exclude passwords, tokens, full PAN/DOB, documents and unrestricted request bodies; use changed-field names, revision IDs and safe status summaries. This is a business audit, not a financial/consent ledger or a tamper-proof archive. See [Better Auth database hooks](https://better-auth.com/docs/concepts/database#database-hooks).
+Events are append-only in application APIs. Use a table-specific INSERT/SELECT-only grant where Hostinger privileges permit; operational retention uses a separate privileged procedure. Audit writes accompany application-owned business mutations in the same TypeORM transaction. Authentication identity/session inserts have a separate atomic guarantee through the `auth_users_audit_signup` / `auth_sessions_audit_login` database triggers added by migration `1793491200009`: each insert and its `auth.signup` / `auth.login` event share an InnoDB transaction. The events retain the origin tenant and diagnostic identity/session ID after session deletion, without storing tokens. They describe successful insertions, not failed credentials or membership authorization. This does not make later verification/enrollment part of the same transaction; a Better Auth after-hook can run after its transaction commits. Recover through section 10.3. Exclude passwords, tokens, full PAN/DOB, documents and unrestricted request bodies; use changed-field names, revision IDs and safe status summaries. This is a business audit, not a financial/consent ledger or a tamper-proof archive. See [Better Auth database hooks](https://better-auth.com/docs/concepts/database#database-hooks).
 
 ## 9. Migration infrastructure
 
