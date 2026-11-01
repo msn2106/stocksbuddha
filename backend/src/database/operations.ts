@@ -426,6 +426,11 @@ export class TenantOperations {
       );
       if (!member || member.lock_version !== version)
         throw new DatabaseConflict("stale_membership");
+      if (role === "owner" || member.role === "owner") {
+        const currentCaller = await this.session(manager, context.token, true);
+        if (currentCaller.platform_role !== "owner")
+          throw new DatabaseConflict("forbidden");
+      }
       const owners = await manager.query(
         "SELECT id,capabilities_json FROM tenant_memberships WHERE tenant_id=? AND role='owner' AND status='active' FOR UPDATE",
         [context.tenantId],

@@ -13,6 +13,7 @@ import { MariaDbWorkspaceStore } from "../auth/workspaces";
 import { TenantOperations } from "./operations";
 import type { PublicAppDependencies } from "../app";
 import { authMailer } from "../auth/email";
+import { OrganisationService } from "../organisations/service";
 import { trustedProxies } from "../auth/client-ip";
 
 export type Persistence = {
@@ -76,6 +77,7 @@ export async function createPersistence(
     );
   }
   let authentication: ReturnType<typeof createAuthentication>;
+  let mailer: ReturnType<typeof authMailer>;
   try {
     if (!env.AUTH_SECRET || !env.AUTH_BASE_URL)
       throw new Error(
@@ -88,12 +90,13 @@ export async function createPersistence(
       throw new Error(
         "Production authentication requires an HTTPS AUTH_BASE_URL",
       );
+    mailer = authMailer(env);
     authentication = authenticationFactory(
       databaseConfig(env),
       env.AUTH_SECRET,
       env.AUTH_BASE_URL,
       undefined,
-      { mailer: authMailer(env), sharedRateLimit: true },
+      { mailer, sharedRateLimit: true },
     );
   } catch (error) {
     await db.destroy();
@@ -106,7 +109,9 @@ export async function createPersistence(
       operations: new TenantOperations(db),
       baseURL: env.AUTH_BASE_URL!,
       trustedProxyAddresses: env.AUTH_TRUSTED_PROXIES,
-      emailEnabled: Boolean(env.RESEND_API_KEY && env.AUTH_EMAIL_FROM),
+      emailEnabled: Boolean(mailer),
+      mailer,
+      organisations: new OrganisationService(db),
     }),
     resolvePage: createPublicSiteResolver(
       new MariaDbTenantRepository(db),

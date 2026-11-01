@@ -63,6 +63,30 @@ export function createPublicApp({
   });
   if (authentication) server.use(authentication);
   else {
+    server.get(
+      [
+        "/workspace/login",
+        "/workspace/verify-email",
+        "/workspace/forgot-password",
+        "/workspace/reset-password",
+      ],
+      (req, res, next) => {
+        res.status(503);
+        res.locals.accountPage = {
+          tenant: null,
+          website: null,
+          page: "account",
+          locale: "en",
+          account: {
+            mode: req.path.split("/").at(-1) as
+              "login" | "verify-email" | "forgot-password" | "reset-password",
+            audience: "platform",
+            error: "service",
+          },
+        } satisfies PageData;
+        next();
+      },
+    );
     server.get("/ra/:slug/signin", (req, res) =>
       res.redirect(
         308,
@@ -114,6 +138,9 @@ export function createPublicApp({
         "/api/session",
         "/api/workspaces",
         "/workspace",
+        "/workspaces",
+        "/ra/:slug/account",
+        "/ra/:slug/invitation",
         "/logout",
         "/ra/:slug/login",
         "/ra/:slug/signup",

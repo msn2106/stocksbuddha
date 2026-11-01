@@ -44,26 +44,26 @@ Only backfill a session when its original login RA is known. Otherwise leave its
 
 Account and workspace pages use the shared React SSR/hydration pipeline, public brand components, styles and English/Hindi catalogues. The responsive forms retain native POST behavior without JavaScript; hydration adds password visibility and pending state. Failed requests preserve name/email but never passwords. CSP restricts form destinations, framing, base URLs and embedded objects while allowing the shared frontend assets to load. All responses retain `no-store` and `noindex`.
 
-| Route                                     | Behavior                                                                                                     |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `GET/POST /ra/:slug/signup`               | Account creation; new accounts have no platform role or membership                                           |
-| `GET/POST /ra/:slug/login`                | Email/password sign-in; members enter the workspace, while verified nonmembers continue to tenant enrollment |
-| `POST /ra/:slug/logout`                   | Revoke the current session and clear its cookie                                                              |
-| `/api/auth/*`                             | Better Auth signup/sign-in/sign-out and core session management                                              |
-| `GET /api/session`                        | Current identity and session expiry; guests receive 401                                                      |
-| `GET /workspace`                          | Active workspace memberships or an empty state; guests redirect to login                                     |
-| `GET /ra/:slug/workspace`                 | Membership-protected workspace overview with role and capabilities                                           |
-| `GET /api/workspaces`                     | Current user's active workspace list                                                                         |
-| `GET /api/workspaces/:slug`               | Current membership and derived capabilities                                                                  |
-| `POST /api/workspaces/:slug/membership`   | Verified-user self-enrollment as subscriber through the audited transactional service                        |
-| `GET /api/workspaces/:slug/members`       | Minimal roster, requiring `staff:manage`                                                                     |
-| `PATCH /api/workspaces/:slug/members/:id` | Change an existing member's role/status with concurrency and last-owner checks                               |
+| Route                                     | Behavior                                                                                                |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `GET/POST /ra/:slug/signup`               | Account creation; new accounts have no platform role or membership                                      |
+| `GET/POST /ra/:slug/login`                | Investor sign-in opens the account or enrollment; Organisation sign-in requires an existing staff grant |
+| `POST /ra/:slug/logout`                   | Revoke the current session and clear its cookie                                                         |
+| `/api/auth/*`                             | Better Auth signup/sign-in/sign-out and core session management                                         |
+| `GET /api/session`                        | Current identity and session expiry; guests receive 401                                                 |
+| `GET /workspaces`                         | Active workspace memberships or an empty state; guests redirect to login                                |
+| `GET /ra/:slug/workspace`                 | Active staff membership required; role-scoped blank workspace shell                                     |
+| `GET /api/workspaces`                     | Current user's active workspace list                                                                    |
+| `GET /api/workspaces/:slug`               | Current membership and derived capabilities                                                             |
+| `POST /api/workspaces/:slug/membership`   | Verified-user self-enrollment as subscriber through the audited transactional service                   |
+| `GET /api/workspaces/:slug/members`       | Minimal roster, requiring `staff:manage`                                                                |
+| `PATCH /api/workspaces/:slug/members/:id` | Change an existing member's role/status with concurrency and last-owner checks                          |
 
-The public website’s desktop/mobile login links retain the tenant and selected language. `/ra/:slug/signin` redirects to the tenant login page; global `/login`, `/signin` and `/signup` redirect to the Stocks Buddha account pages. `/workspace` remains the authenticated cross-tenant chooser; the former `/workspace/:slug` address redirects to the canonical tenant workspace after authentication. Global `POST /logout` remains available for the chooser. Path-scoped account pages share the global identity/session; tenant membership, not the URL or cookie path, authorizes workspace access.
+The public website’s desktop/mobile login links retain the tenant and selected language. `/ra/:slug/signin` redirects to the tenant login page; global `/login`, `/signin` and `/signup` redirect to the Stocks Buddha account pages. `/workspaces` is the cross-tenant chooser; `/workspace` is now reserved for the verified platform-owner shell, with `/workspace/login` as its sign-in route. Global `POST /logout` remains available for the chooser. Path-scoped account pages share the global identity/session; tenant membership, not the URL or cookie path, authorizes workspace access.
 
 The application-owned form and membership mutations require an exact `Origin: AUTH_BASE_URL`. Membership mutations also require a fresh UUID `Idempotency-Key`. PATCH accepts `{ "version": 1, "role": "analyst", "active": true }`; use the version returned in the roster. Reusing a key with a different request returns 409. Transactions recheck the stored session and current owner permission, preserve the last effective owner, increment the membership version and commit an audit receipt with the update.
 
-Self-enrollment never grants staff roles, changes an existing staff role, reactivates a revoked membership or accepts unverified email. Account creation alone gives no workspace access. First-owner/tenant provisioning remains an internal, audited `TenantOperations.provision` operation with a verified platform-owner session; no public role-grant or bootstrap-admin endpoint is exposed.
+Self-enrollment never grants staff roles, changes an existing staff role, reactivates a revoked membership or accepts unverified email. Account creation alone gives no workspace access. A verified platform owner can create a draft organisation and send its RA Admin invitation from `/workspace/organisations`; membership/activation happens only on verified acceptance. The older internal `TenantOperations.provision` operation remains available. Operator bootstrap and team invitations are described in [organisation access](ORGANISATION_ACCESS.md). No public bootstrap-admin endpoint exists.
 
 ## Roles and isolation
 
@@ -84,11 +84,25 @@ The workspace chooser reads tenant/membership projections in one joined query sc
 
 `npm run test:unit` covers auth forms, private routing, membership/capability guards, forged identity fields, origin checks, safe failures and workspace projections. `RUN_DATABASE_TESTS=true npm run test:database` tests real signed cookies through HTTP against disposable MariaDB databases, verified enrollment, owner-only updates, role changes, revocation, sign-out and tampering, alongside existing transactional/concurrency tests. The real-DB suite also verifies old-schema upgrades, repeatable backfill queries, cross-RA sign-ins, global/null contexts, retained history after session deletion and rollback when an audit insert fails. The ordinary integration suite explicitly skips MariaDB unless opted in. Component tests cover localized forms and workspace states, and Playwright checks tenant navigation, responsive layout, hydration, keyboard focus and axe scans at desktop/tablet/mobile widths.
 
-Google/username auth, administrator OTP/MFA, invitations, bootstrap tooling and a full workspace/editor UI remain separate work. Verification and recovery are configured through Resend as described below. No production deployment is included.
+Google/username auth, administrator OTP/MFA and the editor/business screens remain separate work. Platform bootstrap, RA Admin/team invitations and blank authenticated shells are implemented; see [organisation access](ORGANISATION_ACCESS.md). Verification and recovery are configured through Hostinger SMTP as described below. No production deployment is included.
 
 ## Verification and password recovery
 
-Set `RESEND_API_KEY` to a Resend sending key and `AUTH_EMAIL_FROM` to a sender on a verified domain (for example `support@stocksbuddha.com`). Credentials remain in process environment / ignored `backend/.env`. Both are required at production startup. Local MariaDB without either retains the earlier unverified-development login behavior and displays service-unavailable notices on email recovery forms; configuring just one is rejected. Fixture previews never send mail. A present key is not proof that Resend accepts it or that the sender domain is verified: check provider readiness before onboarding.
+Configure the Hostinger mailbox in process environment or ignored `backend/.env`:
+
+```dotenv
+SMTP_HOST=smtp.hostinger.com
+SMTP_PORT=465
+SMTP_USER=support@stocksbuddha.com
+SMTP_PASSWORD=your-mailbox-password
+AUTH_EMAIL_FROM=support@stocksbuddha.com
+```
+
+Quote the entire `SMTP_PASSWORD` value when it contains `#` or other special characters, for example `SMTP_PASSWORD='example#mailbox-password'`. The quotes delimit the environment value and are not part of the password. Keep exactly one entry for each SMTP variable: a later duplicate such as `SMTP_PASSWORD=` overrides an earlier populated value. Existing exported shell variables take precedence over Node's environment file; remove stale exports before restarting the server. Never print the password while diagnosing configuration.
+
+Use the password for this email mailbox, not the hPanel login password. Never put real credentials in examples, source code, screenshots or chat. `AUTH_EMAIL_FROM` must be a plain mailbox address matching `SMTP_USER`. The SMTP host is restricted to `smtp.hostinger.com`. Port 465 uses implicit TLS; port 587 is also supported with mandatory STARTTLS. Certificate validation and TLS 1.2 or newer are enforced. A display-name sender or a different sender mailbox is rejected.
+
+Production requires complete SMTP credentials. Completely unconfigured local MariaDB retains the earlier unverified-development login behavior and displays unavailable notices on recovery forms; any partial SMTP configuration is rejected at startup. Fixture previews never send mail. A configured password is not proof of mailbox readiness: confirm the mailbox is active, its domain DNS is connected and its sending allowance is available. Restart `npm run dev` after editing environment settings.
 
 With email configured, signup sends a one-hour verification link and creates no session. Unverified sign-in resends verification and grants no session. Verification confirms the shared global identity without automatically signing it in; a normal password sign-in follows. `/ra/:slug/join` then allows explicit, verified subscriber enrollment through the existing transaction policy. Existing members go directly to their workspace; revoked memberships cannot self-reactivate. This does not grant paid research access or staff roles.
 
@@ -101,6 +115,20 @@ With email configured, signup sends a one-hour verification link and creates no 
 
 The framework owns token generation, verification and consumption. Forms pin callback destinations to the configured origin and resolved tenant, reject foreign mutation origins and retain ordinary native POST behavior. Reset-link tokens are exchanged for a one-hour HttpOnly, SameSite=Strict cookie scoped to the tenant’s reset path; the browser is redirected to a clean URL. Tokens are not included in account hydration. The cookie is Secure on HTTPS and cleared after success. A successful reset revokes existing sessions across all workspaces because passwords belong to global identity. Login and recovery forms explain that shared identity.
 
-Delivery uses Resend’s HTTPS API with a 10-second deadline. Provider failures are reported without recipient addresses, credentials, or response bodies in application errors. Delivery is awaited; there is no durable mail queue or automatic provider retry. Users can request a fresh link after a failure. Automated tests capture email messages and follow their real framework links against disposable MariaDB without emailing recipients.
+Delivery uses Nodemailer over Hostinger’s encrypted SMTP service with a 10-second total delivery deadline and bounded connection, greeting and socket timeouts. Each attempt releases its transport on success, failure or deadline. A timeout bounds how long the application waits; delivery can be uncertain after an SMTP timeout, so there is no automatic retry. File/URL access and SMTP debug logging are disabled. SMTP acceptance does not guarantee inbox delivery. Provider failures are reported without recipient addresses, credentials, or SMTP responses in application errors. Delivery is awaited; there is no durable mail queue or automatic provider retry. Users can request a fresh link after a failure. Automated tests capture email messages and follow their real framework links against disposable MariaDB without emailing recipients.
 
 Apply migration `1793491200010-AuthRateLimits.ts` explicitly before starting MariaDB mode. The runtime account needs SELECT/INSERT/UPDATE/DELETE on `auth_rate_limits`; migration privileges remain separate. Never migrate the live application database as part of starting a test.
+
+The tenant login capsule selects Investor or Organisation. Investor sign-in continues to `/account` or subscriber enrollment; Organisation sign-in requires stored staff membership and never falls back to enrollment. The platform owner uses `/workspace/login`. Hostinger SMTP also delivers one-hour organisation invitations; credential and verification behavior remains shared across roles.
+
+### Platform identity verification and recovery
+
+`/workspace/login` links to `/workspace/verify-email` and `/workspace/forgot-password`; reset links return to `/workspace/reset-password`. These routes are public, tenant-independent and use the existing bounded Hostinger SMTP/Better Auth adapter with null tenant context. They require the configured origin on POST and retain rate limiting. Verification returns to platform login rather than tenant enrollment. Reset tokens are exchanged for an HttpOnly, SameSite=Strict cookie scoped to `/workspace/reset-password` (Secure on HTTPS), removed from the URL, and cleared after successful reset. Platform pages expose no signup link or owner role-grant endpoint. Verify an existing identity before running the operator bootstrap documented in [organisation access](ORGANISATION_ACCESS.md). Neither verification nor password reset assigns platform or tenant roles.
+
+### Hostinger account capacity and setup
+
+The StocksBuddha mailbox was checked in hPanel on 1 November 2026: `support@stocksbuddha.com` was active on **Starter Business Email Free Trial**, with **1 GB** storage and **100 outgoing messages per 24 hours**, expiring **21 October 2027**. These are observed account values, not permanent product guarantees; confirm the current values under Emails → stocksbuddha.com → View limits before launch. Verification, recovery, invitations and other mail sent by the mailbox share its allowance. The application has no durable outgoing queue, automatic SMTP retry or account-wide quota scheduler. Its authentication request limiter is separate from the mailbox's sending quota. Monitor Email Logs in hPanel; raising volume requires reviewing the plan before onboarding more users.
+
+No new DNS changes are needed solely to switch the application if Hostinger reports the domain connected. Keep the existing MX, SPF, DKIM and DMARC records intact; Hostinger SMTP does not require a third-party sending-domain setup. The app no longer uses an email-provider API key.
+
+References: [Hostinger SMTP settings](https://www.hostinger.com/support/4305847-set-up-hostinger-email-on-your-applications-and-devices/), [Hostinger mail limits](https://www.hostinger.com/support/4625828-parameters-and-limits-of-hostinger-email/).

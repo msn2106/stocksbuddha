@@ -2,6 +2,7 @@
 // selection does not pull the database/API schema machinery into the UI bundle.
 export const supportedLocales = ["en", "hi"] as const;
 export type Locale = (typeof supportedLocales)[number];
+/** Resolve an exact supported locale, defaulting invalid input to English. */
 export function resolveLocale(value: unknown): Locale {
   return supportedLocales.find((locale) => locale === value) ?? "en";
 }

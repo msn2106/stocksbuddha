@@ -52,52 +52,133 @@ test("proxy trust follows explicit right-to-left boundaries and discards spoofed
     assert.throws(() => trustedProxies(value));
 });
 
-test("Resend delivery is explicit, bounded, origin-checked and never propagates provider secrets", async () => {
+test("Hostinger SMTP validates complete credentials, TLS and sender identity before enabling mail", async () => {
   assert.equal(authMailer({}), undefined);
-  for (const env of [
-    { NODE_ENV: "production" },
-    { RESEND_API_KEY: "test" },
-    { AUTH_EMAIL_FROM: "bad\nsender" },
-  ])
-    assert.throws(() => authMailer(env));
   const env = {
-    RESEND_API_KEY: "secret",
-    AUTH_EMAIL_FROM: "Accounts <accounts@example.test>",
+    SMTP_HOST: "smtp.hostinger.com",
+    SMTP_PORT: "465",
+    SMTP_USER: "support@example.test",
+    SMTP_PASSWORD: "mailbox-secret",
+    AUTH_EMAIL_FROM: "support@example.test",
     AUTH_BASE_URL: "https://example.test",
   };
-  const sent: { subject: string; text: string }[] = [];
-  const mail = authMailer(env, (async (url, init) => {
-    assert.equal(url, "https://api.resend.com/emails");
-    assert.ok(init?.signal);
-    sent.push(JSON.parse(String(init?.body)));
-    return new Response("{}", { status: 200 });
-  }) as typeof fetch)!;
-  for (const kind of ["verify", "reset"] as const)
-    await mail({
-      to: "user@example.test",
-      url: "https://example.test/api/auth/link",
-      kind,
-    });
-  assert.match(sent[0].subject, /Verify/);
-  assert.match(sent[1].subject, /Reset/);
-  await assert.rejects(
-    mail({ to: "user@example.test", url: "https://evil.test/", kind: "reset" }),
-    /origin/,
-  );
-  for (const transport of [
-    async () => new Response("secret provider payload", { status: 429 }),
-    async () => {
-      throw new Error("private recipient");
-    },
+  for (const invalid of [
+    { NODE_ENV: "production" },
+    { SMTP_HOST: "smtp.hostinger.com" },
+    { ...env, SMTP_PASSWORD: "" },
+    { ...env, SMTP_USER: "bad\nuser" },
+    { ...env, AUTH_EMAIL_FROM: "other@example.test" },
+    { ...env, AUTH_EMAIL_FROM: "bad\nsender" },
+    { ...env, SMTP_HOST: "evil.test" },
+    { ...env, SMTP_PORT: "25" },
+    { ...env, AUTH_BASE_URL: "invalid" },
+    { ...env, SMTP_USER: "invalid" },
   ])
+    assert.throws(() => authMailer(invalid));
+  for (const port of [undefined, "465", "587"]) {
+    let closed = 0;
+    const sent: { subject?: string; text?: string }[] = [];
+    const mail = authMailer({ ...env, SMTP_PORT: port }, (options) => {
+      assert.equal(options.host, "smtp.hostinger.com");
+      assert.equal(options.port, port === "587" ? 587 : 465);
+      assert.equal(options.secure, port !== "587");
+      assert.equal(options.requireTLS, true);
+      assert.deepEqual(options.auth, {
+        user: env.SMTP_USER,
+        pass: env.SMTP_PASSWORD,
+      });
+      assert.equal(options.tls?.rejectUnauthorized, true);
+      assert.equal(options.connectionTimeout, 10000);
+      assert.equal(options.greetingTimeout, 10000);
+      assert.equal(options.socketTimeout, 10000);
+      assert.equal(options.logger, false);
+      assert.equal(options.debug, false);
+      assert.equal(options.disableFileAccess, true);
+      assert.equal(options.disableUrlAccess, true);
+      return {
+        sendMail: async (message) => {
+          assert.equal(message.from, env.AUTH_EMAIL_FROM);
+          assert.equal(message.to, "user@example.test");
+          sent.push(message as { subject: string; text: string });
+          return { accepted: ["user@example.test"], rejected: [] };
+        },
+        close: () => {
+          closed++;
+        },
+      };
+    })!;
+    for (const kind of ["verify", "reset", "invite"] as const)
+      await mail({
+        to: "user@example.test",
+        url: "https://example.test/link",
+        kind,
+      });
+    assert.match(sent[0].subject!, /Verify/);
+    assert.match(sent[1].subject!, /Reset/);
+    assert.match(sent[2].text!, /explicitly accept/);
+    assert.equal(closed, 3);
     await assert.rejects(
-      authMailer(env, transport as typeof fetch)!({
+      mail({
+        to: "user@example.test",
+        url: "https://evil.test/link",
+        kind: "verify",
+      }),
+      /origin/,
+    );
+    await assert.rejects(
+      mail({
+        to: "bad\nrecipient@example.test",
+        url: "https://example.test/link",
+        kind: "verify",
+      }),
+      /recipient/,
+    );
+  }
+});
+
+test("SMTP failures and rejected recipients redact credentials and always close the transport", async () => {
+  const env = {
+    SMTP_USER: "support@example.test",
+    SMTP_PASSWORD: "secret",
+    AUTH_EMAIL_FROM: "support@example.test",
+    AUTH_BASE_URL: "https://example.test",
+  };
+  for (const outcome of ["throw", "rejected", "unaccepted"]) {
+    let closed = 0;
+    const mail = authMailer(env, () => ({
+      sendMail: async () => {
+        if (outcome === "throw")
+          throw new Error("private provider credentials and recipient");
+        return {
+          accepted: outcome === "rejected" ? ["user@example.test"] : [],
+          rejected: outcome === "rejected" ? ["user@example.test"] : [],
+        };
+      },
+      close: () => {
+        closed++;
+      },
+    }))!;
+    await assert.rejects(
+      mail({
         to: "user@example.test",
         url: "https://example.test/link",
         kind: "verify",
       }),
       { message: "Authentication email delivery failed" },
     );
+    assert.equal(closed, 1);
+  }
+  const mail = authMailer(env, () => {
+    throw new Error("secret config");
+  })!;
+  await assert.rejects(
+    mail({
+      to: "user@example.test",
+      url: "https://example.test/link",
+      kind: "verify",
+    }),
+    { message: "Authentication email delivery failed" },
+  );
 });
 
 test("shared limiter resets expired windows, denies full buckets and releases resources on failure", async () => {
@@ -265,4 +346,34 @@ test("monitoring annotates an existing request span without leaking global tags"
     );
   });
   await Sentry.close();
+});
+
+test("SMTP total deadline releases the transport without retaining timers or secrets", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  let closed = 0;
+  const mail = authMailer(
+    {
+      SMTP_USER: "support@example.test",
+      SMTP_PASSWORD: "secret",
+      AUTH_EMAIL_FROM: "support@example.test",
+      AUTH_BASE_URL: "https://example.test",
+    },
+    () => ({
+      sendMail: () => new Promise(() => {}),
+      close: () => {
+        closed++;
+      },
+    }),
+  )!;
+  const delivery = mail({
+    to: "user@example.test",
+    url: "https://example.test/link",
+    kind: "verify",
+  });
+  const rejected = assert.rejects(delivery, {
+    message: "Authentication email delivery failed",
+  });
+  context.mock.timers.tick(10000);
+  await rejected;
+  assert.equal(closed, 1);
 });

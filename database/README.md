@@ -1,6 +1,6 @@
 # MariaDB persistence
 
-The eleven-table foundation uses TypeORM and mysql2. Eleven ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
+The twelve-table foundation uses TypeORM and mysql2. Twelve ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
 
 ## Local setup
 
@@ -64,10 +64,14 @@ Do not grant database-creation privileges to the application user just to run te
 
 ## Authentication provenance migration and legacy users
 
-Migration `AddAuthTenantContext1793491200009` adds nullable signup/login RA FKs to `auth_users` / `auth_sessions`, plus two audit triggers. That migration does not add a table; the later authentication-limit migration brings the current foundation to eleven. It preserves existing rows with unknown (`NULL`) provenance; no users are automatically assigned to RAs. The migration operator needs ALTER/TRIGGER privileges, and the trigger definer must remain valid with audit insert access. See [implementation and partial-DDL recovery](../docs/DATABASE_IMPLEMENTATION.md).
+Migration `AddAuthTenantContext1793491200009` adds nullable signup/login RA FKs to `auth_users` / `auth_sessions`, plus two audit triggers. That migration does not add a table; the authentication-limit and organisation-invitation migrations bring the current foundation to twelve. It preserves existing rows with unknown (`NULL`) provenance; no users are automatically assigned to RAs. The migration operator needs ALTER/TRIGGER privileges, and the trigger definer must remain valid with audit insert access. See [implementation and partial-DDL recovery](../docs/DATABASE_IMPLEMENTATION.md).
 
 After `npm run db:migrate -- --target dev`, use [backfill-auth-tenant-context.sql](queries/backfill-auth-tenant-context.sql) in a single database-client connection. Substitute known emails/slugs in the signup block; run it separately for Stocks Buddha and Beta. Session backfill is optional and requires a known original session RA, not just the user's signup origin. The transaction blocks preserve existing non-NULL values and audit corrections without granting memberships or marking emails verified. See [authentication provenance](../docs/AUTHENTICATION.md#signup-and-login-ra-provenance).
 
 ## Shared authentication limits
 
 Migration `CreateAuthRateLimits1793491200010` adds one table for expiring, hashed authentication counters. All application instances must share this table. Its row-locked consume operation prevents concurrent requests from bypassing limits. Runtime privileges include SELECT/INSERT/UPDATE/DELETE on this table; no runtime CREATE/DROP privileges are needed. Configure trusted proxies and verification/recovery delivery using [the authentication guide](../docs/AUTHENTICATION.md). Existing migrations stay immutable.
+
+## Organisation invitations
+
+Migration `CreateOrganisationInvitations1793491200011` adds the tenant-bound, hashed-token invitation table (12 application migrations, 12 total tables including migration metadata). Run the normal explicit migration command before starting this version. No real account or role is automatically created/promoted. See [organisation setup, verified owner bootstrap and invitation lifecycle](../docs/ORGANISATION_ACCESS.md). The new organisation workflow creates a draft without a website, then activates it only after its first RA Admin accepts.

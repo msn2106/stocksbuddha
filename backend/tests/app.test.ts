@@ -63,6 +63,10 @@ async function request(
 
 test("public route handlers select success/not-found/method/redirect responses with controlled adapters", async () => {
   for (const path of [
+    "/workspace/login",
+    "/workspace/verify-email",
+    "/workspace/forgot-password",
+    "/workspace/reset-password",
     "/api/auth/get-session",
     "/api/session",
     "/api/workspaces",

@@ -218,11 +218,24 @@ test("auth forms forward only credentials, preserve cookies, reject foreign orig
       { origin },
     );
     assert.equal(result.status, 303);
-    assert.equal(result.headers.location, "/ra/stocksbuddha/workspace");
+    assert.equal(result.headers.location, "/ra/stocksbuddha/account");
     assert.ok(result.headers["set-cookie"]);
-    assert.equal(String(calls.at(-1)).includes("platform_role"), false);
-    assert.equal(String(calls.at(-1)?.[4]).includes("forged"), false);
-    assert.equal(calls.at(-1)?.[5], tenant.id);
+    assert.equal(
+      String(calls.filter((call) => call[0] === "auth").at(-1)).includes(
+        "platform_role",
+      ),
+      false,
+    );
+    assert.equal(
+      String(calls.filter((call) => call[0] === "auth").at(-1)?.[4]).includes(
+        "forged",
+      ),
+      false,
+    );
+    assert.equal(
+      calls.filter((call) => call[0] === "auth").at(-1)?.[5],
+      tenant.id,
+    );
     assert.equal(currentAuthTenant(), null);
     state.authStatus = 400;
     assert.match(
@@ -257,7 +270,7 @@ test("auth forms forward only credentials, preserve cookies, reject foreign orig
     200,
   );
   assert.equal(calls.at(-1)?.[3], "unknown");
-  assert.equal(calls.at(-1)?.[5], null);
+  assert.equal(calls.filter((call) => call[0] === "auth").at(-1)?.[5], null);
   const publicPage = await request("/ra/stocksbuddha");
   assert.equal(publicPage.headers["content-security-policy"], undefined);
 });
@@ -287,7 +300,7 @@ test("private pages and APIs require sessions and current tenant membership on e
   for (const path of [
     "/api/workspaces",
     "/api/workspaces/stocksbuddha",
-    "/workspace",
+    "/workspaces",
     "/ra/stocksbuddha/workspace",
     "/api/workspaces/stocksbuddha/members",
   ])
@@ -320,16 +333,13 @@ test("private pages and APIs require sessions and current tenant membership on e
   state.available = true;
   workspace.capabilities = [];
   workspace.membership.role = "subscriber";
-  assert.match(
-    (await request("/ra/stocksbuddha/workspace")).body,
-    /subscriber/,
-  );
+  assert.match((await request("/ra/stocksbuddha/account")).body, /subscriber/);
   assert.equal(
     (await request("/api/workspaces/stocksbuddha/members")).status,
     403,
   );
   state.workspaces = [];
-  assert.match((await request("/workspace")).body, /"workspaces":\[\]/);
+  assert.match((await request("/workspaces")).body, /"workspaces":\[\]/);
   state.sessionFailure = true;
   const failure = await request("/api/session");
   assert.equal(failure.status, 500);
@@ -721,4 +731,430 @@ test("verification, recovery and explicit joining retain tenant context and prot
       503,
     );
   }
+});
+
+test("organisation login requires staff membership and platform login requires the separate stored platform grant", async () => {
+  const { request, state, workspace } = harness();
+  const body = {
+    email: "user@example.test",
+    password: "password123",
+    audience: "organisation",
+  };
+  assert.equal(
+    (await request("/ra/stocksbuddha/login", "POST", body, { origin })).headers
+      .location,
+    "/ra/stocksbuddha/workspace",
+  );
+  workspace.membership.role = "subscriber";
+  const denied = await request("/ra/stocksbuddha/login", "POST", body, {
+    origin,
+  });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.headers["set-cookie"], undefined);
+  assert.match(denied.body, /access/);
+  state.membershipAvailable = false;
+  assert.equal(
+    (await request("/ra/stocksbuddha/login", "POST", body, { origin })).status,
+    403,
+  );
+  let owner = false;
+  const platform = harness({
+    organisations: {
+      isPlatformOwner: async () => owner,
+      list: async () => [],
+    } as never,
+  });
+  assert.equal((await platform.request("/workspace/login")).status, 200);
+  assert.equal(
+    (await platform.request("/workspace/login", "POST", body, { origin }))
+      .status,
+    403,
+  );
+  assert.equal((await platform.request("/workspace")).status, 403);
+  owner = true;
+  assert.equal(
+    (await platform.request("/workspace/login", "POST", body, { origin }))
+      .headers.location,
+    "/workspace",
+  );
+  assert.match((await platform.request("/workspace")).body, /platform_owner/);
+  assert.equal(
+    (await platform.request("/workspace/organisations")).status,
+    200,
+  );
+  assert.equal((await platform.request("/workspace/unknown")).status, 404);
+  platform.state.signedIn = false;
+  assert.equal(
+    (await platform.request("/workspace")).headers.location,
+    "/workspace/login",
+  );
+});
+
+test("platform setup, tenant invitations and acceptance enforce origins, membership and safe delivery failures", async () => {
+  let expired = false,
+    failed = false,
+    denied = false;
+  const events: unknown[][] = [];
+  const credential = "a".repeat(64);
+  const invitation = {
+    id: "invite-id",
+    token: credential,
+    email: "user@example.test",
+    role: "owner",
+    tenant,
+  };
+  const service = {
+    isPlatformOwner: async () => true,
+    list: async () => [{ ...tenant, administrators: 1 }],
+    create: async () => {
+      events.push(["create"]);
+      return tenant;
+    },
+    invite: async (...args: unknown[]) => {
+      events.push(["invite", ...args]);
+      if (denied) throw new DatabaseConflict("forbidden");
+      return invitation;
+    },
+    delivered: async (...args: unknown[]) => {
+      events.push(["delivery", ...args]);
+    },
+    preview: async (slug: string, token: string) =>
+      !expired && slug === tenant.slug && token === credential
+        ? invitation
+        : null,
+    invitations: async () => [],
+    accept: async () => {
+      if (denied) throw new DatabaseConflict("invitation_unavailable");
+      return { role: "owner" };
+    },
+  };
+  const mailer = async () => {
+    if (failed) throw new Error("private provider details");
+    events.push(["sent"]);
+  };
+  const app = harness({ organisations: service as never, mailer });
+  const headers = { origin, cookie: `sb-org-invite=${credential}` };
+  assert.equal((await app.request("/workspace/organisations")).status, 200);
+  assert.equal(
+    (await app.request("/workspace/organisations", "POST", {})).status,
+    403,
+  );
+  assert.equal(
+    (
+      await app.request(
+        "/workspace/organisations",
+        "POST",
+        { email: "user@example.test" },
+        headers,
+      )
+    ).headers.location,
+    "/workspace/organisations?sent=1",
+  );
+  assert.equal(
+    (
+      await app.request(
+        "/workspace/invitations",
+        "POST",
+        { tenantId: tenant.id, email: "user@example.test" },
+        headers,
+      )
+    ).status,
+    303,
+  );
+  failed = true;
+  assert.equal(
+    (await app.request("/workspace/invitations", "POST", {}, headers)).status,
+    400,
+  );
+  assert.ok(events.some((e) => e[0] === "delivery" && e[2] === false));
+  failed = false;
+  denied = true;
+  assert.equal(
+    (await app.request("/workspace/invitations", "POST", {}, headers)).status,
+    400,
+  );
+  denied = false;
+  const noMail = harness({ organisations: service as never });
+  assert.equal(
+    (await noMail.request("/workspace/organisations", "POST", {}, headers))
+      .status,
+    503,
+  );
+  const exchange = await app.request(
+    `/ra/stocksbuddha/invitation?token=${credential}`,
+  );
+  assert.equal(exchange.status, 303);
+  assert.match(String(exchange.headers["set-cookie"]), /HttpOnly/);
+  assert.equal(
+    (
+      await app.request(
+        "/ra/stocksbuddha/invitation",
+        "GET",
+        undefined,
+        headers,
+      )
+    ).status,
+    200,
+  );
+  app.state.signedIn = false;
+  assert.equal(
+    (
+      await app.request(
+        "/ra/stocksbuddha/invitation",
+        "GET",
+        undefined,
+        headers,
+      )
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await app.request("/ra/stocksbuddha/invitation", "POST", {}, headers))
+      .headers.location,
+    "/ra/stocksbuddha/login?audience=organisation",
+  );
+  app.state.signedIn = true;
+  assert.equal(
+    (await app.request("/ra/stocksbuddha/invitation", "POST", {})).status,
+    403,
+  );
+  denied = true;
+  assert.equal(
+    (await app.request("/ra/stocksbuddha/invitation", "POST", {}, headers))
+      .status,
+    403,
+  );
+  denied = false;
+  assert.equal(
+    (await app.request("/ra/stocksbuddha/invitation", "POST", {}, headers))
+      .headers.location,
+    "/ra/stocksbuddha/workspace",
+  );
+  expired = true;
+  assert.equal(
+    (
+      await app.request(
+        "/ra/stocksbuddha/invitation",
+        "GET",
+        undefined,
+        headers,
+      )
+    ).status,
+    404,
+  );
+  assert.equal(
+    (await app.request("/ra/stocksbuddha/invitation", "POST", {}, headers))
+      .status,
+    404,
+  );
+  expired = false;
+  assert.equal(
+    (await app.request("/ra/stocksbuddha/workspace/team")).status,
+    200,
+  );
+  assert.equal(
+    (await app.request("/ra/stocksbuddha/workspace/team", "POST", {})).status,
+    403,
+  );
+  assert.equal(
+    (
+      await app.request(
+        "/ra/stocksbuddha/workspace/team",
+        "POST",
+        { email: "user@example.test", role: "analyst" },
+        headers,
+      )
+    ).status,
+    303,
+  );
+  denied = true;
+  assert.equal(
+    (await app.request("/ra/stocksbuddha/workspace/team", "POST", {}, headers))
+      .status,
+    403,
+  );
+  denied = false;
+  assert.equal(
+    (
+      await noMail.request(
+        "/ra/stocksbuddha/workspace/team",
+        "POST",
+        {},
+        headers,
+      )
+    ).status,
+    503,
+  );
+  app.workspace.capabilities = [];
+  assert.equal(
+    (await app.request("/ra/stocksbuddha/workspace/team")).status,
+    403,
+  );
+  assert.equal(
+    (await app.request("/ra/stocksbuddha/workspace/team", "POST", {}, headers))
+      .status,
+    403,
+  );
+  app.state.signedIn = false;
+  assert.equal(
+    (await app.request("/ra/stocksbuddha/workspace/team")).headers.location,
+    "/ra/stocksbuddha/login?audience=organisation",
+  );
+  assert.equal(
+    (await app.request("/ra/stocksbuddha/workspace/team", "POST", {}, headers))
+      .status,
+    303,
+  );
+});
+
+test("platform credential failures, guest access and draft-tenant invitation login use the appropriate isolated boundaries", async () => {
+  const service = {
+    isPlatformOwner: async () => true,
+    list: async () => [],
+    preview: async () => ({
+      tenant,
+      email: "user@example.test",
+      role: "owner",
+    }),
+  } as never;
+  const app = harness({ organisations: service });
+  app.state.authStatus = 401;
+  assert.equal(
+    (await app.request("/workspace/login", "POST", {}, { origin })).status,
+    401,
+  );
+  assert.equal((await app.request("/workspace/login", "POST", {})).status, 403);
+  app.state.authStatus = 200;
+  app.state.signedIn = false;
+  assert.equal(
+    (await app.request("/workspace/login", "POST", {}, { origin })).status,
+    403,
+  );
+  app.state.signedIn = true;
+  app.state.available = false;
+  assert.equal(
+    (
+      await app.request("/ra/stocksbuddha/login", "GET", undefined, {
+        cookie: "sb-org-invite=" + "a".repeat(64),
+      })
+    ).status,
+    200,
+  );
+  const invited = await app.request(
+    "/ra/stocksbuddha/login",
+    "POST",
+    { audience: "organisation" },
+    { origin, cookie: "sb-org-invite=" + "a".repeat(64) },
+  );
+  assert.equal(invited.headers.location, "/ra/stocksbuddha/invitation");
+});
+
+test("invitation provider failure keeps a safe retryable team form and records failed delivery", async () => {
+  let outcome: unknown;
+  const service = {
+    preview: async () => null,
+    invite: async () => ({
+      id: "invite",
+      email: "person@example.test",
+      tenant,
+      token: "a".repeat(64),
+    }),
+    delivered: async (_id: string, sent: boolean) => {
+      outcome = sent;
+    },
+  } as never;
+  const app = harness({
+    organisations: service,
+    mailer: async () => {
+      throw new Error("private provider error");
+    },
+  });
+  const result = await app.request(
+    "/ra/stocksbuddha/workspace/team",
+    "POST",
+    { email: "person@example.test", role: "analyst" },
+    { origin },
+  );
+  assert.equal(result.status, 502);
+  assert.match(result.body, /invitation/);
+  assert.equal(result.body.includes("private provider"), false);
+  assert.equal(outcome, false);
+});
+
+test("platform recovery is tenant-independent, origin-protected and keeps verification/reset callbacks in workspace", async () => {
+  const app = harness({ emailEnabled: true });
+  for (const mode of ["verify-email", "forgot-password", "reset-password"]) {
+    const path = `/workspace/${mode}`;
+    const page = await app.request(path);
+    assert.equal(page.status, 200);
+    assert.equal(JSON.parse(page.body).audience, "platform");
+    assert.equal((await app.request(path, "POST", {})).status, 403);
+    const result = await app.request(
+      path,
+      "POST",
+      {
+        email: "owner@example.test",
+        password: "new-password-123",
+      },
+      { origin, cookie: "sb-platform-password-reset=reset-credential-value" },
+    );
+    assert.equal(result.status, 200);
+    const call = app.calls.filter((c) => c[0] === "auth").at(-1)!;
+    assert.equal(call.at(-1), null);
+    const payload = JSON.parse(String(call[4]));
+    if (mode === "verify-email")
+      assert.equal(payload.callbackURL, `${origin}/workspace/login`);
+    if (mode === "forgot-password")
+      assert.equal(payload.redirectTo, `${origin}/workspace/reset-password`);
+    if (mode === "reset-password") {
+      assert.equal(payload.token, "reset-credential-value");
+      assert.equal(JSON.parse(result.body).mode, "login");
+      assert.match(
+        String(result.headers["set-cookie"]),
+        /Max-Age=0|Expires=Thu, 01 Jan 1970/,
+      );
+    }
+  }
+  const token = "platform-reset-token-123456";
+  const reset = await app.request(`/workspace/reset-password?token=${token}`);
+  assert.equal(reset.status, 303);
+  assert.equal(reset.headers.location, "/workspace/reset-password");
+  assert.match(
+    String(reset.headers["set-cookie"]),
+    /sb-platform-password-reset=.*Path=\/workspace\/reset-password.*HttpOnly.*SameSite=Strict/,
+  );
+  assert.doesNotMatch(reset.body, new RegExp(token));
+  assert.match(
+    (await app.request("/workspace/reset-password?error=INVALID_TOKEN")).body,
+    /credentials/,
+  );
+  app.state.authStatus = 400;
+  assert.equal(
+    (await app.request("/workspace/forgot-password", "POST", {}, { origin }))
+      .status,
+    400,
+  );
+  const disabled = harness();
+  for (const mode of ["verify-email", "forgot-password", "reset-password"]) {
+    assert.match(
+      (await disabled.request(`/workspace/${mode}`)).body,
+      /service/,
+    );
+    assert.equal(
+      (await disabled.request(`/workspace/${mode}`, "POST", {}, { origin }))
+        .status,
+      503,
+    );
+  }
+  assert.equal((await app.request("/workspace/signup")).status, 404);
+});
+
+test("recovery cannot restore a missing tenant membership or let subscribers enter the staff workspace", async () => {
+  const app = harness();
+  app.state.membershipAvailable = false;
+  assert.equal((await app.request("/ra/stocksbuddha/account")).status, 404);
+  app.state.membershipAvailable = true;
+  app.workspace.membership.role = "subscriber";
+  assert.equal((await app.request("/ra/stocksbuddha/workspace")).status, 403);
+  assert.equal((await app.request("/ra/stocksbuddha/account")).status, 200);
 });

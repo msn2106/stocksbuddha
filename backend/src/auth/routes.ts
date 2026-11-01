@@ -9,6 +9,15 @@ import { DatabaseConflict } from "../database/operations";
 import { withAuthTenant } from "./tenant-context";
 import { clientIp, trustedProxies } from "./client-ip";
 import { monitorTenant } from "../monitoring";
+import type { OrganisationService } from "../organisations/service";
+import type { AuthMailer } from "./email";
+import {
+  createOrganisationRoutes,
+  invitationCookie,
+  responseCookie,
+} from "../organisations/routes";
+import { mountAccountRecovery } from "./recovery";
+import { workspaceDestination } from "../organisations/policy";
 
 type Authentication = ReturnType<typeof createAuthentication>["auth"];
 export type AuthRoutesDependencies = {
@@ -20,6 +29,8 @@ export type AuthRoutesDependencies = {
   baseURL: string;
   trustedProxyAddresses?: string;
   emailEnabled?: boolean;
+  organisations?: OrganisationService;
+  mailer?: AuthMailer;
 };
 
 /** Pass a safe account projection to the shared React SSR pipeline, excluding session tokens. */
@@ -61,6 +72,8 @@ export function createAuthRoutes({
   baseURL,
   trustedProxyAddresses,
   emailEnabled = false,
+  organisations,
+  mailer,
 }: AuthRoutesDependencies) {
   const router = express.Router();
   const origin = new URL(baseURL).origin;
@@ -71,6 +84,9 @@ export function createAuthRoutes({
       "/api/session",
       "/api/workspaces",
       "/workspace",
+      "/workspaces",
+      "/ra/:slug/account",
+      "/ra/:slug/invitation",
       "/login",
       "/signup",
       "/logout",
@@ -79,6 +95,7 @@ export function createAuthRoutes({
       "/ra/:slug/signup",
       "/ra/:slug/logout",
       "/ra/:slug/workspace",
+      "/ra/:slug/account",
       "/ra/:slug/verify-email",
       "/ra/:slug/forgot-password",
       "/ra/:slug/reset-password",
@@ -102,6 +119,30 @@ export function createAuthRoutes({
     express.urlencoded({ extended: false, limit: "8kb" }),
   );
 
+  mountAccountRecovery(router, {
+    auth,
+    origin,
+    emailEnabled,
+    page: accountPage,
+    platform: true,
+  });
+
+  // Platform identities are provisioned by operators; there is no public owner signup.
+  router.all("/workspace/signup", (_req, res) =>
+    res.status(404).json({ error: "not_found" }),
+  );
+
+  if (organisations)
+    router.use(
+      createOrganisationRoutes({
+        auth,
+        store,
+        service: organisations,
+        mailer,
+        origin,
+        page: accountPage,
+      }),
+    );
   router.get(["/login", "/signin", "/signup"], (req, res) =>
     res.redirect(
       302,
@@ -121,6 +162,7 @@ export function createAuthRoutes({
       "/ra/:slug/signup",
       "/ra/:slug/logout",
       "/ra/:slug/workspace",
+      "/ra/:slug/account",
       "/ra/:slug/verify-email",
       "/ra/:slug/forgot-password",
       "/ra/:slug/reset-password",
@@ -128,7 +170,16 @@ export function createAuthRoutes({
     ],
     async (req, res, next) => {
       const slug = slugSchema.safeParse(req.params.slug);
-      const tenant = slug.success ? await store.tenant(slug.data) : null;
+      const tenant = slug.success
+        ? ((await store.tenant(slug.data)) ??
+          (
+            await organisations?.preview(
+              slug.data,
+              invitationCookie(req.headers.cookie),
+            )
+          )?.tenant ??
+          null)
+        : null;
       if (!tenant)
         return res.status(404).json({ error: "workspace_not_found" });
       res.locals.accountTenant = tenant;
@@ -139,12 +190,26 @@ export function createAuthRoutes({
   for (const signup of [false, true]) {
     const path = `/ra/:slug/${signup ? "signup" : "login"}`;
     const mode = signup ? "signup" : "login";
-    router.get(path, (_req, res, next) =>
-      accountPage(res, next, res.locals.accountTenant, { mode }),
+    router.get(path, (req, res, next) =>
+      accountPage(res, next, res.locals.accountTenant, {
+        mode,
+        audience:
+          !signup && req.query.audience === "organisation"
+            ? "organisation"
+            : "investor",
+      }),
     );
     router.post(path, async (req, res, next) => {
       if (req.headers.origin !== origin)
         return res.status(403).json({ error: "forbidden_origin" });
+      const audience =
+        !signup && req.body?.audience === "organisation"
+          ? "organisation"
+          : "investor";
+      const invited = await organisations?.preview(
+        res.locals.accountTenant.slug,
+        invitationCookie(req.headers.cookie),
+      );
       const response = await withAuthTenant(res.locals.accountTenant.id, () =>
         auth.handler(
           new Request(
@@ -162,7 +227,7 @@ export function createAuthRoutes({
                 ...(signup ? { name: req.body?.name } : {}),
                 ...(emailEnabled
                   ? {
-                      callbackURL: `${origin}/ra/${res.locals.accountTenant.slug}/join`,
+                      callbackURL: `${origin}/ra/${res.locals.accountTenant.slug}/${invited ? "invitation" : audience === "organisation" ? "login?audience=organisation" : "join"}`,
                     }
                   : {}),
               }),
@@ -178,6 +243,7 @@ export function createAuthRoutes({
             "EMAIL_NOT_VERIFIED"
         )
           return accountPage(res, next, res.locals.accountTenant, {
+            audience,
             mode: "verify-email",
             notice: "sent",
             email:
@@ -191,6 +257,7 @@ export function createAuthRoutes({
           res.locals.accountTenant,
           {
             mode,
+            audience,
             error: "credentials",
             email:
               typeof req.body?.email === "string"
@@ -213,114 +280,48 @@ export function createAuthRoutes({
               ? req.body.email.slice(0, 254)
               : "",
         });
-      res.setHeader("Set-Cookie", response.headers.getSetCookie());
-      return res.redirect(
-        303,
-        `/ra/${res.locals.accountTenant.slug}/${emailEnabled ? "join" : "workspace"}`,
-      );
-    });
-  }
-  // Token-bearing reset links are exchanged for a short-lived HttpOnly cookie, then removed from the URL.
-  router.get("/ra/:slug/reset-password", (req, res, next) => {
-    const token = req.query.token;
-    const cookiePath = `/ra/${res.locals.accountTenant.slug}/reset-password`;
-    if (typeof token === "string" && /^[A-Za-z0-9_-]{16,256}$/.test(token)) {
-      res.cookie("sb-password-reset", token, {
-        httpOnly: true,
-        secure: origin.startsWith("https://"),
-        sameSite: "strict",
-        path: cookiePath,
-        maxAge: 3600000,
+      const cookie = responseCookie(response);
+      const identity = await auth.api.getSession({
+        headers: new Headers({ cookie }),
       });
-      return res.redirect(303, cookiePath);
-    }
-    return accountPage(res, next, res.locals.accountTenant, {
-      mode: "reset-password",
-      ...(!emailEnabled ? { error: "service" as const } : {}),
-      ...(req.query.error ? { error: "credentials" as const } : {}),
-    });
-  });
-  for (const mode of [
-    "verify-email",
-    "forgot-password",
-    "reset-password",
-  ] as const) {
-    const path = `/ra/:slug/${mode}`;
-    if (mode !== "reset-password")
-      router.get(path, (_req, res, next) =>
-        accountPage(res, next, res.locals.accountTenant, {
-          mode,
-          ...(!emailEnabled ? { error: "service" as const } : {}),
-        }),
-      );
-    router.post(path, async (req, res, next) => {
-      if (req.headers.origin !== origin)
-        return res.status(403).json({ error: "forbidden_origin" });
-      if (!emailEnabled)
+      const workspace = identity
+        ? await store.find(identity.user.id, res.locals.accountTenant.slug)
+        : null;
+      const destination = invited
+        ? "invitation"
+        : workspaceDestination(
+            audience,
+            workspace?.membership.role ?? null,
+            emailEnabled,
+          );
+      if (!destination) {
+        await auth.handler(
+          new Request(`${origin}/api/auth/sign-out`, {
+            method: "POST",
+            headers: { origin, cookie },
+          }),
+        );
         return accountPage(
           res,
           next,
           res.locals.accountTenant,
-          { mode, error: "service" },
-          503,
+          { mode: "login", audience, error: "access" },
+          403,
         );
-      const base = `${origin}/ra/${res.locals.accountTenant.slug}`;
-      const token = req.headers.cookie
-        ?.split(";")
-        .map((part) => part.trim())
-        .find((part) => part.startsWith("sb-password-reset="))
-        ?.slice("sb-password-reset=".length);
-      const body =
-        mode === "reset-password"
-          ? { token, newPassword: req.body?.password }
-          : {
-              email: req.body?.email,
-              ...(mode === "verify-email"
-                ? { callbackURL: `${base}/join` }
-                : { redirectTo: `${base}/reset-password` }),
-            };
-      const response = await withAuthTenant(res.locals.accountTenant.id, () =>
-        auth.handler(
-          new Request(
-            `${origin}/api/auth/${mode === "verify-email" ? "send-verification-email" : mode === "forgot-password" ? "request-password-reset" : "reset-password"}`,
-            {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-                origin,
-                "x-auth-client-ip": req.headers["x-auth-client-ip"] as string,
-              },
-              body: JSON.stringify(body),
-            },
-          ),
-        ),
-      );
-      if (mode === "reset-password" && response.ok) {
-        res.clearCookie("sb-password-reset", {
-          httpOnly: true,
-          secure: origin.startsWith("https://"),
-          sameSite: "strict",
-          path: `/ra/${res.locals.accountTenant.slug}/reset-password`,
-        });
-        return accountPage(res, next, res.locals.accountTenant, {
-          mode: "login",
-          notice: "reset",
-        });
       }
-      return accountPage(
-        res,
-        next,
-        res.locals.accountTenant,
-        {
-          mode,
-          ...(response.ok
-            ? { notice: "sent" as const }
-            : { error: "credentials" as const }),
-        },
-        response.ok ? 200 : response.status,
+      res.setHeader("Set-Cookie", response.headers.getSetCookie());
+      return res.redirect(
+        303,
+        `/ra/${res.locals.accountTenant.slug}/${destination}`,
       );
     });
   }
+  mountAccountRecovery(router, {
+    auth,
+    origin,
+    emailEnabled,
+    page: accountPage,
+  });
   router.post(["/logout", "/ra/:slug/logout"], async (req, res) => {
     if (req.headers.origin !== origin)
       return res.status(403).json({ error: "forbidden_origin" });
@@ -340,13 +341,15 @@ export function createAuthRoutes({
   });
   router.use(
     [
-      "/workspace",
+      "/workspaces",
+      "/ra/:slug/account",
       "/ra/:slug/workspace",
       "/ra/:slug/join",
       "/api/workspaces",
       "/api/session",
     ],
     async (req, res, next) => {
+      if (res.locals.accountPage) return next();
       const identity = await auth.api.getSession({
         headers: fromNodeHeaders(req.headers),
       });
@@ -365,7 +368,7 @@ export function createAuthRoutes({
   router.get("/ra/:slug/join", async (_req, res, next) => {
     const tenant: Tenant = res.locals.accountTenant;
     if (await store.find(res.locals.identity.user.id, tenant.slug))
-      return res.redirect(303, `/ra/${tenant.slug}/workspace`);
+      return res.redirect(303, `/ra/${tenant.slug}/account`);
     return accountPage(res, next, tenant, { mode: "join" });
   });
   router.post("/ra/:slug/join", async (req, res, next) => {
@@ -377,10 +380,7 @@ export function createAuthRoutes({
         tenantId: res.locals.accountTenant.id,
         key: randomUUID(),
       });
-      return res.redirect(
-        303,
-        `/ra/${res.locals.accountTenant.slug}/workspace`,
-      );
+      return res.redirect(303, `/ra/${res.locals.accountTenant.slug}/account`);
     } catch (error) {
       if (!(error instanceof DatabaseConflict)) throw error;
       return accountPage(
@@ -434,7 +434,7 @@ export function createAuthRoutes({
         .json({ error: error.code });
     }
   });
-  router.get(["/workspace", "/api/workspaces"], async (req, res, next) => {
+  router.get(["/workspaces", "/api/workspaces"], async (req, res, next) => {
     const workspaces = await store.list(res.locals.identity.user.id);
     if (req.path.startsWith("/api/"))
       return res.json({ workspaces: workspaces.map(projection) });
@@ -447,15 +447,16 @@ export function createAuthRoutes({
       })),
     });
   });
-  router.get("/workspace/:slug", (req, res) =>
+  router.get("/workspaces/:slug", (req, res) =>
     res.redirect(
       302,
       `/ra/${encodeURIComponent(req.params.slug as string)}/workspace`,
     ),
   );
   router.use(
-    ["/ra/:slug/workspace", "/api/workspaces/:slug"],
+    ["/ra/:slug/workspace", "/ra/:slug/account", "/api/workspaces/:slug"],
     async (req, res, next) => {
+      if (res.locals.accountPage) return next();
       const parsed = slugSchema.safeParse(req.params.slug);
       const workspace = parsed.success
         ? await store.find(res.locals.identity.user.id, parsed.data)
@@ -471,19 +472,37 @@ export function createAuthRoutes({
           );
         return res.status(404).json({ error: "workspace_not_found" });
       }
+      if (
+        !req.originalUrl.startsWith("/api/") &&
+        req.originalUrl.split("?")[0].endsWith("/workspace") &&
+        workspace.membership.role === "subscriber"
+      )
+        return accountPage(
+          res,
+          next,
+          workspace.tenant,
+          { mode: "login", audience: "organisation", error: "access" },
+          403,
+        );
       res.locals.workspace = workspace;
       monitorTenant(workspace.tenant.id);
       next();
     },
   );
   router.get(
-    ["/ra/:slug/workspace", "/api/workspaces/:slug"],
+    ["/ra/:slug/workspace", "/ra/:slug/account", "/api/workspaces/:slug"],
     (req, res, next) => {
       if (res.locals.accountPage) return next();
       const workspace: Workspace = res.locals.workspace;
       if (req.path.startsWith("/api/")) return res.json(projection(workspace));
       return accountPage(res, next, workspace.tenant, {
         mode: "workspace",
+        area: req.path.endsWith("/account") ? "investor" : "organisation",
+        profile: {
+          name: res.locals.identity.user.name,
+          email: res.locals.identity.user.email,
+          emailVerified: !!res.locals.identity.user.emailVerified,
+        },
         role: workspace.membership.role,
         capabilities: workspace.capabilities,
       });
@@ -543,7 +562,13 @@ export function createAuthRoutes({
     }
   });
   router.use(
-    ["/workspace", "/ra/:slug/workspace", "/api/workspaces", "/api/session"],
+    [
+      "/workspaces",
+      "/ra/:slug/account",
+      "/ra/:slug/workspace",
+      "/api/workspaces",
+      "/api/session",
+    ],
     (_req, res, next) =>
       res.locals.accountPage
         ? next()

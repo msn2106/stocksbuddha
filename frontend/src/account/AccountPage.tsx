@@ -6,34 +6,35 @@ import {
   EyeOff,
   LockKeyhole,
   LogOut,
-  Check,
 } from "lucide-react";
 import type { PageData } from "@ra/contracts";
 import { useLanguage } from "../i18n";
 import { Brand } from "../websites/PublicWebsite";
 import { AccessibilityControls } from "../components/AccessibilityControls";
+import { WorkspaceShell } from "./WorkspaceShell";
 import type { UiMessageKey } from "../locales/messages";
 
-const capabilityLabels: Record<string, UiMessageKey> = {
-  "website:edit": "auth.access.website",
-  "research:publish": "auth.access.research",
-  "subscribers:read": "auth.access.subscribers",
-  "staff:manage": "auth.access.staff",
-};
 const roleLabels: Record<string, UiMessageKey> = {
-  owner: "auth.role.owner",
+  owner: "org.role.admin",
   analyst: "auth.role.analyst",
   support: "auth.role.support",
   subscriber: "auth.role.subscriber",
 };
 
-/** Render tenant-scoped account forms and protected workspace states using the public brand system. */
+/** Render platform and tenant account forms and protected workspace states using the public brand system. */
 export function AccountPage({ data }: { data: PageData }) {
   const { t, locale } = useLanguage();
   const account = data.account!;
   const [visible, setVisible] = useState(false);
   const [pending, setPending] = useState(false);
-  const base = data.tenant ? `/ra/${data.tenant.slug}` : "/ra/stocksbuddha";
+  const [audience, setAudience] = useState(account.audience ?? "investor");
+  if (account.mode === "workspace") return <WorkspaceShell data={data} />;
+  const platform = account.audience === "platform";
+  const base = platform
+    ? "/workspace"
+    : data.tenant
+      ? `/ra/${data.tenant.slug}`
+      : "/ra/stocksbuddha";
   const tenant = data.tenant?.profile.name ?? t("auth.platform");
   const signup = account.mode === "signup";
   const credentials = account.mode === "login" || signup;
@@ -68,13 +69,19 @@ export function AccountPage({ data }: { data: PageData }) {
             tagline={data.website ? undefined : t("auth.tagline")}
           />
         ) : (
-          <a className="account-platform" href={base}>
+          <a
+            className="account-platform"
+            href={platform ? "/workspace/login" : base}
+          >
             {tenant}
           </a>
         )}
-        <a className="account-back" href={`${base}${suffix}`}>
+        <a
+          className="account-back"
+          href={`${platform ? "/workspace/login" : base}${suffix}`}
+        >
           <ArrowLeft size={17} aria-hidden="true" />
-          {t("auth.back")}
+          {t(platform ? "auth.login.action" : "auth.back")}
         </a>
       </header>
       <main
@@ -99,7 +106,13 @@ export function AccountPage({ data }: { data: PageData }) {
         </aside>
         <section className="account-panel" aria-labelledby="account-title">
           <div className="account-panel-heading">
-            <h1 id="account-title">{t(titleKey)}</h1>
+            <h1 id="account-title">
+              {t(
+                platform && account.mode === "login"
+                  ? "org.ownerSignIn"
+                  : titleKey,
+              )}
+            </h1>
             {credentials && (
               <p>
                 {t(
@@ -108,11 +121,59 @@ export function AccountPage({ data }: { data: PageData }) {
                 )}
               </p>
             )}
-            {account.mode === "workspace" && (
-              <p>{t("auth.workspace.description", { tenant })}</p>
-            )}
           </div>
-          {form ? (
+          {account.mode === "invitation" ? (
+            <div className="invitation-accept">
+              {account.error ? (
+                <p className="account-error" role="alert">
+                  {t("org.invitationInvalid")}
+                </p>
+              ) : (
+                <>
+                  <p>
+                    {t("org.invitationFor", {
+                      email: account.invitedEmail ?? "",
+                    })}
+                  </p>
+                  <p>
+                    {t("auth.role")}:{" "}
+                    {t(
+                      account.invitedRole === "owner"
+                        ? "org.role.admin"
+                        : account.invitedRole === "support"
+                          ? "auth.role.support"
+                          : "auth.role.analyst",
+                    )}
+                  </p>
+                  {account.signedIn ? (
+                    <form action={`${base}/invitation`} method="post">
+                      <button className="button primary">
+                        {t("org.acceptInvitation")}
+                      </button>
+                    </form>
+                  ) : (
+                    <>
+                      <a
+                        className="button primary"
+                        href={`${base}/login?audience=organisation`}
+                      >
+                        {t("auth.login.action")}
+                      </a>
+                      <a
+                        className="account-invite-signup"
+                        href={`${base}/signup`}
+                      >
+                        {t("auth.signup.action")}
+                      </a>
+                      <p className="account-footnote">
+                        {t("org.invitationVerification")}
+                      </p>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          ) : form ? (
             <>
               {account.notice && (
                 <p role="status">
@@ -123,7 +184,15 @@ export function AccountPage({ data }: { data: PageData }) {
                   )}
                 </p>
               )}
-              {recovery && <p>{t("auth.recovery.description")}</p>}
+              {recovery && (
+                <p>
+                  {t(
+                    platform
+                      ? "org.recoveryDescription"
+                      : "auth.recovery.description",
+                  )}
+                </p>
+              )}
               {account.mode === "join" && (
                 <p>{t("auth.join.description", { tenant })}</p>
               )}
@@ -132,7 +201,11 @@ export function AccountPage({ data }: { data: PageData }) {
                   {t(
                     account.error === "service"
                       ? "auth.error.service"
-                      : "auth.error.credentials",
+                      : account.error === "access"
+                        ? "org.accessDenied"
+                        : account.error === "invitation"
+                          ? "org.invitationInvalid"
+                          : "auth.error.credentials",
                   )}
                 </p>
               )}
@@ -144,6 +217,33 @@ export function AccountPage({ data }: { data: PageData }) {
                 aria-describedby={account.error ? "account-error" : undefined}
                 aria-busy={pending}
               >
+                {account.mode === "login" && !platform && (
+                  <fieldset className="login-audience">
+                    <legend className="sr-only">{t("org.signInAs")}</legend>
+                    {(["investor", "organisation"] as const).map((value) => (
+                      <label
+                        key={value}
+                        className={audience === value ? "selected" : ""}
+                      >
+                        <input
+                          type="radio"
+                          name="audience"
+                          value={value}
+                          checked={audience === value}
+                          onChange={() => setAudience(value)}
+                        />
+                        {t(
+                          value === "investor"
+                            ? "org.investor"
+                            : "org.organisation",
+                        )}
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
+                {account.mode === "login" && audience === "organisation" && (
+                  <p className="account-team-hint">{t("org.teamHint")}</p>
+                )}
                 {signup && (
                   <div className="account-field">
                     <label htmlFor="account-name">{t("auth.name")}</label>
@@ -225,12 +325,14 @@ export function AccountPage({ data }: { data: PageData }) {
                   <ArrowRight size={19} aria-hidden="true" />
                 </button>
               </form>
-              <p className="account-alternate">
-                {t(signup ? "auth.existing" : "auth.new")}{" "}
-                <a href={`${base}/${signup ? "login" : "signup"}${suffix}`}>
-                  {t(signup ? "auth.login.action" : "auth.signup.action")}
-                </a>
-              </p>
+              {!platform && audience !== "organisation" && (
+                <p className="account-alternate">
+                  {t(signup ? "auth.existing" : "auth.new")}{" "}
+                  <a href={`${base}/${signup ? "login" : "signup"}${suffix}`}>
+                    {t(signup ? "auth.login.action" : "auth.signup.action")}
+                  </a>
+                </p>
+              )}
               {account.mode === "login" && (
                 <p>
                   <a href={`${base}/forgot-password${suffix}`}>
@@ -239,6 +341,13 @@ export function AccountPage({ data }: { data: PageData }) {
                   {" · "}
                   <a href={`${base}/verify-email${suffix}`}>
                     {t("auth.verifyEmail.title")}
+                  </a>
+                </p>
+              )}
+              {platform && recovery && (
+                <p>
+                  <a href={`${base}/login${suffix}`}>
+                    {t("auth.login.action")}
                   </a>
                 </p>
               )}
@@ -251,33 +360,6 @@ export function AccountPage({ data }: { data: PageData }) {
             </>
           ) : (
             <>
-              {account.mode === "workspace" && (
-                <dl className="account-access">
-                  <div>
-                    <dt>{t("auth.role")}</dt>
-                    <dd>{t(roleLabels[account.role!]!)}</dd>
-                  </div>
-                  <div>
-                    <dt>{t("auth.access")}</dt>
-                    <dd>
-                      <ul>
-                        {(account.capabilities?.length
-                          ? account.capabilities
-                          : ["overview"]
-                        ).map((capability) => (
-                          <li key={capability}>
-                            <Check size={17} aria-hidden="true" />
-                            {t(
-                              capabilityLabels[capability] ??
-                                "auth.access.basic",
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </dd>
-                  </div>
-                </dl>
-              )}
               {account.mode === "unavailable" && (
                 <>
                   <p className="account-empty">{t("auth.unavailable.body")}</p>
@@ -289,7 +371,9 @@ export function AccountPage({ data }: { data: PageData }) {
                   <ul className="account-workspaces">
                     {account.workspaces.map((workspace) => (
                       <li key={workspace.slug}>
-                        <a href={`/ra/${workspace.slug}/workspace${suffix}`}>
+                        <a
+                          href={`/ra/${workspace.slug}/${workspace.role === "subscriber" ? "account" : "workspace"}${suffix}`}
+                        >
                           <span>
                             {workspace.name}
                             <small>{t(roleLabels[workspace.role]!)}</small>
@@ -304,7 +388,7 @@ export function AccountPage({ data }: { data: PageData }) {
                 ))}
               <div className="account-workspace-actions">
                 {account.mode !== "workspaces" && (
-                  <a href={`/workspace${suffix}`}>{t("auth.switch")}</a>
+                  <a href={`/workspaces${suffix}`}>{t("auth.switch")}</a>
                 )}
                 <form
                   action={data.tenant ? `${base}/logout` : "/logout"}

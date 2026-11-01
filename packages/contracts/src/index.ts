@@ -39,9 +39,33 @@ export type AccountView = {
     | "verify-email"
     | "forgot-password"
     | "reset-password"
-    | "join";
-  notice?: "sent" | "reset";
-  error?: "credentials" | "service";
+    | "join"
+    | "invitation";
+  audience?: "investor" | "organisation" | "platform";
+  area?: "investor" | "organisation" | "platform";
+  section?: "overview" | "organisations" | "team";
+  profile?: { name: string; email: string; emailVerified: boolean };
+  organisations?: {
+    id: string;
+    slug: string;
+    name: string;
+    status: string;
+    administrators: number;
+  }[];
+  invitations?: {
+    id: string;
+    email: string;
+    role: string;
+    delivery_status: string;
+    expires_at: string;
+    accepted_at: string | null;
+    revoked_at: string | null;
+  }[];
+  invitedEmail?: string;
+  invitedRole?: string;
+  signedIn?: boolean;
+  notice?: "sent" | "reset" | "invited";
+  error?: "credentials" | "service" | "access" | "invitation";
   email?: string;
   name?: string;
   role?: string;

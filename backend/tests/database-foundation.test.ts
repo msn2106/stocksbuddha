@@ -621,3 +621,13 @@ test("operation authorization and conflict failures are explicit and never bypas
     /stale/,
   );
 });
+
+test("RA Admin membership management cannot appoint another administrator through the legacy role-change API", async () => {
+  const { ops, state, context } = operationHarness();
+  state.user.platform_role = "";
+  state.target.role = "subscriber";
+  await assert.rejects(
+    ops.changeMembership(context, state.target.id, 1, "owner", true),
+    /forbidden/,
+  );
+});

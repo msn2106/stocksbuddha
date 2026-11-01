@@ -111,28 +111,15 @@ test("workspace states display human-readable permissions, tenant links, empty m
     ],
   });
   let view = render(<App data={data} />);
-  for (const label of [
-    "Owner",
-    "Website management",
-    "Research publishing",
-    "Subscriber management",
-    "Team management",
-  ])
-    assert.ok(screen.getByText(label));
-  assert.equal(
-    screen
-      .getByRole("button", { name: "Sign out" })
-      .closest("form")
-      ?.getAttribute("action"),
-    "/ra/example/logout",
-  );
+  assert.ok(screen.getByRole("navigation", { name: "Workspace navigation" }));
+  assert.equal(screen.queryByText("Website management"), null);
   view.unmount();
   view = render(
     <App
       data={page({ mode: "workspace", role: "subscriber", capabilities: [] })}
     />,
   );
-  assert.ok(screen.getByText("Workspace overview"));
+  assert.ok(screen.getByRole("navigation", { name: "Workspace navigation" }));
   view.unmount();
   view = render(<App data={page({ mode: "unavailable" })} />);
   assert.ok(screen.getByText(/You don’t have an active membership/));

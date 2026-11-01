@@ -46,7 +46,7 @@ test(
     const manifest = await loadManifest();
     try {
       await context.test(
-        "fresh and repeated migrations have one success per migration and exactly eleven tables",
+        "fresh and repeated migrations have one success per migration and exactly twelve tables",
         async () => {
           await runMigrations(db, manifest, true);
           await runMigrations(db, manifest, true);
@@ -54,7 +54,7 @@ test(
             "SELECT COUNT(*) AS count FROM information_schema.tables WHERE table_schema=?",
             [name],
           );
-          assert.equal(Number(count), 11);
+          assert.equal(Number(count), 12);
           const [{ attempts }] = await db.query(
             "SELECT COUNT(*) AS attempts FROM migration_attempts",
           );
@@ -560,6 +560,10 @@ test(
       await context.test(
         "authoritative session/membership checks deny revoked actors and protect the last owner",
         async () => {
+          await db.query(
+            "UPDATE auth_users SET platform_role='owner' WHERE id=?",
+            [userId],
+          );
           await ops.changeMembership(
             operation(),
             secondMember,
@@ -773,7 +777,7 @@ test(
               const base = `http://127.0.0.1:${address.port}`;
               const origin = "http://localhost:3000";
               assert.equal(
-                (await fetch(`${base}/workspace`, { redirect: "manual" }))
+                (await fetch(`${base}/workspaces`, { redirect: "manual" }))
                   .status,
                 303,
               );
@@ -865,6 +869,24 @@ test(
                 "content-type": "application/json",
                 "idempotency-key": randomUUID(),
               };
+              // Tenant admins cannot mutate administrator grants through the staff API.
+              const deniedAdminChange = await fetch(
+                `${workspacePath}/members/${workspace.membership.id}`,
+                {
+                  method: "PATCH",
+                  headers: patch,
+                  body: JSON.stringify({
+                    role: "support",
+                    active: true,
+                    version: 1,
+                  }),
+                },
+              );
+              assert.equal(deniedAdminChange.status, 403);
+              await db.query(
+                "UPDATE auth_users SET platform_role='owner' WHERE id=?",
+                [result.user.id],
+              );
               const changed = await fetch(
                 `${workspacePath}/members/${workspace.membership.id}`,
                 {
@@ -1142,7 +1164,7 @@ test(
             mailer: async (message: {
               to: string;
               url: string;
-              kind: "verify" | "reset";
+              kind: "verify" | "reset" | "invite";
             }) => {
               emails.push(message);
             },
