@@ -78,6 +78,8 @@ export class TenantOperations {
     if (capability === "enroll") {
       if (!user.email_verified || member?.status === "revoked")
         throw new DatabaseConflict("enrollment_unavailable");
+      if (member && member.role !== "subscriber")
+        throw new DatabaseConflict("staff_only");
     } else if (
       !member ||
       !canAccessTenant(
@@ -389,7 +391,7 @@ export class TenantOperations {
     });
   }
 
-  /** Enroll only a verified identity as a subscriber; retries preserve staff roles and never reactivate revoked membership. */
+  /** Enroll verified subscribers only; staff identities in this RA must use another email, and revoked membership never reactivates. */
   async enroll(context: Operation) {
     return this.db.transaction(async (manager) => {
       const { actor } = await this.authorize(manager, context, "enroll");
@@ -477,6 +479,11 @@ export class TenantOperations {
         if (currentCaller.platform_role !== "owner")
           throw new DatabaseConflict("forbidden");
       }
+      if (
+        member.role !== role &&
+        (member.role === "subscriber" || role === "subscriber")
+      )
+        throw new DatabaseConflict("role_category_conflict");
       const owners = await manager.query(
         "SELECT id,capabilities_json FROM tenant_memberships WHERE tenant_id=? AND role='owner' AND status='active' FOR UPDATE",
         [context.tenantId],

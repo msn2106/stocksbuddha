@@ -17,16 +17,16 @@ export function workspaceDestination(
 ) {
   if (audience === "organisation")
     return role && role !== "subscriber" ? "workspace" : null;
-  return role || !verifiedEnrollment ? "account" : "join";
+  if (role && role !== "subscriber") return null;
+  return role === "subscriber" || !verifiedEnrollment ? "account" : "join";
 }
-/** Preserve established staff permissions while allowing an explicit administrator appointment. */
-export function mergeInvitationRole(
+/** Invitations may establish a role or repeat the same role, never convert an existing membership. */
+export function invitationRoleConflict(
   existing: TenantRole | null,
   invited: StaffRole,
-): StaffRole {
-  return invited === "owner"
-    ? "owner"
-    : existing && existing !== "subscriber"
-      ? existing
-      : invited;
+): "subscriber_conflict" | "staff_role_conflict" | null {
+  if (!existing || existing === invited) return null;
+  return existing === "subscriber"
+    ? "subscriber_conflict"
+    : "staff_role_conflict";
 }

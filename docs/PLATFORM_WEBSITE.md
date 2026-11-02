@@ -35,3 +35,7 @@ Keep `AUTH_BASE_URL` as the exact shared origin (for example `https://stocksbudd
 ## Verification
 
 Unit tests cover platform SSR/metadata, tenant-free rendering, slug validation, entry-point redirects and indexing isolation. The normal integration suite checks HTTP routing. `npm run test:e2e` includes platform navigation, audience selection, tenant boundaries, English/Hindi screenshots at desktop/tablet/mobile widths, hydration errors, axe accessibility, keyboard navigation and 200% text sizing. The browser suite uses fixture mode; database-backed access tests remain separate.
+
+## Account roles within an RA
+
+Investor and Organisation entry points lead to mutually exclusive per-RA roles. One email cannot be both a subscriber and staff in the same RA. Staff use Organisation; subscribers use Investor; incompatible signup, invitations, direct URLs and APIs are rejected with appropriate guidance. A different RA can assign that global identity a different role. See [role exclusivity](ROLE_EXCLUSIVITY.md).

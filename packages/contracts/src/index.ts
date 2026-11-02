@@ -62,16 +62,38 @@ export type AccountView = {
     id: string;
     email: string;
     role: string;
+    full_name?: string | null;
     delivery_status: string;
     expires_at: string;
     accepted_at: string | null;
     revoked_at: string | null;
   }[];
+  members?: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    status: string;
+    canRevoke: boolean;
+  }[];
+  autoAcceptInvitation?: boolean;
+  invitationIdentity?: "different" | "unverified";
   invitedEmail?: string;
   invitedRole?: string;
   signedIn?: boolean;
-  notice?: "sent" | "reset" | "invited";
-  error?: "credentials" | "service" | "access" | "invitation" | "throttled";
+  notice?: "sent" | "reset" | "invited" | "revoked";
+  error?:
+    | "credentials"
+    | "service"
+    | "access"
+    | "invitation"
+    | "throttled"
+    | "account_exists"
+    | "staff_only"
+    | "subscriber_only"
+    | "subscriber_conflict"
+    | "staff_role_conflict"
+    | "membership_revoked";
   email?: string;
   name?: string;
   role?: string;

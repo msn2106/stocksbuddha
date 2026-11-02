@@ -18,11 +18,15 @@ import type { OrganisationService } from "../organisations/service";
 import type { AuthMailer } from "./email";
 import {
   createOrganisationRoutes,
+  clearInvitationCookie,
   invitationCookie,
   responseCookie,
 } from "../organisations/routes";
 import { mountAccountRecovery } from "./recovery";
-import { workspaceDestination } from "../organisations/policy";
+import {
+  workspaceDestination,
+  invitationRoleConflict,
+} from "../organisations/policy";
 
 type Authentication = ReturnType<typeof createAuthentication>["auth"];
 export type AuthRoutesDependencies = {
@@ -194,63 +198,199 @@ export function createAuthRoutes({
       next();
     },
   );
+  /** Offer role-specific signup guidance only after authenticating the requester as that exact email. */
+  async function existingSignup(
+    req: express.Request,
+    res: Response,
+    next: NextFunction,
+  ) {
+    const identity = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+    if (
+      !identity ||
+      (req.method === "POST" &&
+        (typeof req.body?.email !== "string" ||
+          req.body.email.trim().toLowerCase() !==
+            identity.user.email.toLowerCase()))
+    )
+      return false;
+    const workspace = await store.find(
+      identity.user.id,
+      res.locals.accountTenant.slug,
+    );
+    if (!workspace) return false;
+    const staff = workspace.membership.role !== "subscriber";
+    accountPage(
+      res,
+      next,
+      workspace.tenant,
+      {
+        mode: "login",
+        audience: staff ? "organisation" : "investor",
+        email: identity.user.email,
+        error: staff ? "staff_only" : "account_exists",
+      },
+      409,
+    );
+    return true;
+  }
   for (const signup of [false, true]) {
     const path = `/ra/:slug/${signup ? "signup" : "login"}`;
     const mode = signup ? "signup" : "login";
-    router.get(path, (req, res, next) =>
-      accountPage(res, next, res.locals.accountTenant, {
+    router.get(path, async (req, res, next) => {
+      if (signup && (await existingSignup(req, res, next))) return;
+      const audience =
+        !signup && req.query.audience === "organisation"
+          ? "organisation"
+          : "investor";
+      const invite =
+        signup || audience === "organisation"
+          ? await organisations?.preview(
+              res.locals.accountTenant.slug,
+              invitationCookie(req.headers.cookie),
+            )
+          : null;
+      if (signup && invite)
+        return res.redirect(
+          303,
+          `/ra/${res.locals.accountTenant.slug}/invitation`,
+        );
+      return accountPage(res, next, res.locals.accountTenant, {
         mode,
-        audience:
-          !signup && req.query.audience === "organisation"
-            ? "organisation"
-            : "investor",
-      }),
-    );
+        audience,
+        ...(invite
+          ? {
+              email: invite.email,
+              invitedEmail: invite.email,
+              invitedRole: invite.role,
+            }
+          : {}),
+      });
+    });
     router.post(path, async (req, res, next) => {
       if (req.headers.origin !== origin)
         return res.status(403).json({ error: "forbidden_origin" });
+      if (signup && (await existingSignup(req, res, next))) return;
       const audience =
         !signup && req.body?.audience === "organisation"
           ? "organisation"
           : "investor";
-      const invited = await organisations?.preview(
-        res.locals.accountTenant.slug,
-        invitationCookie(req.headers.cookie),
-      );
-      const response = await withAuthTenant(res.locals.accountTenant.id, () =>
-        auth.handler(
-          new Request(
-            `${origin}/api/auth/${signup ? "sign-up" : "sign-in"}/email`,
-            {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-                origin,
-                "x-auth-client-ip": req.headers["x-auth-client-ip"] as string,
-              },
-              body: JSON.stringify({
-                email: req.body?.email,
-                password: req.body?.password,
-                ...(signup ? { name: req.body?.name } : {}),
-                ...(emailEnabled
-                  ? {
-                      callbackURL: `${origin}/ra/${res.locals.accountTenant.slug}/${invited ? "invitation" : audience === "organisation" ? "login?audience=organisation" : "join"}`,
-                    }
-                  : {}),
-              }),
-            },
-          ),
-        ),
-      );
-      if (!response.ok) {
+      const invited =
+        signup || audience === "organisation"
+          ? await organisations?.preview(
+              res.locals.accountTenant.slug,
+              invitationCookie(req.headers.cookie),
+            )
+          : null;
+      if (signup && req.body?.invitation === "1" && !invited)
+        return accountPage(
+          res,
+          next,
+          res.locals.accountTenant,
+          { mode: "invitation", error: "invitation" },
+          403,
+        );
+      const invitationSignup = signup && !!invited;
+      const inviteFields = invited
+        ? {
+            invitedEmail: invited.email,
+            invitedRole: invited.role,
+            email: invited.email,
+            name: invited.fullName ?? "",
+          }
+        : {};
+      let registered = false;
+      let signedCookie = "";
+      try {
         if (
-          emailEnabled &&
-          response.status === 403 &&
-          ((await response.clone().json()) as { code?: string }).code ===
-            "EMAIL_NOT_VERIFIED"
+          invited &&
+          (typeof req.body?.email !== "string" ||
+            req.body.email.trim().toLowerCase() !== invited.email)
         )
+          throw new DatabaseConflict("invitation_unavailable");
+        if (invitationSignup) {
+          const current = await auth.api.getSession({
+            headers: fromNodeHeaders(req.headers),
+          });
+          if (current)
+            return res.redirect(
+              303,
+              `/ra/${res.locals.accountTenant.slug}/invitation`,
+            );
+          await organisations!.register(
+            res.locals.accountTenant.id,
+            invitationCookie(req.headers.cookie),
+            req.body?.name,
+            req.body?.password,
+            String(req.headers["x-auth-client-ip"]),
+          );
+          registered = true;
+        }
+        const response = await withAuthTenant(res.locals.accountTenant.id, () =>
+          auth.handler(
+            new Request(
+              `${origin}/api/auth/${signup && !invitationSignup ? "sign-up" : "sign-in"}/email`,
+              {
+                method: "POST",
+                headers: {
+                  "content-type": "application/json",
+                  origin,
+                  "x-auth-client-ip": req.headers["x-auth-client-ip"] as string,
+                },
+                body: JSON.stringify({
+                  email: invited?.email ?? req.body?.email,
+                  password: req.body?.password,
+                  ...(signup && !invitationSignup
+                    ? { name: req.body?.name }
+                    : {}),
+                  ...(emailEnabled
+                    ? {
+                        callbackURL: `${origin}/ra/${res.locals.accountTenant.slug}/${invited ? "invitation" : audience === "organisation" ? "login?audience=organisation" : "join"}`,
+                      }
+                    : {}),
+                }),
+              },
+            ),
+          ),
+        );
+        if (!response.ok) {
+          if (
+            emailEnabled &&
+            response.status === 403 &&
+            ((await response.clone().json()) as { code?: string }).code ===
+              "EMAIL_NOT_VERIFIED"
+          )
+            return accountPage(res, next, res.locals.accountTenant, {
+              audience,
+              mode: "verify-email",
+              notice: "sent",
+              email: req.body?.email,
+              ...inviteFields,
+            });
+          return accountPage(
+            res,
+            next,
+            res.locals.accountTenant,
+            {
+              mode: registered ? "login" : mode,
+              audience: invited ? "organisation" : audience,
+              error: authFailure(response, res),
+              email:
+                typeof req.body?.email === "string"
+                  ? req.body.email.slice(0, 254)
+                  : "",
+              name:
+                typeof req.body?.name === "string"
+                  ? req.body.name.slice(0, 160)
+                  : "",
+              ...inviteFields,
+            },
+            response.status,
+          );
+        }
+        if (signup && emailEnabled && !invitationSignup)
           return accountPage(res, next, res.locals.accountTenant, {
-            audience,
             mode: "verify-email",
             notice: "sent",
             email:
@@ -258,69 +398,105 @@ export function createAuthRoutes({
                 ? req.body.email.slice(0, 254)
                 : "",
           });
+        signedCookie = responseCookie(response);
+        const identity = await auth.api.getSession({
+          headers: new Headers({ cookie: signedCookie }),
+        });
+        if (!identity) throw new DatabaseConflict("unauthorized");
+        if (invited && identity.user.email.toLowerCase() !== invited.email)
+          throw new DatabaseConflict("invitation_unavailable");
+        const workspace = await store.find(
+          identity.user.id,
+          res.locals.accountTenant.slug,
+        );
+        if (invited && workspace) {
+          const conflict = invitationRoleConflict(
+            workspace.membership.role,
+            invited.role,
+          );
+          if (conflict) throw new DatabaseConflict(conflict);
+        }
+        if (invited && !registered)
+          await organisations!.accept(
+            identity.session.token,
+            res.locals.accountTenant.id,
+            invitationCookie(req.headers.cookie),
+          );
+        const destination = invited
+          ? "workspace"
+          : workspaceDestination(
+              audience,
+              workspace?.membership.role ?? null,
+              emailEnabled,
+            );
+        if (!destination) {
+          await auth.handler(
+            new Request(`${origin}/api/auth/sign-out`, {
+              method: "POST",
+              headers: { origin, cookie: signedCookie },
+            }),
+          );
+          signedCookie = "";
+          return accountPage(
+            res,
+            next,
+            res.locals.accountTenant,
+            {
+              mode: "login",
+              audience,
+              email: identity.user.email,
+              error:
+                workspace?.membership.role === "subscriber"
+                  ? "subscriber_only"
+                  : workspace
+                    ? "staff_only"
+                    : "access",
+            },
+            403,
+          );
+        }
+        res.setHeader("Set-Cookie", response.headers.getSetCookie());
+        if (invited)
+          clearInvitationCookie(res, res.locals.accountTenant.slug, origin);
+        return res.redirect(
+          303,
+          `/ra/${res.locals.accountTenant.slug}/${destination}`,
+        );
+      } catch (error) {
+        if (!(error instanceof DatabaseConflict)) throw error;
+        if (signedCookie)
+          await auth.handler(
+            new Request(`${origin}/api/auth/sign-out`, {
+              method: "POST",
+              headers: { origin, cookie: signedCookie },
+            }),
+          );
+        if (error.code === "throttled") res.setHeader("Retry-After", "60");
         return accountPage(
           res,
           next,
           res.locals.accountTenant,
           {
-            mode,
-            audience,
-            error: authFailure(response, res),
-            email:
-              typeof req.body?.email === "string"
-                ? req.body.email.slice(0, 254)
-                : "",
-            name:
-              typeof req.body?.name === "string"
-                ? req.body.name.slice(0, 160)
-                : "",
+            mode:
+              registered || error.code === "account_exists" ? "login" : mode,
+            audience: invited ? "organisation" : audience,
+            ...inviteFields,
+            error:
+              error.code === "throttled"
+                ? "throttled"
+                : error.code === "account_exists"
+                  ? "account_exists"
+                  : error.code === "invalid_password"
+                    ? "credentials"
+                    : error.code === "subscriber_conflict" ||
+                        error.code === "staff_role_conflict" ||
+                        error.code === "membership_revoked"
+                      ? error.code
+                      : "invitation",
           },
-          response.status,
+          error.code === "throttled" ? 429 : 403,
         );
       }
-      if (signup && emailEnabled)
-        return accountPage(res, next, res.locals.accountTenant, {
-          mode: "verify-email",
-          notice: "sent",
-          email:
-            typeof req.body?.email === "string"
-              ? req.body.email.slice(0, 254)
-              : "",
-        });
-      const cookie = responseCookie(response);
-      const identity = await auth.api.getSession({
-        headers: new Headers({ cookie }),
-      });
-      const workspace = identity
-        ? await store.find(identity.user.id, res.locals.accountTenant.slug)
-        : null;
-      const destination = invited
-        ? "invitation"
-        : workspaceDestination(
-            audience,
-            workspace?.membership.role ?? null,
-            emailEnabled,
-          );
-      if (!destination) {
-        await auth.handler(
-          new Request(`${origin}/api/auth/sign-out`, {
-            method: "POST",
-            headers: { origin, cookie },
-          }),
-        );
-        return accountPage(
-          res,
-          next,
-          res.locals.accountTenant,
-          { mode: "login", audience, error: "access" },
-          403,
-        );
-      }
-      res.setHeader("Set-Cookie", response.headers.getSetCookie());
-      return res.redirect(
-        303,
-        `/ra/${res.locals.accountTenant.slug}/${destination}`,
-      );
     });
   }
   mountAccountRecovery(router, {
@@ -328,6 +504,7 @@ export function createAuthRoutes({
     origin,
     emailEnabled,
     page: accountPage,
+    organisations,
   });
   router.post(["/logout", "/ra/:slug/logout"], async (req, res) => {
     if (req.headers.origin !== origin)
@@ -378,8 +555,21 @@ export function createAuthRoutes({
   );
   router.get("/ra/:slug/join", async (_req, res, next) => {
     const tenant: Tenant = res.locals.accountTenant;
-    if (await store.find(res.locals.identity.user.id, tenant.slug))
-      return res.redirect(303, `/ra/${tenant.slug}/account`);
+    const existing = await store.find(res.locals.identity.user.id, tenant.slug);
+    if (existing?.membership.role !== "subscriber" && existing)
+      return accountPage(
+        res,
+        next,
+        tenant,
+        {
+          mode: "login",
+          audience: "organisation",
+          email: res.locals.identity.user.email,
+          error: "staff_only",
+        },
+        403,
+      );
+    if (existing) return res.redirect(303, `/ra/${tenant.slug}/account`);
     return accountPage(res, next, tenant, { mode: "join" });
   });
   router.post("/ra/:slug/join", async (req, res, next) => {
@@ -398,7 +588,9 @@ export function createAuthRoutes({
         res,
         next,
         res.locals.accountTenant,
-        { mode: "unavailable" },
+        error.code === "staff_only"
+          ? { mode: "login", audience: "organisation", error: "staff_only" }
+          : { mode: "unavailable" },
         403,
       );
     }
@@ -485,14 +677,26 @@ export function createAuthRoutes({
       }
       if (
         !req.originalUrl.startsWith("/api/") &&
-        req.originalUrl.split("?")[0].endsWith("/workspace") &&
+        /^\/ra\/[^/]+\/workspace(?:\/|$)/.test(req.originalUrl.split("?")[0]) &&
         workspace.membership.role === "subscriber"
       )
         return accountPage(
           res,
           next,
           workspace.tenant,
-          { mode: "login", audience: "organisation", error: "access" },
+          { mode: "login", audience: "investor", error: "subscriber_only" },
+          403,
+        );
+      if (
+        !req.originalUrl.startsWith("/api/") &&
+        /^\/ra\/[^/]+\/account(?:\/|$)/.test(req.originalUrl.split("?")[0]) &&
+        workspace.membership.role !== "subscriber"
+      )
+        return accountPage(
+          res,
+          next,
+          workspace.tenant,
+          { mode: "login", audience: "organisation", error: "staff_only" },
           403,
         );
       res.locals.workspace = workspace;

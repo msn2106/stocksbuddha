@@ -1,8 +1,9 @@
+import { hashPassword } from "better-auth/crypto";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { DataSource, EntityManager } from "typeorm";
 import { tenantSchema, type Tenant } from "@ra/contracts";
 import { DatabaseConflict } from "../database/operations";
-import { canInvite, mergeInvitationRole, type StaffRole } from "./policy";
+import { canInvite, invitationRoleConflict, type StaffRole } from "./policy";
 
 type Actor = {
   id: string;
@@ -14,6 +15,7 @@ type Invite = {
   id: string;
   tenant_id: string;
   email: string;
+  full_name: string | null;
   role: StaffRole;
   created_by: string;
   accepted_at: string | null;
@@ -27,6 +29,20 @@ function hash(token: string) {
 function validRole(role: string): asserts role is StaffRole {
   if (!["owner", "analyst", "support"].includes(role))
     throw new DatabaseConflict("invalid_role");
+}
+/** Require a printable recipient name before persisting or personalizing mail. */
+function recipientName(input: unknown): string {
+  if (
+    typeof input !== "string" ||
+    !input.trim() ||
+    input.trim().length > 100 ||
+    [...input].some(
+      (character) =>
+        character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+    )
+  )
+    throw new DatabaseConflict("invalid_name");
+  return input.trim();
 }
 /** Project a minimal tenant identity without exposing administrative settings. */
 function tenant(row: Record<string, unknown>): Tenant {
@@ -73,6 +89,7 @@ export class OrganisationService {
     token: string,
     tenantId: string,
     role: StaffRole,
+    adminOnly = false,
   ) {
     const identity = await this.actor(manager, token);
     const [actor] = await manager.query(
@@ -98,6 +115,7 @@ export class OrganisationService {
         : null;
     if (
       !actor.email_verified ||
+      (adminOnly && (memberRole !== "owner" || row.status !== "active")) ||
       !canInvite(actor.platform_role === "owner", memberRole, role) ||
       (row.status === "draft" && actor.platform_role !== "owner")
     )
@@ -190,28 +208,52 @@ export class OrganisationService {
       administrators: Number(row.administrators),
     }));
   }
+  /** Check the recipient in this RA after its tenant lock; never disclose other organisations or change a stored role. */
+  private async recipientRole(
+    manager: EntityManager,
+    tenantId: string,
+    email: string,
+    role: StaffRole,
+  ) {
+    const [member] = await manager.query(
+      "SELECT m.role,m.status FROM tenant_memberships m JOIN auth_users u ON u.id=m.user_id WHERE m.tenant_id=? AND u.email=?",
+      [tenantId, email],
+    );
+    if (member?.status === "revoked")
+      throw new DatabaseConflict("membership_revoked");
+    const conflict = invitationRoleConflict(member?.role ?? null, role);
+    if (conflict) throw new DatabaseConflict(conflict);
+  }
   /** Create a one-hour invitation and revoke prior pending grants to the same identity in this tenant. */
-  async invite(token: string, tenantId: string, email: string, role: string) {
+  async invite(
+    token: string,
+    tenantId: string,
+    email: string,
+    role: string,
+    fullName: string,
+  ) {
     validRole(role);
+    fullName = recipientName(fullName);
     email = email.trim().toLowerCase();
     if (email.length > 254 || !/^\S+@[^\s@]+\.[^\s@]+$/.test(email))
       throw new DatabaseConflict("invalid_email");
     const credential = randomBytes(32).toString("hex"),
       id = randomUUID();
-    return this.db.transaction(async (manager) => {
+    return this.db.transaction("READ COMMITTED", async (manager) => {
       const { actor, tenant: record } = await this.issuer(
         manager,
         token,
         tenantId,
         role,
       );
+      await this.recipientRole(manager, tenantId, email, role);
       await manager.query(
         "UPDATE organisation_invitations SET revoked_at=UTC_TIMESTAMP(3) WHERE tenant_id=? AND email=? AND accepted_at IS NULL AND revoked_at IS NULL",
         [tenantId, email],
       );
       await manager.query(
-        "INSERT INTO organisation_invitations(id,tenant_id,email,role,created_by,token_hash,expires_at) VALUES (?,?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 1 HOUR))",
-        [id, tenantId, email, role, actor.id, hash(credential)],
+        "INSERT INTO organisation_invitations(id,tenant_id,email,role,created_by,token_hash,full_name,expires_at) VALUES (?,?,?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 1 HOUR))",
+        [id, tenantId, email, role, actor.id, hash(credential), fullName],
       );
       await this.audit(
         manager,
@@ -221,7 +263,7 @@ export class OrganisationService {
         "invitation",
         id,
       );
-      return { id, token: credential, email, role, tenant: record };
+      return { id, token: credential, email, role, fullName, tenant: record };
     });
   }
   /** Persist delivery outcome without retaining bearer credentials or provider responses. */
@@ -244,24 +286,263 @@ export class OrganisationService {
       [invite.tenant_id, slug],
     );
     if (!row) return null;
-    return { tenant: tenant(row), email: invite.email, role: invite.role };
+    const [account] = await this.db.query(
+      "SELECT id FROM auth_users WHERE email=?",
+      [invite.email],
+    );
+    return {
+      tenant: tenant(row),
+      email: invite.email,
+      role: invite.role,
+      fullName: invite.full_name,
+      accountExists: !!account,
+    };
   }
   /** List redacted pending/accepted/revoked invitation state after fresh staff-management authorization. */
   async invitations(token: string, tenantId: string) {
     return this.db.transaction(async (manager) => {
       await this.issuer(manager, token, tenantId, "analyst");
       return manager.query(
-        "SELECT id,email,role,delivery_status,expires_at,accepted_at,revoked_at FROM organisation_invitations WHERE tenant_id=? ORDER BY created_at DESC LIMIT 100",
+        "SELECT id,email,full_name,role,delivery_status,expires_at,accepted_at,revoked_at FROM organisation_invitations WHERE tenant_id=? ORDER BY created_at DESC LIMIT 100",
         [tenantId],
+      );
+    });
+  }
+  /** Replace a pending grant using its stored recipient and role, after a fresh tenant-admin check. */
+  async resend(
+    token: string,
+    tenantId: string,
+    invitationId: string,
+    fullName?: string,
+  ) {
+    return this.db.transaction("READ COMMITTED", async (manager) => {
+      const { actor, tenant: record } = await this.issuer(
+        manager,
+        token,
+        tenantId,
+        "analyst",
+        true,
+      );
+      const [invite]: Invite[] = await manager.query(
+        "SELECT * FROM organisation_invitations WHERE tenant_id=? AND id=? FOR UPDATE",
+        [tenantId, invitationId],
+      );
+      if (
+        !invite ||
+        invite.accepted_at ||
+        invite.revoked_at ||
+        invite.role === "owner"
+      )
+        throw new DatabaseConflict("invitation_unavailable");
+      const name = recipientName(invite.full_name ?? fullName);
+      await this.recipientRole(manager, tenantId, invite.email, invite.role);
+      const credential = randomBytes(32).toString("hex"),
+        id = randomUUID();
+      await manager.query(
+        "UPDATE organisation_invitations SET revoked_at=UTC_TIMESTAMP(3) WHERE tenant_id=? AND email=? AND accepted_at IS NULL AND revoked_at IS NULL",
+        [tenantId, invite.email],
+      );
+      await manager.query(
+        "INSERT INTO organisation_invitations(id,tenant_id,email,role,created_by,token_hash,full_name,expires_at) VALUES (?,?,?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 1 HOUR))",
+        [
+          id,
+          tenantId,
+          invite.email,
+          invite.role,
+          actor.id,
+          hash(credential),
+          name,
+        ],
+      );
+      await this.audit(
+        manager,
+        actor.id,
+        tenantId,
+        "organisation.invitation_resent",
+        "invitation",
+        id,
+      );
+      return {
+        id,
+        token: credential,
+        email: invite.email,
+        role: invite.role,
+        fullName: name,
+        tenant: record,
+      };
+    });
+  }
+  /** List current tenant users so access can be revoked even when no invitation record exists. */
+  async members(token: string, tenantId: string) {
+    return this.db.transaction(async (manager) => {
+      const { actor } = await this.issuer(
+        manager,
+        token,
+        tenantId,
+        "analyst",
+        true,
+      );
+      const rows: {
+        id: string;
+        user_id: string;
+        name: string;
+        email: string;
+        role: string;
+        status: string;
+      }[] = await manager.query(
+        "SELECT m.id,m.user_id,u.name,u.email,m.role,m.status FROM tenant_memberships m JOIN auth_users u ON u.id=m.user_id WHERE m.tenant_id=? ORDER BY u.email",
+        [tenantId],
+      );
+      return rows.map(({ user_id, ...member }) => ({
+        ...member,
+        canRevoke: user_id !== actor.id && member.status === "active",
+      }));
+    });
+  }
+  /** Cancel a pending invitation without granting access or changing the global identity. */
+  async revokeInvitation(
+    token: string,
+    tenantId: string,
+    invitationId: string,
+  ) {
+    return this.db.transaction(async (manager) => {
+      const { actor } = await this.issuer(
+        manager,
+        token,
+        tenantId,
+        "analyst",
+        true,
+      );
+      const [invite]: Invite[] = await manager.query(
+        "SELECT * FROM organisation_invitations WHERE tenant_id=? AND id=? FOR UPDATE",
+        [tenantId, invitationId],
+      );
+      if (!invite || invite.accepted_at || invite.revoked_at)
+        throw new DatabaseConflict("invitation_unavailable");
+      await manager.query(
+        "UPDATE organisation_invitations SET revoked_at=UTC_TIMESTAMP(3) WHERE tenant_id=? AND id=?",
+        [tenantId, invitationId],
+      );
+      await this.audit(
+        manager,
+        actor.id,
+        tenantId,
+        "organisation.invitation_revoked",
+        "invitation",
+        invitationId,
+      );
+    });
+  }
+  /** Revoke another tenant user's membership and outstanding grants, preserving their other organisations. */
+  async revokeMember(token: string, tenantId: string, membershipId: string) {
+    return this.db.transaction(async (manager) => {
+      const identity = await this.actor(manager, token);
+      const [hint] = await manager.query(
+        "SELECT user_id FROM tenant_memberships WHERE tenant_id=? AND id=?",
+        [tenantId, membershipId],
+      );
+      if (!hint || hint.user_id === identity.id)
+        throw new DatabaseConflict("membership_unavailable");
+      // Match acceptance's sorted identity locks before taking the tenant lock.
+      for (const id of [...new Set([identity.id, hint.user_id])].sort())
+        await manager.query("SELECT id FROM auth_users WHERE id=? FOR UPDATE", [
+          id,
+        ]);
+      const { actor } = await this.issuer(
+        manager,
+        token,
+        tenantId,
+        "analyst",
+        true,
+      );
+      const [member] = await manager.query(
+        "SELECT m.*,u.email FROM tenant_memberships m JOIN auth_users u ON u.id=m.user_id WHERE m.tenant_id=? AND m.id=? FOR UPDATE",
+        [tenantId, membershipId],
+      );
+      if (
+        !member ||
+        member.user_id !== hint.user_id ||
+        member.status !== "active"
+      )
+        throw new DatabaseConflict("membership_unavailable");
+      await manager.query(
+        "UPDATE tenant_memberships SET status='revoked',revoked_at=UTC_TIMESTAMP(3),lock_version=lock_version+1,updated_at=UTC_TIMESTAMP(3) WHERE tenant_id=? AND id=?",
+        [tenantId, membershipId],
+      );
+      await manager.query(
+        "UPDATE organisation_invitations SET revoked_at=UTC_TIMESTAMP(3) WHERE tenant_id=? AND email=? AND accepted_at IS NULL AND revoked_at IS NULL",
+        [tenantId, member.email],
+      );
+      await this.audit(
+        manager,
+        actor.id,
+        tenantId,
+        "organisation.access_revoked",
+        "membership",
+        membershipId,
       );
     });
   }
   /** Consume the stored grant for a verified matching identity; never reactivate a revoked member. */
   async accept(token: string, tenantId: string, credential: string) {
+    return this.consume(tenantId, credential, token);
+  }
+  /** Use the emailed credential to create a verified account and consume its grant atomically; never overwrite an existing account. */
+  async register(
+    tenantId: string,
+    credential: string,
+    name: string,
+    password: string,
+    clientAddress: string,
+  ) {
+    if (!/^[a-f0-9]{64}$/.test(credential))
+      throw new DatabaseConflict("invitation_unavailable");
+    name = recipientName(name);
+    if (
+      typeof password !== "string" ||
+      password.length < 8 ||
+      password.length > 128
+    )
+      throw new DatabaseConflict("invalid_password");
+    // Bound expensive password hashing with a shared, server-derived IP bucket.
+    const allowed = await this.db.transaction(async (manager) => {
+      const key = hash(`invitation-signup:${clientAddress}`);
+      await manager.query(
+        "INSERT INTO auth_rate_limits(bucket_key,hits,started_at,expires_at) VALUES (?,0,UTC_TIMESTAMP(3),DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 60 SECOND)) ON DUPLICATE KEY UPDATE bucket_key=VALUES(bucket_key)",
+        [key],
+      );
+      const [bucket] = await manager.query(
+        "SELECT hits,TIMESTAMPDIFF(SECOND,started_at,UTC_TIMESTAMP(3)) AS elapsed FROM auth_rate_limits WHERE bucket_key=? FOR UPDATE",
+        [key],
+      );
+      const expired = Number(bucket.elapsed) >= 60;
+      if (!expired && Number(bucket.hits) >= 10) return false;
+      await manager.query(
+        expired
+          ? "UPDATE auth_rate_limits SET hits=1,started_at=UTC_TIMESTAMP(3),expires_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 60 SECOND) WHERE bucket_key=?"
+          : "UPDATE auth_rate_limits SET hits=hits+1 WHERE bucket_key=?",
+        [key],
+      );
+      return true;
+    });
+    if (!allowed) throw new DatabaseConflict("throttled");
+    const passwordHash = await hashPassword(password);
+    return this.consume(tenantId, credential, undefined, {
+      name,
+      passwordHash,
+    });
+  }
+  /** Lock and validate the grant, issuer and recipient before one atomic identity/membership change. */
+  private async consume(
+    tenantId: string,
+    credential: string,
+    token?: string,
+    registration?: { name: string; passwordHash: string },
+  ) {
     if (!/^[a-f0-9]{64}$/.test(credential))
       throw new DatabaseConflict("invitation_unavailable");
     return this.db.transaction(async (manager) => {
-      const identity = await this.actor(manager, token);
+      const identity = token ? await this.actor(manager, token) : null;
       const [hint]: Invite[] = await manager.query(
         "SELECT * FROM organisation_invitations WHERE token_hash=? AND expires_at>UTC_TIMESTAMP(3)",
         [hash(credential)],
@@ -269,15 +550,19 @@ export class OrganisationService {
       if (!hint || hint.tenant_id !== tenantId)
         throw new DatabaseConflict("invitation_unavailable");
       const users: Actor[] = [];
-      for (const id of [...new Set([identity.id, hint.created_by])].sort()) {
+      for (const id of [
+        ...new Set(
+          [identity?.id, hint.created_by].filter((id): id is string => !!id),
+        ),
+      ].sort()) {
         const [row] = await manager.query(
           "SELECT id,email,email_verified,platform_role FROM auth_users WHERE id=? FOR UPDATE",
           [id],
         );
         if (row) users.push(row);
       }
-      const recipient = users.find((u) => u.id === identity.id),
-        sender = users.find((u) => u.id === hint.created_by);
+      let recipient = users.find((u) => u.id === identity?.id);
+      const sender = users.find((u) => u.id === hint.created_by);
       const [row] = await manager.query(
         "SELECT * FROM tenants WHERE id=? FOR UPDATE",
         [tenantId],
@@ -287,13 +572,13 @@ export class OrganisationService {
         [hash(credential)],
       );
       if (
-        !recipient?.email_verified ||
+        (!registration && !recipient?.email_verified) ||
         !sender?.email_verified ||
         !row ||
         !["active", "draft"].includes(row.status) ||
         !invite ||
         invite.tenant_id !== tenantId ||
-        invite.email !== recipient.email ||
+        (!registration && invite.email !== recipient?.email) ||
         invite.accepted_at ||
         invite.revoked_at
       )
@@ -311,19 +596,49 @@ export class OrganisationService {
           : null;
       if (!canInvite(sender.platform_role === "owner", role, invite.role))
         throw new DatabaseConflict("invitation_unavailable");
+      if (registration) {
+        const [existing] = await manager.query(
+          "SELECT id FROM auth_users WHERE email=? FOR UPDATE",
+          [invite.email],
+        );
+        if (existing) throw new DatabaseConflict("account_exists");
+        recipient = {
+          id: randomUUID(),
+          email: invite.email,
+          email_verified: 1,
+          platform_role: null,
+        };
+        await manager.query(
+          "INSERT INTO auth_users(id,name,email,email_verified,signup_tenant_id) VALUES (?,?,?,1,?)",
+          [recipient.id, registration.name, recipient.email, tenantId],
+        );
+        await manager.query(
+          "INSERT INTO auth_accounts(id,user_id,provider_id,account_id,password) VALUES (?,?,'credential',?,?)",
+          [randomUUID(), recipient.id, recipient.id, registration.passwordHash],
+        );
+        await this.audit(
+          manager,
+          recipient.id,
+          tenantId,
+          "organisation.account_created",
+          "user",
+          recipient.id,
+        );
+      }
+      if (!recipient) throw new DatabaseConflict("invitation_unavailable");
       const [member] = await manager.query(
         "SELECT id,role,status FROM tenant_memberships WHERE tenant_id=? AND user_id=? FOR UPDATE",
         [tenantId, recipient.id],
       );
       if (member?.status === "revoked")
         throw new DatabaseConflict("membership_revoked");
-      const granted = mergeInvitationRole(member?.role ?? null, invite.role);
-      if (member)
-        await manager.query(
-          "UPDATE tenant_memberships SET role=?,lock_version=lock_version+1,updated_at=UTC_TIMESTAMP(3) WHERE tenant_id=? AND id=?",
-          [granted, tenantId, member.id],
-        );
-      else
+      const conflict = invitationRoleConflict(
+        member?.role ?? null,
+        invite.role,
+      );
+      if (conflict) throw new DatabaseConflict(conflict);
+      const granted = invite.role;
+      if (!member)
         await manager.query(
           "INSERT INTO tenant_memberships(id,tenant_id,user_id,role,profile_json,capabilities_json) VALUES (?,?,?,?,?,?)",
           [
@@ -344,7 +659,7 @@ export class OrganisationService {
         "UPDATE organisation_invitations SET accepted_at=UTC_TIMESTAMP(3),accepted_by=? WHERE id=?",
         [recipient.id, invite.id],
       );
-      await this.actor(manager, token, true);
+      if (token) await this.actor(manager, token, true);
       await this.audit(
         manager,
         recipient.id,
@@ -353,7 +668,7 @@ export class OrganisationService {
         "invitation",
         invite.id,
       );
-      return { role: granted };
+      return { role: granted, email: recipient.email };
     });
   }
 }

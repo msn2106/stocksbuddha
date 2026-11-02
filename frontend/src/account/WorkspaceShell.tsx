@@ -1,3 +1,5 @@
+import { roleErrorMessage } from "./role-errors";
+import { WorkspaceActionButton } from "./WorkspaceActionButton";
 import { WebsiteEditor } from "../websites/WebsiteEditor";
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -14,6 +16,9 @@ import {
   PanelsTopLeft,
   LogOut,
   UserRound,
+  Send,
+  Ban,
+  UserRoundMinus,
 } from "lucide-react";
 import type { PageData } from "@ra/contracts";
 import { Brand } from "../websites/PublicWebsite";
@@ -251,15 +256,22 @@ export function WorkspaceShell({ data }: { data: PageData }) {
               </h1>
               {account.notice && (
                 <p className="workspace-notice" role="status">
-                  {t("org.invited")}
+                  {t(
+                    account.notice === "revoked"
+                      ? "org.accessRevoked"
+                      : "org.invited",
+                  )}
                 </p>
               )}
               {account.error && (
                 <p className="account-error" role="alert">
                   {t(
-                    account.error === "service"
-                      ? "auth.error.service"
-                      : "org.inviteError",
+                    roleErrorMessage(account.error) ??
+                      (account.error === "service"
+                        ? "auth.error.service"
+                        : section === "team"
+                          ? "org.manageError"
+                          : "org.inviteError"),
                   )}
                 </p>
               )}
@@ -281,6 +293,7 @@ export function WorkspaceShell({ data }: { data: PageData }) {
                           ["legalName", "org.legalName", 100],
                           ["slug", "org.slug", 48],
                           ["monogram", "org.monogram", 3],
+                          ["fullName", "auth.name", 100],
                           ["email", "org.adminEmail", 254],
                         ].map(([name, key, max]) => (
                           <label key={name as string}>
@@ -332,6 +345,15 @@ export function WorkspaceShell({ data }: { data: PageData }) {
                           </select>
                         </label>
                         <label>
+                          {t("auth.name")}
+                          <input
+                            name="fullName"
+                            required
+                            maxLength={100}
+                            autoComplete="name"
+                          />
+                        </label>
+                        <label>
                           {t("org.adminEmail")}
                           <input
                             name="email"
@@ -358,6 +380,15 @@ export function WorkspaceShell({ data }: { data: PageData }) {
                       method="post"
                       onSubmit={() => setPending(true)}
                     >
+                      <label>
+                        {t("auth.name")}
+                        <input
+                          name="fullName"
+                          required
+                          maxLength={100}
+                          autoComplete="name"
+                        />
+                      </label>
                       <label>
                         {t("auth.email")}
                         <input
@@ -390,7 +421,12 @@ export function WorkspaceShell({ data }: { data: PageData }) {
               </div>
               {section === "organisations" &&
                 !!account.organisations?.length && (
-                  <div className="workspace-table">
+                  <div
+                    className="workspace-table"
+                    role="region"
+                    aria-label={t("org.organisations")}
+                    tabIndex={0}
+                  >
                     <table>
                       <caption>{t("org.organisations")}</caption>
                       <thead>
@@ -424,19 +460,29 @@ export function WorkspaceShell({ data }: { data: PageData }) {
                   </div>
                 )}
               {section === "team" && !!account.invitations?.length && (
-                <div className="workspace-table">
+                <div
+                  className="workspace-table"
+                  role="region"
+                  aria-label={t("org.invitations")}
+                  tabIndex={0}
+                >
                   <table>
                     <caption>{t("org.invitations")}</caption>
                     <thead>
                       <tr>
+                        <th>{t("auth.name")}</th>
                         <th>{t("auth.email")}</th>
                         <th>{t("auth.role")}</th>
                         <th>{t("org.status")}</th>
+                        {account.role === "owner" && (
+                          <th>{t("org.actions")}</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
                       {account.invitations.map((invite) => (
                         <tr key={invite.id}>
+                          <td>{invite.full_name || "—"}</td>
                           <td>{invite.email}</td>
                           <td>{t(roles[invite.role]!)}</td>
                           <td>
@@ -450,6 +496,150 @@ export function WorkspaceShell({ data }: { data: PageData }) {
                                     : "org.pending",
                             )}
                           </td>
+                          {account.role === "owner" && (
+                            <td>
+                              <div className="workspace-row-actions">
+                                {!invite.accepted_at && !invite.revoked_at && (
+                                  <>
+                                    {invite.role !== "owner" && (
+                                      <form
+                                        action={`${base}/team`}
+                                        method="post"
+                                        onSubmit={() => setPending(true)}
+                                      >
+                                        <input
+                                          type="hidden"
+                                          name="id"
+                                          value={invite.id}
+                                        />
+                                        <input
+                                          type="hidden"
+                                          name="action"
+                                          value="resend"
+                                        />
+                                        {!invite.full_name && (
+                                          <label>
+                                            {t("auth.name")}
+                                            <input
+                                              name="fullName"
+                                              maxLength={100}
+                                              required
+                                            />
+                                          </label>
+                                        )}
+                                        <WorkspaceActionButton
+                                          label={t("org.resend")}
+                                          icon={Send}
+                                          disabled={pending}
+                                        />
+                                      </form>
+                                    )}
+                                    <form
+                                      action={`${base}/team`}
+                                      method="post"
+                                      onSubmit={() => setPending(true)}
+                                    >
+                                      <input
+                                        type="hidden"
+                                        name="id"
+                                        value={invite.id}
+                                      />
+                                      <input
+                                        type="hidden"
+                                        name="action"
+                                        value="revokeInvitation"
+                                      />
+                                      <WorkspaceActionButton
+                                        label={t("org.revokeInvitation")}
+                                        icon={Ban}
+                                        disabled={pending}
+                                        destructive
+                                      />
+                                    </form>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {section === "team" && !!account.members?.length && (
+                <div
+                  className="workspace-table"
+                  role="region"
+                  aria-label={t("org.members")}
+                  tabIndex={0}
+                >
+                  <table>
+                    <caption>{t("org.members")}</caption>
+                    <thead>
+                      <tr>
+                        <th>{t("auth.name")}</th>
+                        <th>{t("auth.email")}</th>
+                        <th>{t("auth.role")}</th>
+                        <th>{t("org.status")}</th>
+                        {account.role === "owner" && (
+                          <th>{t("org.actions")}</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {account.members.map((member) => (
+                        <tr key={member.id}>
+                          <td>{member.name}</td>
+                          <td>{member.email}</td>
+                          <td>{t(roles[member.role]!)}</td>
+                          <td>
+                            {t(
+                              member.status === "active"
+                                ? "org.active"
+                                : "org.accessRevoked",
+                            )}
+                          </td>
+                          {account.role === "owner" && (
+                            <td>
+                              {member.canRevoke && (
+                                <form
+                                  action={`${base}/team`}
+                                  method="post"
+                                  onSubmit={(event) => {
+                                    if (
+                                      !window.confirm(
+                                        t("org.confirmRevoke", {
+                                          email: member.email,
+                                        }),
+                                      )
+                                    ) {
+                                      event.preventDefault();
+                                      return;
+                                    }
+                                    setPending(true);
+                                  }}
+                                >
+                                  <input
+                                    type="hidden"
+                                    name="id"
+                                    value={member.id}
+                                  />
+                                  <input
+                                    type="hidden"
+                                    name="action"
+                                    value="revokeMember"
+                                  />
+                                  <WorkspaceActionButton
+                                    label={t("org.revokeAccess")}
+                                    icon={UserRoundMinus}
+                                    disabled={pending}
+                                    destructive
+                                  />
+                                </form>
+                              )}
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>

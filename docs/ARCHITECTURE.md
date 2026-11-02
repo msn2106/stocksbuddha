@@ -67,3 +67,7 @@ Testing is split into unit, integration and browser suites, with shared recursiv
 Run `npm run verify`. Unit tests cover tenant ownership, statuses, draft privacy, defensive repositories, localized publication validation and permission denials. Playwright covers canonical redirects, public API projections, conflicting tenant hints, independent tab/language state, different template/section order, mobile reflow, English/Hindi accessibility and existing page interactions.
 
 Unit and fixture-based browser tests establish the public boundaries and policy behavior. The opt-in MariaDB suite verifies persistent constraints, authenticated internal operations, mounted signed-cookie authentication and workspace membership isolation locally. These checks do not establish account recovery, production capacity, compliance, provider integrations or Hostinger readiness.
+
+## Role exclusivity
+
+One global email/password identity has at most one membership and one current role within an RA. Subscriber and organisation staff access are mutually exclusive; capsules do not grant or convert roles. Staff cannot enter subscriber dashboard/enrolment paths, and subscribers cannot join staff by invitation. The same identity may have a different role in another RA. Authorization and transaction checks enforce both directions, including legacy links, APIs and concurrent enrolment/acceptance. See [role exclusivity](ROLE_EXCLUSIVITY.md).

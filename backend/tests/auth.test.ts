@@ -45,6 +45,8 @@ function harness(options: Partial<AuthRoutesDependencies> = {}) {
     authCode: "",
     failure: null as Error | null,
     sessionFailure: false,
+    email: "user@example.test",
+    emailVerified: true,
   };
   const calls: unknown[][] = [];
   const dependencies: AuthRoutesDependencies = {
@@ -75,7 +77,12 @@ function harness(options: Partial<AuthRoutesDependencies> = {}) {
           if (state.sessionFailure) throw new Error("private driver error");
           return state.signedIn
             ? {
-                user: { id: userId, name: "User", email: "user@example.test" },
+                user: {
+                  id: userId,
+                  name: "User",
+                  email: state.email,
+                  emailVerified: state.emailVerified,
+                },
                 session: {
                   token: "server-token",
                   expiresAt: new Date("2026-12-01"),
@@ -191,9 +198,12 @@ function harness(options: Partial<AuthRoutesDependencies> = {}) {
 }
 
 test("auth forms forward only credentials, preserve cookies, reject foreign origins and handle failed sign-in/out", async () => {
-  const { request, state, calls } = harness();
+  const { request, state, calls, workspace } = harness();
+  workspace.membership.role = "subscriber";
   for (const path of ["/ra/stocksbuddha/login", "/ra/stocksbuddha/signup"]) {
+    state.signedIn = !path.endsWith("/signup");
     const form = await request(path);
+    state.signedIn = true;
     assert.equal(form.status, 200);
     assert.ok(JSON.parse(form.body).mode);
     assert.match(
@@ -637,7 +647,7 @@ test("workspace chooser excludes invalid or unsupported membership facts and pro
 });
 
 test("verification, recovery and explicit joining retain tenant context and protect reset tokens", async () => {
-  const { request, state, calls } = harness({ emailEnabled: true });
+  const { request, state, calls, workspace } = harness({ emailEnabled: true });
   const headers = { origin };
   const base = "/ra/stocksbuddha";
   const signup = await request(
@@ -698,6 +708,7 @@ test("verification, recovery and explicit joining retain tenant context and prot
     (await request(`${base}/reset-password?token=bad`)).body,
     /reset-password/,
   );
+  workspace.membership.role = "subscriber";
   assert.equal((await request(`${base}/join`)).status, 303);
   state.membershipAvailable = false;
   assert.equal((await request(`${base}/join`)).status, 200);
@@ -717,6 +728,7 @@ test("verification, recovery and explicit joining retain tenant context and prot
     500,
   );
   state.signedIn = false;
+  workspace.membership.role = "subscriber";
   assert.equal((await request(`${base}/join`)).status, 303);
   assert.ok(
     calls.some(
@@ -752,7 +764,7 @@ test("organisation login requires staff membership and platform login requires t
   });
   assert.equal(denied.status, 403);
   assert.equal(denied.headers["set-cookie"], undefined);
-  assert.match(denied.body, /access/);
+  assert.match(denied.body, /subscriber_only/);
   state.membershipAvailable = false;
   assert.equal(
     (await request("/ra/stocksbuddha/login", "POST", body, { origin })).status,
@@ -824,6 +836,7 @@ test("platform setup, tenant invitations and acceptance enforce origins, members
         ? invitation
         : null,
     invitations: async () => [],
+    members: async () => [],
     accept: async () => {
       if (denied) throw new DatabaseConflict("invitation_unavailable");
       return { role: "owner" };
@@ -1012,6 +1025,7 @@ test("platform credential failures, guest access and draft-tenant invitation log
   const service = {
     isPlatformOwner: async () => true,
     list: async () => [],
+    accept: async () => ({ role: "owner" }),
     preview: async () => ({
       tenant,
       email: "user@example.test",
@@ -1044,16 +1058,18 @@ test("platform credential failures, guest access and draft-tenant invitation log
   const invited = await app.request(
     "/ra/stocksbuddha/login",
     "POST",
-    { audience: "organisation" },
+    { audience: "organisation", email: "user@example.test" },
     { origin, cookie: "sb-org-invite=" + "a".repeat(64) },
   );
-  assert.equal(invited.headers.location, "/ra/stocksbuddha/invitation");
+  assert.equal(invited.headers.location, "/ra/stocksbuddha/workspace");
 });
 
 test("invitation provider failure keeps a safe retryable team form and records failed delivery", async () => {
   let outcome: unknown;
   const service = {
     preview: async () => null,
+    invitations: async () => [],
+    members: async () => [],
     invite: async () => ({
       id: "invite",
       email: "person@example.test",
@@ -1429,4 +1445,539 @@ test("authenticated-mode platform entry points do not default to an RA", async (
   }
   state.signedIn = false;
   assert.equal((await request("/workspaces")).headers.location, "/#access");
+});
+
+test("team actions require the tenant admin and matching origin, resend stored grants and revoke without SMTP", async () => {
+  const actions: unknown[][] = [];
+  const service = {
+    invitations: async () => [],
+    members: async () => [],
+    resend: async (...args: unknown[]) => {
+      actions.push(["resend", ...args]);
+      return {
+        id: "new",
+        email: "person@example.test",
+        fullName: "Ada",
+        tenant,
+        token: "a".repeat(64),
+      };
+    },
+    delivered: async () => {},
+    revokeInvitation: async (...args: unknown[]) => {
+      actions.push(["revokeInvitation", ...args]);
+    },
+    revokeMember: async (...args: unknown[]) => {
+      actions.push(["revokeMember", ...args]);
+    },
+  } as never;
+  const mail: unknown[] = [];
+  const app = harness({
+    organisations: service,
+    mailer: async (message) => {
+      mail.push(message);
+    },
+  });
+  const path = "/ra/stocksbuddha/workspace/team";
+  for (const action of ["resend", "revokeInvitation", "revokeMember"]) {
+    assert.equal(
+      (await app.request(path, "POST", { action, id: "stored-id" })).status,
+      403,
+    );
+    const response = await app.request(
+      path,
+      "POST",
+      {
+        action,
+        id: "stored-id",
+        email: "attacker@example.test",
+        role: "owner",
+      },
+      { origin },
+    );
+    assert.equal(response.status, 303);
+    assert.deepEqual(actions.at(-1)?.slice(0, 4), [
+      action,
+      "server-token",
+      tenant.id,
+      "stored-id",
+    ]);
+  }
+  assert.equal(mail.length, 1);
+  assert.equal((mail[0] as { fullName: string }).fullName, "Ada");
+  app.state.workspaces[0].membership.role = "analyst";
+  for (const action of ["resend", "revokeInvitation", "revokeMember"])
+    assert.equal(
+      (await app.request(path, "POST", { action, id: "stored-id" }, { origin }))
+        .status,
+      403,
+    );
+  const offline = harness({ organisations: service });
+  assert.equal(
+    (
+      await offline.request(
+        path,
+        "POST",
+        { action: "revokeMember", id: "stored-id" },
+        { origin },
+      )
+    ).status,
+    303,
+  );
+  assert.equal(
+    (
+      await offline.request(
+        path,
+        "POST",
+        { action: "resend", id: "stored-id" },
+        { origin },
+      )
+    ).status,
+    503,
+  );
+});
+
+test("valid invitations guide mismatched and unverified accounts and switching keeps the invitation", async () => {
+  let accepted = 0;
+  const credential = "a".repeat(64);
+  const service = {
+    preview: async (_slug: string, token: string) =>
+      token === credential
+        ? { tenant, email: "invited@example.test", role: "analyst" }
+        : null,
+    accept: async () => {
+      accepted++;
+    },
+  } as never;
+  const app = harness({ organisations: service, emailEnabled: true });
+  const path = "/ra/stocksbuddha/invitation";
+  const headers = { origin, cookie: `sb-org-invite=${credential}` };
+  const wrong = await app.request(path, "GET", undefined, headers);
+  assert.equal(JSON.parse(wrong.body).invitationIdentity, "different");
+  assert.equal(JSON.parse(wrong.body).signedIn, true);
+  for (const method of ["GET", "POST"]) {
+    const unavailable = await app.request(path, method, {}, { origin });
+    assert.equal(unavailable.status, 404);
+    assert.equal(JSON.parse(unavailable.body).signedIn, true);
+  }
+  assert.equal((await app.request(path, "POST", {}, headers)).status, 403);
+  assert.equal(accepted, 0);
+  assert.equal(
+    (
+      await app.request(
+        `${path}/switch-account`,
+        "POST",
+        {},
+        { cookie: headers.cookie },
+      )
+    ).status,
+    403,
+  );
+  const switched = await app.request(
+    `${path}/switch-account`,
+    "POST",
+    {},
+    headers,
+  );
+  assert.equal(switched.headers.location, path);
+  assert.ok(switched.headers["set-cookie"]);
+  assert.ok(
+    app.calls.some(
+      (call) => call[0] === "auth" && String(call[1]).endsWith("/sign-out"),
+    ),
+  );
+  app.state.email = "invited@example.test";
+  app.state.emailVerified = false;
+  assert.equal(
+    JSON.parse((await app.request(path, "GET", undefined, headers)).body)
+      .invitationIdentity,
+    "unverified",
+  );
+  assert.equal((await app.request(path, "POST", {}, headers)).status, 403);
+  assert.equal(accepted, 0);
+  const verification = await app.request(
+    "/ra/stocksbuddha/verify-email",
+    "GET",
+    undefined,
+    headers,
+  );
+  assert.match(verification.body, /invited@example.test/);
+  await app.request(
+    "/ra/stocksbuddha/verify-email",
+    "POST",
+    { email: "invited@example.test" },
+    headers,
+  );
+  const verificationRequest = [...app.calls]
+    .reverse()
+    .find(
+      (call) =>
+        call[0] === "auth" &&
+        String(call[1]).endsWith("/send-verification-email"),
+    );
+  assert.equal(
+    JSON.parse(String(verificationRequest?.[4])).callbackURL,
+    `${origin}${path}`,
+  );
+  app.state.emailVerified = true;
+  const ready = JSON.parse(
+    (await app.request(path, "GET", undefined, headers)).body,
+  );
+  assert.equal(ready.autoAcceptInvitation, true);
+  assert.equal(accepted, 0);
+  assert.equal((await app.request(path, "POST", {}, headers)).status, 303);
+  assert.equal(accepted, 1);
+});
+
+test("invited signup is prefilled, email-bound, origin-protected and uses the chosen password without ordinary signup or another acceptance", async () => {
+  const token = "a".repeat(64);
+  const events: unknown[][] = [];
+  const service = {
+    preview: async () => ({
+      tenant,
+      email: "invited@example.test",
+      fullName: "Invited Person",
+      role: "analyst",
+      accountExists: false,
+    }),
+    register: async (...args: unknown[]) => {
+      events.push(args);
+      app.state.signedIn = true;
+      app.workspace.membership.role = "analyst";
+      return { role: "analyst", email: "invited@example.test" };
+    },
+    accept: async () => {
+      throw Error("must not accept twice");
+    },
+  } as never;
+  const app = harness({ organisations: service, emailEnabled: true });
+  app.state.signedIn = false;
+  app.state.email = "invited@example.test";
+  const headers = { origin, cookie: `sb-org-invite=${token}` };
+  const page = JSON.parse(
+    (
+      await app.request(
+        "/ra/stocksbuddha/invitation",
+        "GET",
+        undefined,
+        headers,
+      )
+    ).body,
+  );
+  assert.equal(page.mode, "signup");
+  assert.equal(page.email, "invited@example.test");
+  assert.equal(page.name, "Invited Person");
+  const body = {
+    email: "invited@example.test",
+    name: "Invited Person",
+    password: "Chosen-password-123",
+    role: "owner",
+    emailVerified: true,
+  };
+  assert.equal(
+    (await app.request("/ra/stocksbuddha/signup", "POST", body)).status,
+    403,
+  );
+  assert.equal(
+    (
+      await app.request(
+        "/ra/stocksbuddha/signup",
+        "POST",
+        { ...body, email: "attacker@example.test" },
+        headers,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(events.length, 0);
+  const result = await app.request(
+    "/ra/stocksbuddha/signup",
+    "POST",
+    body,
+    headers,
+  );
+  assert.equal(result.headers.location, "/ra/stocksbuddha/workspace");
+  assert.equal(events.length, 1);
+  assert.deepEqual(events[0].slice(0, 4), [
+    tenant.id,
+    token,
+    "Invited Person",
+    "Chosen-password-123",
+  ]);
+  assert.equal(
+    app.calls.some((call) => String(call[1]).endsWith("/sign-up/email")),
+    false,
+  );
+  assert.match(String(result.headers["set-cookie"]), /sb-org-invite=;/);
+});
+
+test("subscribers cannot accept staff invitations, and staff cannot use the Investor capsule", async () => {
+  let accepted = 0;
+  const service = {
+    preview: async () => ({
+      tenant,
+      email: "user@example.test",
+      role: "analyst",
+      accountExists: true,
+    }),
+    accept: async () => {
+      accepted++;
+    },
+  } as never;
+  const app = harness({ organisations: service, emailEnabled: true });
+  const body = {
+    email: "user@example.test",
+    password: "Existing-password-123",
+  };
+  const headers = { origin, cookie: "sb-org-invite=" + "a".repeat(64) };
+  app.workspace.membership.role = "subscriber";
+  assert.equal(
+    (
+      await app.request(
+        "/ra/stocksbuddha/login",
+        "POST",
+        { ...body, audience: "investor" },
+        headers,
+      )
+    ).headers.location,
+    "/ra/stocksbuddha/account",
+  );
+  const conflict = await app.request(
+    "/ra/stocksbuddha/login",
+    "POST",
+    { ...body, audience: "organisation" },
+    headers,
+  );
+  assert.equal(conflict.status, 403);
+  assert.equal(JSON.parse(conflict.body).error, "subscriber_conflict");
+  assert.equal(accepted, 0);
+  for (const role of ["owner", "analyst", "support"] as const) {
+    app.workspace.membership.role = role;
+    const result = await app.request(
+      "/ra/stocksbuddha/login",
+      "POST",
+      { ...body, audience: "investor" },
+      { origin },
+    );
+    assert.equal(result.status, 403);
+    assert.equal(JSON.parse(result.body).error, "staff_only");
+    assert.equal((await app.request("/ra/stocksbuddha/account")).status, 403);
+    assert.equal(
+      (await app.request("/ra/stocksbuddha/account/settings?role=subscriber"))
+        .status,
+      403,
+    );
+    assert.equal((await app.request("/ra/stocksbuddha/join")).status, 403);
+  }
+});
+
+test("ordinary signup still requires email verification and ignores client invitation/role/verification flags", async () => {
+  let registered = false;
+  const app = harness({
+    emailEnabled: true,
+    organisations: {
+      preview: async () => null,
+      register: async () => {
+        registered = true;
+      },
+    } as never,
+  });
+  const result = await app.request(
+    "/ra/stocksbuddha/signup",
+    "POST",
+    {
+      email: "public@example.test",
+      name: "Public",
+      password: "Chosen-password-123",
+      emailVerified: true,
+      role: "owner",
+      invitedEmail: "public@example.test",
+    },
+    { origin },
+  );
+  assert.equal(JSON.parse(result.body).mode, "verify-email");
+  assert.equal(registered, false);
+  const call = app.calls.find(
+    (call) => call[0] === "auth" && String(call[1]).endsWith("/sign-up/email"),
+  )!;
+  const body = JSON.parse(String(call[4]));
+  assert.equal(body.emailVerified, undefined);
+  assert.equal(body.role, undefined);
+  assert.equal(body.invitedEmail, undefined);
+});
+
+test("an expired invite setup form cannot fall back to ordinary account creation", async () => {
+  const app = harness({
+    emailEnabled: true,
+    organisations: { preview: async () => null } as never,
+  });
+  const result = await app.request(
+    "/ra/stocksbuddha/signup",
+    "POST",
+    {
+      invitation: "1",
+      email: "expired@example.test",
+      name: "Expired",
+      password: "Chosen-password-123",
+    },
+    { origin, cookie: "sb-org-invite=" + "a".repeat(64) },
+  );
+  assert.equal(result.status, 403);
+  assert.equal(JSON.parse(result.body).mode, "invitation");
+  assert.equal(
+    app.calls.some((call) => call[0] === "auth"),
+    false,
+  );
+});
+
+test("signup discloses own staff conflicts only to the authenticated account holder, scoped to this RA", async () => {
+  const app = harness({ emailEnabled: true });
+  for (const role of ["owner", "analyst", "support"] as const) {
+    app.workspace.membership.role = role;
+    for (const method of ["GET", "POST"]) {
+      const result = await app.request(
+        "/ra/stocksbuddha/signup",
+        method,
+        { email: app.state.email, password: "Existing-password-123" },
+        { origin },
+      );
+      assert.equal(result.status, 409);
+      assert.equal(JSON.parse(result.body).error, "staff_only");
+      assert.equal(JSON.parse(result.body).audience, "organisation");
+    }
+  }
+  const anonymous = harness({ emailEnabled: true });
+  anonymous.state.signedIn = false;
+  const neutral = await anonymous.request(
+    "/ra/stocksbuddha/signup",
+    "POST",
+    {
+      email: "staff@example.test",
+      name: "Name",
+      password: "Chosen-password-123",
+    },
+    { origin },
+  );
+  assert.equal(JSON.parse(neutral.body).mode, "verify-email");
+  assert.equal(neutral.body.includes("staff_only"), false);
+  assert.equal(
+    anonymous.calls.some((call) => call[0] === "find"),
+    false,
+  );
+  app.state.membershipAvailable = false;
+  assert.equal((await app.request("/ra/stocksbuddha/signup")).status, 200);
+});
+
+test("RA Admin invitation conflicts are displayed safely and never send an email", async () => {
+  let delivered = 0;
+  const service = {
+    invite: async () => {
+      throw new DatabaseConflict("subscriber_conflict");
+    },
+    invitations: async () => [],
+    members: async () => [],
+  } as never;
+  const app = harness({
+    organisations: service,
+    mailer: async () => {
+      delivered++;
+    },
+  });
+  const result = await app.request(
+    "/ra/stocksbuddha/workspace/team",
+    "POST",
+    {
+      email: "subscriber@example.test",
+      fullName: "Subscriber",
+      role: "analyst",
+    },
+    { origin },
+  );
+  assert.equal(result.status, 403);
+  assert.equal(JSON.parse(result.body).error, "subscriber_conflict");
+  assert.equal(delivered, 0);
+});
+
+test("invitation signup errors preserve retry guidance, throttle headers and never publish a session or password", async () => {
+  for (const code of ["throttled", "account_exists", "invalid_password"]) {
+    const app = harness({
+      emailEnabled: true,
+      organisations: {
+        preview: async () => ({
+          tenant,
+          email: "invitee@example.test",
+          fullName: "Invitee",
+          role: "analyst",
+          accountExists: false,
+        }),
+        register: async () => {
+          throw new DatabaseConflict(code);
+        },
+      } as never,
+    });
+    app.state.signedIn = false;
+    const result = await app.request(
+      "/ra/stocksbuddha/signup",
+      "POST",
+      {
+        email: "invitee@example.test",
+        name: "Invitee",
+        password: "Chosen-password-123",
+        invitation: "1",
+      },
+      { origin, cookie: "sb-org-invite=" + "a".repeat(64) },
+    );
+    const page = JSON.parse(result.body);
+    assert.equal(result.status, code === "throttled" ? 429 : 403);
+    assert.equal(
+      page.error,
+      code === "invalid_password" ? "credentials" : code,
+    );
+    assert.equal(page.mode, code === "account_exists" ? "login" : "signup");
+    assert.equal(page.email, "invitee@example.test");
+    assert.equal(result.body.includes("Chosen-password-123"), false);
+    assert.equal(result.headers["set-cookie"], undefined);
+    assert.equal(
+      app.calls.some((call) => call[0] === "auth"),
+      false,
+    );
+    if (code === "throttled") assert.equal(result.headers["retry-after"], "60");
+  }
+});
+
+test("a revoked invitation recipient cannot publish the newly authenticated session", async () => {
+  const app = harness({
+    emailEnabled: true,
+    organisations: {
+      preview: async () => ({
+        tenant,
+        email: "user@example.test",
+        role: "analyst",
+        accountExists: true,
+      }),
+      accept: async () => {
+        throw new DatabaseConflict("membership_revoked");
+      },
+    } as never,
+  });
+  // Revoked memberships are absent from the active workspace projection; acceptance
+  // still rechecks the stored row and refuses an invitation issued before revocation.
+  app.state.membershipAvailable = false;
+  const result = await app.request(
+    "/ra/stocksbuddha/login",
+    "POST",
+    {
+      audience: "organisation",
+      email: "user@example.test",
+      password: "Existing-password-123",
+    },
+    { origin, cookie: "sb-org-invite=" + "a".repeat(64) },
+  );
+  assert.equal(result.status, 403);
+  assert.equal(JSON.parse(result.body).error, "membership_revoked");
+  assert.equal(result.headers["set-cookie"], undefined);
+  assert.ok(
+    app.calls.some(
+      (call) => call[0] === "auth" && String(call[1]).endsWith("/sign-out"),
+    ),
+  );
 });

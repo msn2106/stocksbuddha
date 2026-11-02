@@ -12,6 +12,8 @@ import { CreateAuthRateLimits1793491200010 } from "./migrations/1793491200010-Au
 
 import { CreateOrganisationInvitations1793491200011 } from "./migrations/1793491200011-OrganisationInvitations";
 
+import { AddInvitationNames1793491200012 } from "./migrations/1793491200012-InvitationNames";
+
 /** Ordered immutable migrations shared by development and compiled release runners. */
 export const migrationClasses = [
   CreateTenants1793491200000,
@@ -26,4 +28,5 @@ export const migrationClasses = [
   AddAuthTenantContext1793491200009,
   CreateAuthRateLimits1793491200010,
   CreateOrganisationInvitations1793491200011,
+  AddInvitationNames1793491200012,
 ];

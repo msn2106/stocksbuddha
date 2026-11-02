@@ -67,6 +67,8 @@ for (const email of [
   "owner@example.test",
   "admin@example.test",
   "analyst@example.test",
+  "analyst-policy@example.test",
+  "support-policy@example.test",
   "investor@example.test",
   "logout@example.test",
 ]) {

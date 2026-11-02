@@ -1,3 +1,4 @@
+import { invitationCookie } from "../organisations/routes";
 import express, { type Response, type NextFunction } from "express";
 import type { AccountView, Tenant } from "@ra/contracts";
 import type { AuthRoutesDependencies } from "./routes";
@@ -23,12 +24,14 @@ export function mountAccountRecovery(
     emailEnabled,
     page,
     platform = false,
+    organisations,
   }: {
     auth: AuthRoutesDependencies["auth"];
     origin: string;
     emailEnabled: boolean;
     page: Page;
     platform?: boolean;
+    organisations?: AuthRoutesDependencies["organisations"];
   },
 ) {
   const prefix = platform ? "/workspace" : "/ra/:slug";
@@ -73,12 +76,20 @@ export function mountAccountRecovery(
   ] as const) {
     const path = `${prefix}/${mode}`;
     if (mode !== "reset-password")
-      router.get(path, (_req, res, next) =>
-        accountPage(res, next, res.locals.accountTenant, {
+      router.get(path, async (req, res, next) => {
+        const invite =
+          mode === "verify-email" && !platform
+            ? await organisations?.preview(
+                res.locals.accountTenant.slug,
+                invitationCookie(req.headers.cookie),
+              )
+            : null;
+        return accountPage(res, next, res.locals.accountTenant, {
           mode,
+          ...(invite ? { email: invite.email } : {}),
           ...(!emailEnabled ? { error: "service" as const } : {}),
-        }),
-      );
+        });
+      });
     router.post(path, async (req, res, next) => {
       if (req.headers.origin !== origin)
         return res.status(403).json({ error: "forbidden_origin" });
@@ -98,13 +109,26 @@ export function mountAccountRecovery(
         .map((part) => part.trim())
         .find((part) => part.startsWith(`${cookieName}=`))
         ?.slice(cookieName.length + 1);
+      const invite =
+        mode === "verify-email" && !platform
+          ? await organisations?.preview(
+              res.locals.accountTenant.slug,
+              invitationCookie(req.headers.cookie),
+            )
+          : null;
+      const invited =
+        invite &&
+        typeof req.body?.email === "string" &&
+        invite.email === req.body.email.trim().toLowerCase();
       const body =
         mode === "reset-password"
           ? { token, newPassword: req.body?.password }
           : {
               email: req.body?.email,
               ...(mode === "verify-email"
-                ? { callbackURL: `${base}/${platform ? "login" : "join"}` }
+                ? {
+                    callbackURL: `${base}/${platform ? "login" : invited ? "invitation" : "join"}`,
+                  }
                 : { redirectTo: `${base}/reset-password` }),
             };
       const response = await withAuthTenant(

@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from "react";
+import { useState, useRef, useEffect, type CSSProperties } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -11,6 +11,7 @@ import type { PageData } from "@ra/contracts";
 import { useLanguage } from "../i18n";
 import { Brand } from "../websites/PublicWebsite";
 import { AccessibilityControls } from "../components/AccessibilityControls";
+import { roleErrorMessage } from "./role-errors";
 import { WorkspaceShell } from "./WorkspaceShell";
 import type { UiMessageKey } from "../locales/messages";
 
@@ -25,6 +26,15 @@ const roleLabels: Record<string, UiMessageKey> = {
 export function AccountPage({ data }: { data: PageData }) {
   const { t, locale } = useLanguage();
   const account = data.account!;
+  const automaticInvitation = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    if (
+      account.autoAcceptInvitation &&
+      !account.error &&
+      !account.invitationIdentity
+    )
+      automaticInvitation.current?.requestSubmit();
+  }, [account.autoAcceptInvitation, account.error, account.invitationIdentity]);
   const [visible, setVisible] = useState(false);
   const [pending, setPending] = useState(false);
   const [audience, setAudience] = useState(account.audience ?? "investor");
@@ -123,7 +133,9 @@ export function AccountPage({ data }: { data: PageData }) {
             <div className="invitation-accept">
               {account.error ? (
                 <p className="account-error" role="alert">
-                  {t("org.invitationInvalid")}
+                  {t(
+                    roleErrorMessage(account.error) ?? "org.invitationInvalid",
+                  )}
                 </p>
               ) : (
                 <>
@@ -142,10 +154,48 @@ export function AccountPage({ data }: { data: PageData }) {
                           : "auth.role.analyst",
                     )}
                   </p>
-                  {account.signedIn ? (
-                    <form action={`${base}/invitation`} method="post">
+                  {account.invitationIdentity === "different" ? (
+                    <>
+                      <p className="account-error" role="alert">
+                        {t("org.invitationDifferentAccount", {
+                          email: account.invitedEmail ?? "",
+                        })}
+                      </p>
+                      <form
+                        action={`${base}/invitation/switch-account`}
+                        method="post"
+                      >
+                        <button className="button">
+                          {t("org.switchAccount")}
+                        </button>
+                      </form>
+                    </>
+                  ) : account.invitationIdentity === "unverified" ? (
+                    <>
+                      <p role="status">
+                        {t("org.invitationVerifyAccount", {
+                          email: account.invitedEmail ?? "",
+                        })}
+                      </p>
+                      <a
+                        className="button primary"
+                        href={`${base}/verify-email${suffix}`}
+                      >
+                        {t("org.verifyInvitedEmail")}
+                      </a>
+                    </>
+                  ) : account.signedIn ? (
+                    <form
+                      ref={automaticInvitation}
+                      action={`${base}/invitation`}
+                      method="post"
+                    >
                       <button className="button primary">
-                        {t("org.acceptInvitation")}
+                        {t(
+                          account.autoAcceptInvitation
+                            ? "org.continueToWorkspace"
+                            : "org.acceptInvitation",
+                        )}
                       </button>
                     </form>
                   ) : (
@@ -168,6 +218,18 @@ export function AccountPage({ data }: { data: PageData }) {
                     </>
                   )}
                 </>
+              )}
+              {account.signedIn && (
+                <a
+                  className={
+                    account.invitationIdentity === "different" || account.error
+                      ? "button primary"
+                      : "button"
+                  }
+                  href="/workspaces"
+                >
+                  {t("org.backToWorkspaces")}
+                </a>
               )}
             </div>
           ) : form ? (
@@ -196,16 +258,33 @@ export function AccountPage({ data }: { data: PageData }) {
               {account.error && (
                 <p className="account-error" role="alert" id="account-error">
                   {t(
-                    account.error === "throttled"
-                      ? "auth.error.throttled"
-                      : account.error === "service"
-                        ? "auth.error.service"
-                        : account.error === "access"
-                          ? "org.accessDenied"
-                          : account.error === "invitation"
-                            ? "org.invitationInvalid"
-                            : "auth.error.credentials",
+                    roleErrorMessage(account.error) ??
+                      (account.error === "throttled"
+                        ? "auth.error.throttled"
+                        : account.error === "service"
+                          ? "auth.error.service"
+                          : account.error === "account_exists"
+                            ? "org.existingAccount"
+                            : account.error === "access"
+                              ? "org.accessDenied"
+                              : account.error === "invitation"
+                                ? "org.invitationInvalid"
+                                : "auth.error.credentials"),
                   )}
+                </p>
+              )}
+              {(account.error === "staff_only" ||
+                account.error === "subscriber_only") && (
+                <p>
+                  <a
+                    href={`${base}/login?audience=${account.error === "staff_only" ? "organisation" : "investor"}`}
+                  >
+                    {t(
+                      account.error === "staff_only"
+                        ? "org.organisationSignIn"
+                        : "org.subscriberSignIn",
+                    )}
+                  </a>
                 </p>
               )}
               <form
@@ -216,6 +295,9 @@ export function AccountPage({ data }: { data: PageData }) {
                 aria-describedby={account.error ? "account-error" : undefined}
                 aria-busy={pending}
               >
+                {signup && account.invitedEmail && (
+                  <input type="hidden" name="invitation" value="1" />
+                )}
                 {account.mode === "login" && !platform && (
                   <fieldset className="login-audience">
                     <legend className="sr-only">{t("org.signInAs")}</legend>
@@ -240,6 +322,14 @@ export function AccountPage({ data }: { data: PageData }) {
                     ))}
                   </fieldset>
                 )}
+                {account.invitedEmail &&
+                  (signup || audience === "organisation") && (
+                    <p className="account-team-hint">
+                      {t(
+                        signup ? "org.inviteSetupHint" : "org.inviteLoginHint",
+                      )}
+                    </p>
+                  )}
                 {account.mode === "login" && audience === "organisation" && (
                   <p className="account-team-hint">{t("org.teamHint")}</p>
                 )}
@@ -270,6 +360,10 @@ export function AccountPage({ data }: { data: PageData }) {
                       required
                       maxLength={254}
                       defaultValue={account.email}
+                      readOnly={
+                        !!account.invitedEmail &&
+                        (signup || audience === "organisation")
+                      }
                       disabled={account.error === "service"}
                     />
                   </div>
@@ -320,7 +414,10 @@ export function AccountPage({ data }: { data: PageData }) {
                 >
                   {pending
                     ? t("auth.pending")
-                    : t(`auth.${messageMode}.action` as UiMessageKey)}
+                    : account.invitedEmail &&
+                        (signup || audience === "organisation")
+                      ? t(signup ? "org.createAndJoin" : "org.signInAndJoin")
+                      : t(`auth.${messageMode}.action` as UiMessageKey)}
                   <ArrowRight size={19} aria-hidden="true" />
                 </button>
               </form>

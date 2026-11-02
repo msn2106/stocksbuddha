@@ -415,7 +415,7 @@ function operationHarness() {
   return { state, ops: new TenantOperations(db), context };
 }
 
-test("guarded operations return stable receipts, detect stale state and preserve staff enrollment", async () => {
+test("guarded operations return stable receipts and detect stale state for eligible subscriber enrollment", async () => {
   for (const action of [
     "create",
     "save",
@@ -427,6 +427,7 @@ test("guarded operations return stable receipts, detect stale state and preserve
     "provision",
   ]) {
     const { ops, state, context } = operationHarness();
+    if (action === "enroll") state.member.role = "subscriber";
     if (action === "change")
       state.owners.push({
         id: randomUUID(),
@@ -451,7 +452,7 @@ test("guarded operations return stable receipts, detect stale state and preserve
                         context,
                         state.target.id,
                         1,
-                        "subscriber",
+                        "analyst",
                         false,
                       )
                     : ops.provision(
@@ -520,7 +521,7 @@ test("last-owner protection excludes owners with any unsupported capability over
       capabilities_json: JSON.stringify(overrides),
     });
     await assert.rejects(
-      ops.changeMembership(context, state.target.id, 1, "subscriber", false),
+      ops.changeMembership(context, state.target.id, 1, "analyst", false),
       /last_owner/,
     );
     assert.equal(state.receipt, null);
@@ -528,13 +529,7 @@ test("last-owner protection excludes owners with any unsupported capability over
   const { ops, state, context } = operationHarness();
   state.owners.push({ id: randomUUID(), capabilities_json: "{}" });
   assert.ok(
-    await ops.changeMembership(
-      context,
-      state.target.id,
-      1,
-      "subscriber",
-      false,
-    ),
+    await ops.changeMembership(context, state.target.id, 1, "analyst", false),
   );
 });
 
@@ -647,4 +642,28 @@ test("editor reads validate checksums and current membership before returning dr
   const empty = await ops.readWebsite(context);
   assert.equal(empty.id, null);
   assert.deepEqual(empty.snapshot.content, { en: {} });
+});
+
+test("subscriber enrollment rejects every staff role and the membership API cannot cross subscriber/staff categories", async () => {
+  for (const role of ["owner", "analyst", "support"] as const) {
+    const { ops, state, context } = operationHarness();
+    state.member.role = role;
+    await assert.rejects(ops.enroll(context), /staff_only/);
+    assert.equal(state.receipt, null);
+  }
+  for (const role of ["owner", "analyst", "support"] as const) {
+    const { ops, state, context } = operationHarness();
+    state.target.role = "subscriber";
+    await assert.rejects(
+      ops.changeMembership(context, state.target.id, 1, role, true),
+      /role_category_conflict/,
+    );
+    assert.equal(state.receipt, null);
+    state.target.role = role;
+    await assert.rejects(
+      ops.changeMembership(context, state.target.id, 1, "subscriber", true),
+      /role_category_conflict/,
+    );
+    assert.equal(state.receipt, null);
+  }
 });

@@ -111,11 +111,14 @@ test("Hostinger SMTP validates complete credentials, TLS and sender identity bef
       await mail({
         to: "user@example.test",
         url: "https://example.test/link",
+        fullName: "Ada Lovelace",
         kind,
       });
     assert.match(sent[0].subject!, /Verify/);
     assert.match(sent[1].subject!, /Reset/);
-    assert.match(sent[2].text!, /explicitly accept/);
+    assert.match(sent[2].text!, /this invitation confirms the invited email/);
+    assert.match(sent[2].text!, /^Hello Ada Lovelace,/);
+    assert.doesNotMatch(sent[0].text!, /Hello Ada/);
     assert.equal(closed, 3);
     await assert.rejects(
       mail({

@@ -25,6 +25,30 @@ export function invitationCookie(cookies: string | undefined) {
       ?.slice("sb-org-invite=".length) ?? ""
   );
 }
+/** Remove only this tenant's onboarding credential while preserving the shared login cookie. */
+export function clearInvitationCookie(
+  res: Response,
+  slug: string,
+  origin: string,
+) {
+  res.clearCookie("sb-org-invite", {
+    httpOnly: true,
+    secure: origin.startsWith("https://"),
+    sameSite: "lax",
+    path: `/ra/${slug}`,
+  });
+}
+/** Expose role-conflict details only on already-authorized administration or authenticated recipient pages. */
+function invitationError(error: unknown): AccountView["error"] {
+  return error instanceof DatabaseConflict &&
+    [
+      "subscriber_conflict",
+      "staff_role_conflict",
+      "membership_revoked",
+    ].includes(error.code)
+    ? (error.code as AccountView["error"])
+    : "invitation";
+}
 /** Use only cookies issued by Better Auth to verify a newly created session. */
 export function responseCookie(response: globalThis.Response) {
   return response.headers
@@ -147,6 +171,7 @@ export function createOrganisationRoutes({
     try {
       await mailer!({
         to: invitation.email,
+        fullName: invitation.fullName,
         kind: "invite",
         url: `${origin}/ra/${invitation.tenant.slug}/invitation?token=${invitation.token}`,
       });
@@ -200,6 +225,7 @@ export function createOrganisationRoutes({
           tenantId,
           req.body?.email ?? "",
           "owner",
+          req.body?.fullName ?? "",
         );
         await send(invite);
         return res.redirect(303, "/workspace/organisations?sent=1");
@@ -219,7 +245,7 @@ export function createOrganisationRoutes({
                 email: res.locals.identity.user.email,
                 emailVerified: !!res.locals.identity.user.emailVerified,
               },
-              error: "invitation",
+              error: invitationError(error),
               organisations: (
                 await service.list(res.locals.identity.session.token)
               ).map((record) => ({
@@ -236,7 +262,45 @@ export function createOrganisationRoutes({
       }
     },
   );
+  /** Explain account prerequisites without consuming a grant or granting access to another identity. */
+  function invitationAccount(
+    invitedEmail: string,
+    identity: { user: { email: string; emailVerified?: boolean } } | null,
+  ): Pick<AccountView, "signedIn" | "invitationIdentity"> {
+    return {
+      signedIn: !!identity,
+      ...(identity &&
+      identity.user.email.toLowerCase() !== invitedEmail.toLowerCase()
+        ? { invitationIdentity: "different" as const }
+        : identity && !identity.user.emailVerified
+          ? { invitationIdentity: "unverified" as const }
+          : {}),
+    };
+  }
+  router.post("/ra/:slug/invitation/switch-account", async (req, res) => {
+    if (req.headers.origin !== origin)
+      return res.status(403).json({ error: "forbidden_origin" });
+    const invite = await service.preview(
+      req.params.slug as string,
+      invitationCookie(req.headers.cookie),
+    );
+    if (!invite)
+      return res.status(404).json({ error: "invitation_unavailable" });
+    const response = await auth.handler(
+      new Request(`${origin}/api/auth/sign-out`, {
+        method: "POST",
+        headers: fromNodeHeaders(req.headers),
+      }),
+    );
+    if (!response.ok)
+      return res.status(response.status).json({ error: "sign_out_failed" });
+    res.setHeader("Set-Cookie", response.headers.getSetCookie());
+    return res.redirect(303, `/ra/${invite.tenant.slug}/invitation`);
+  });
   router.get("/ra/:slug/invitation", async (req, res, next) => {
+    const identity = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
     const credential =
       typeof req.query.token === "string"
         ? req.query.token
@@ -247,7 +311,7 @@ export function createOrganisationRoutes({
         res,
         next,
         null,
-        { mode: "invitation", error: "invitation" },
+        { mode: "invitation", error: "invitation", signedIn: !!identity },
         404,
       );
     if (req.query.token) {
@@ -260,19 +324,26 @@ export function createOrganisationRoutes({
       });
       return res.redirect(303, `/ra/${invite.tenant.slug}/invitation`);
     }
-    const identity = await auth.api.getSession({
-      headers: fromNodeHeaders(req.headers),
-    });
+    const account = invitationAccount(invite.email, identity);
     return page(res, next, invite.tenant, {
-      mode: "invitation",
+      mode: identity ? "invitation" : invite.accountExists ? "login" : "signup",
+      audience: "organisation",
+      email: invite.email,
+      name: invite.fullName ?? "",
       invitedEmail: invite.email,
       invitedRole: invite.role,
-      signedIn: !!identity,
+      ...account,
+      ...(!account.invitationIdentity && identity
+        ? { autoAcceptInvitation: true }
+        : {}),
     });
   });
   router.post("/ra/:slug/invitation", async (req, res, next) => {
     if (req.headers.origin !== origin)
       return res.status(403).json({ error: "forbidden_origin" });
+    const identity = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
     const credential = invitationCookie(req.headers.cookie),
       invite = await service.preview(req.params.slug as string, credential);
     if (!invite)
@@ -280,16 +351,27 @@ export function createOrganisationRoutes({
         res,
         next,
         null,
-        { mode: "invitation", error: "invitation" },
+        { mode: "invitation", error: "invitation", signedIn: !!identity },
         404,
       );
-    const identity = await auth.api.getSession({
-      headers: fromNodeHeaders(req.headers),
-    });
     if (!identity)
       return res.redirect(
         303,
         `/ra/${invite.tenant.slug}/login?audience=organisation`,
+      );
+    const account = invitationAccount(invite.email, identity);
+    if (account.invitationIdentity)
+      return page(
+        res,
+        next,
+        invite.tenant,
+        {
+          mode: "invitation",
+          invitedEmail: invite.email,
+          invitedRole: invite.role,
+          ...account,
+        },
+        403,
       );
     try {
       await service.accept(
@@ -297,12 +379,7 @@ export function createOrganisationRoutes({
         invite.tenant.id,
         credential,
       );
-      res.clearCookie("sb-org-invite", {
-        httpOnly: true,
-        secure: origin.startsWith("https://"),
-        sameSite: "lax",
-        path: `/ra/${invite.tenant.slug}`,
-      });
+      clearInvitationCookie(res, invite.tenant.slug, origin);
       return res.redirect(303, `/ra/${invite.tenant.slug}/workspace`);
     } catch (error) {
       if (error instanceof DatabaseConflict)
@@ -310,7 +387,7 @@ export function createOrganisationRoutes({
           res,
           next,
           invite.tenant,
-          { mode: "invitation", error: "invitation", signedIn: true },
+          { mode: "invitation", error: invitationError(error), signedIn: true },
           403,
         );
       throw error;
@@ -329,7 +406,10 @@ export function createOrganisationRoutes({
       identity.user.id,
       req.params.slug as string,
     );
-    if (!workspace?.capabilities.includes("staff:manage"))
+    if (
+      workspace?.membership.role !== "owner" ||
+      !workspace.capabilities.includes("staff:manage")
+    )
       return res.status(403).json({ error: "forbidden" });
     return page(res, next, workspace.tenant, {
       mode: "workspace",
@@ -345,7 +425,15 @@ export function createOrganisationRoutes({
         identity.session.token,
         workspace.tenant.id,
       ),
-      ...(req.query.sent ? { notice: "invited" as const } : {}),
+      members: await service.members(
+        identity.session.token,
+        workspace.tenant.id,
+      ),
+      ...(req.query.sent
+        ? { notice: "invited" as const }
+        : req.query.revoked
+          ? { notice: "revoked" as const }
+          : {}),
     });
   });
   router.post("/ra/:slug/workspace/team", async (req, res, next) => {
@@ -363,9 +451,17 @@ export function createOrganisationRoutes({
       identity.user.id,
       req.params.slug as string,
     );
-    if (!workspace?.capabilities.includes("staff:manage"))
+    if (
+      workspace?.membership.role !== "owner" ||
+      !workspace.capabilities.includes("staff:manage")
+    )
       return res.status(403).json({ error: "forbidden" });
-    if (!mailer)
+    const action = req.body?.action ?? "invite";
+    if (
+      !["invite", "resend", "revokeInvitation", "revokeMember"].includes(action)
+    )
+      return res.status(400).json({ error: "invalid_action" });
+    if (!mailer && ["invite", "resend"].includes(action))
       return page(
         res,
         next,
@@ -385,17 +481,39 @@ export function createOrganisationRoutes({
         503,
       );
     try {
-      await send(
-        await service.invite(
+      if (action === "revokeMember") {
+        await service.revokeMember(
           identity.session.token,
           workspace.tenant.id,
-          req.body?.email ?? "",
-          req.body?.role ?? "",
-        ),
-      );
+          req.body?.id ?? "",
+        );
+      } else if (action === "revokeInvitation") {
+        await service.revokeInvitation(
+          identity.session.token,
+          workspace.tenant.id,
+          req.body?.id ?? "",
+        );
+      } else {
+        await send(
+          action === "resend"
+            ? await service.resend(
+                identity.session.token,
+                workspace.tenant.id,
+                req.body?.id ?? "",
+                req.body?.fullName,
+              )
+            : await service.invite(
+                identity.session.token,
+                workspace.tenant.id,
+                req.body?.email ?? "",
+                req.body?.role ?? "",
+                req.body?.fullName ?? "",
+              ),
+        );
+      }
       return res.redirect(
         303,
-        `/ra/${workspace.tenant.slug}/workspace/team?sent=1`,
+        `/ra/${workspace.tenant.slug}/workspace/team?${action.startsWith("revoke") ? "revoked" : "sent"}=1`,
       );
     } catch (error) {
       if (error instanceof Error)
@@ -413,7 +531,15 @@ export function createOrganisationRoutes({
               email: identity.user.email,
               emailVerified: !!identity.user.emailVerified,
             },
-            error: "invitation",
+            error: invitationError(error),
+            invitations: await service.invitations(
+              identity.session.token,
+              workspace.tenant.id,
+            ),
+            members: await service.members(
+              identity.session.token,
+              workspace.tenant.id,
+            ),
           },
           error instanceof DatabaseConflict ? 403 : 502,
         );

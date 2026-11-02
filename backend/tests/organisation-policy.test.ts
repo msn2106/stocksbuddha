@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   canInvite,
   workspaceDestination,
-  mergeInvitationRole,
+  invitationRoleConflict,
 } from "../src/organisations/policy";
 
 test("only platform owners appoint RA Admins; tenant admins invite staff solely within their own active RA", () => {
@@ -38,10 +38,27 @@ test("login selection determines a destination but never grants a role or lets s
   assert.equal(workspaceDestination("investor", null, false), "account");
 });
 
-test("accepting a staff invite preserves an existing admin/staff role and promotes a subscriber only to the stored invitation role", () => {
-  assert.equal(mergeInvitationRole(null, "owner"), "owner");
-  assert.equal(mergeInvitationRole("subscriber", "analyst"), "analyst");
-  assert.equal(mergeInvitationRole("owner", "support"), "owner");
-  assert.equal(mergeInvitationRole("analyst", "support"), "analyst");
-  assert.equal(mergeInvitationRole("support", "owner"), "owner");
+test("every role is exclusive within an RA and invitations cannot convert any existing role", () => {
+  for (const existing of [
+    "owner",
+    "analyst",
+    "support",
+    "subscriber",
+  ] as const) {
+    assert.equal(
+      workspaceDestination("investor", existing, true),
+      existing === "subscriber" ? "account" : null,
+    );
+    for (const invited of ["owner", "analyst", "support"] as const) {
+      assert.equal(
+        invitationRoleConflict(existing, invited),
+        existing === invited
+          ? null
+          : existing === "subscriber"
+            ? "subscriber_conflict"
+            : "staff_role_conflict",
+      );
+      assert.equal(invitationRoleConflict(null, invited), null);
+    }
+  }
 });

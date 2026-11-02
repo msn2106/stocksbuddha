@@ -2750,6 +2750,10 @@ html[data-contrast="high"] *::after {
   overflow: auto;
   margin-top: 48px;
 }
+.workspace-table:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 4px;
+}
 .workspace-table table {
   width: 100%;
   border-collapse: collapse;
@@ -2774,6 +2778,69 @@ html[data-contrast="high"] *::after {
   display: block;
   color: var(--muted);
   margin-top: 5px;
+}
+.workspace-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.workspace-row-actions form {
+  margin: 0;
+}
+.workspace-icon-action {
+  position: relative;
+  display: inline-flex;
+}
+.workspace-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--primary);
+  background: transparent;
+  cursor: pointer;
+}
+.workspace-action-button:hover {
+  border-color: var(--border);
+  background: #e5eadf;
+}
+.workspace-action-button.destructive {
+  color: #963e32;
+}
+.workspace-action-button.destructive:hover {
+  background: #f7e9e5;
+  border-color: #e7c5bc;
+}
+.workspace-action-button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.workspace-action-button:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
+.workspace-action-tooltip {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  z-index: 10;
+  width: max-content;
+  max-width: 220px;
+  padding-bottom: 7px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  font-weight: 500;
+}
+.workspace-action-tooltip > span {
+  display: block;
+  padding: 7px 10px;
+  border-radius: 5px;
+  color: #fffefa;
+  background: #26342d;
 }
 @media (max-width: 760px) {
   .workspace-header {

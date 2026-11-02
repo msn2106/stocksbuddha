@@ -5,6 +5,7 @@ import nodemailer, {
 
 export type AuthEmail = {
   to: string;
+  fullName?: string;
   url: string;
   kind: "verify" | "reset" | "invite";
 };
@@ -67,7 +68,7 @@ export function authMailer(
     disableFileAccess: true,
     disableUrlAccess: true,
   };
-  return async ({ to, url, kind }) => {
+  return async ({ to, url, kind, fullName }) => {
     if (new URL(url).origin !== origin)
       throw new Error("Invalid authentication email origin");
     if (!mailbox.test(to))
@@ -87,7 +88,7 @@ export function authMailer(
           from,
           to,
           subject,
-          text: `${subject}\n\n${url}\n\nThis link expires in one hour. If you did not request this, you can ignore this email. Your identity is shared across StocksBuddha workspaces. ${kind === "invite" ? "Sign in with this verified email and explicitly accept the invitation to receive the stored organisation role." : "This email does not grant tenant membership or organisation roles."}`,
+          text: `${kind === "invite" && fullName ? `Hello ${fullName},\n\n` : ""}${subject}\n\n${url}\n\nThis link expires in one hour. If you did not request this, you can ignore this email. Your identity is shared across StocksBuddha workspaces. ${kind === "invite" ? "Open this link to choose a password for a new account, or sign in with your existing password, and join the organisation. For a new account, this invitation confirms the invited email." : "This email does not grant tenant membership or organisation roles."}`,
         }),
         new Promise<never>((_resolve, reject) => {
           timer = setTimeout(

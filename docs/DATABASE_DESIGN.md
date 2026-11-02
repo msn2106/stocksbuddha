@@ -185,6 +185,8 @@ Auth schema reference: [Better Auth core database model and customization](https
 
 ## 6. `tenant_memberships`
 
+**One email, one role per RA.** The globally unique identity email and unique `(tenant_id, user_id)` membership key represent one relationship with one current role. No parallel subscriber relationship is created for staff. Invitations and enrolment reject incompatible roles; the reviewed membership API forbids subscriber/staff conversion. Different RAs remain independent. See [the implemented policy](ROLE_EXCLUSIVITY.md).
+
 | Column               | SQL type     | Null? | Default          | Purpose/validation                                                                        |
 | -------------------- | ------------ | ----- | ---------------- | ----------------------------------------------------------------------------------------- |
 | `id`                 | UUID         | No    | —                | Stable RA relationship ID for future business FKs                                         |
@@ -397,7 +399,7 @@ A response lost after commit is safe to retry. A crash before commit leaves neit
 
 Authentication creates/verifies a global identity independently of tenant enrollment. No claim is made that Better Auth hooks join the TypeORM transaction. A newly created identity with no membership is valid but has no tenant capabilities; show enrollment pending and allow retry from a verified session. A failed tenant write must never trigger automatic global-account deletion because that identity may already belong to another RA.
 
-An explicit enrollment endpoint verifies the session and server-resolved tenant, then creates a default subscriber membership under the tenant lock. The unique `(tenant_id, user_id)` key makes repeated enrollment converge to one relationship. Existing active staff roles are preserved, not overwritten by subscriber signup. Existing revoked membership returns an explicit unavailable/reactivation-required response, never silent restoration. Record business enrollment and audit atomically. Do not grant staff from Google profile values, a request role, or a post-auth hook.
+An explicit enrollment endpoint verifies the session and server-resolved tenant, then creates a default subscriber membership under the tenant lock. The unique `(tenant_id, user_id)` key makes repeated enrollment converge to one relationship. Existing staff roles are rejected from subscriber enrolment rather than treated as subscriber access. Subscriber and staff memberships are mutually exclusive in one RA; staff invitations cannot convert an existing subscriber or a different staff role. Existing revoked membership returns an explicit unavailable/reactivation-required response, never silent restoration. Record business enrollment and audit atomically. Do not grant staff from Google profile values, a request role, or a post-auth hook.
 
 Staff invitations are implemented in `organisation_invitations` by migration `1793491200011`, with tenant, normalized intended email, stored staff role, token digest, issuer, one-hour expiry, delivery state and accepted identity. Consume it and create/update membership atomically under the same locks; concurrent signup/acceptance must preserve one membership, apply only the server-stored invitation grant, and not overwrite a higher role accidentally. Only platform owners appoint RA Admins; an RA Admin invites analysts/support in their tenant. See [organisation access](ORGANISATION_ACCESS.md).
 

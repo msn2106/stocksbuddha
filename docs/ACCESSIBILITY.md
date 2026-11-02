@@ -53,3 +53,5 @@ Compliance schedules must use current SEBI/BSE RAASB instructions, including sub
 ## Tenant-owned websites (S0.2)
 
 Website copy now belongs to independently localized tenant revisions; shared UI/disclosure translations remain in frontend catalogues. Language selection and cookies are tenant-scoped, so another tenant keeps its own language/default. Templates render their configured section order in DOM order. Beta demonstrates the editorial template and is covered by English/Hindi axe and responsive tests. See [architecture](ARCHITECTURE.md) and [language maintenance](I18N.md).
+
+Workspace tables are named, keyboard-focusable regions with a visible focus indicator. Horizontal overflow remains keyboard accessible on narrow screens even when accepted/revoked invitation rows have no focusable action buttons. Role-conflict feedback uses the existing alert styling and provides links to the correct sign-in capsule; messages do not rely on colour alone. The organisation Playwright suite scans desktop/mobile conflict screens with axe.

@@ -580,7 +580,7 @@ test(
             /enrollment_unavailable/,
           );
           await assert.rejects(
-            ops.changeMembership(operation(), memberId, 1, "subscriber", true),
+            ops.changeMembership(operation(), memberId, 1, "analyst", true),
             /last_owner/,
           );
           await ops.changeMembership(
@@ -608,10 +608,14 @@ test(
         },
       );
       await context.test(
-        "staff enrollment preserves role and first-owner provisioning is atomic and retryable",
+        "staff enrollment is denied and first-owner provisioning is atomic and retryable",
         async () => {
-          const joined = await ops.enroll(operation());
-          assert.equal(joined.membershipId, memberId);
+          await assert.rejects(ops.enroll(operation()), /staff_only/);
+          const [unchanged] = await db.query(
+            "SELECT role FROM tenant_memberships WHERE id=?",
+            [memberId],
+          );
+          assert.equal(unchanged.role, "owner");
           await db.query(
             "UPDATE auth_users SET platform_role='owner' WHERE id=?",
             [userId],

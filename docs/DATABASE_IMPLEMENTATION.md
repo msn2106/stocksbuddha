@@ -5,7 +5,7 @@
 ## Implemented
 
 - Local Docker Compose for MariaDB and the DbGate Community browser client; the application continues directly in Node. DbGate is bound to loopback, preconfigured only for the local dev database and excluded from hosted deployment.
-- Twelve constrained InnoDB tables, twelve TypeORM application migrations and verified metadata bootstrap.
+- Twelve constrained InnoDB tables, thirteen TypeORM application migrations and verified metadata bootstrap.
 - Separate `stocksbuddha_dev` / `stocksbuddha_prod` targets, including optional Hostinger account prefix. No persistent third environment. SQL timestamp defaults explicitly use UTC expressions; the driver timezone setting controls value conversion and is not assumed to set server timezone.
 - Source-checksum manifest, applied ledger, attempt outcomes, one release lock, drift rejection and refusal to retry failed/unfinished migrations automatically.
 - Repeatable dev preview seeds preserving UUIDs, localized websites, owner edits and explicit unpublication.
@@ -66,4 +66,8 @@ Migration `1793491200010` adds shared expiring counters with row-locked atomic c
 
 ## Organisation access extension
 
-Migration `1793491200011` adds durable invitations. There are now 12 application migrations and 12 tables including metadata. Platform-owner bootstrap is an explicit verified-account operator command, not startup behavior. The platform creates draft organisations and invites RA Admins; acceptance creates membership and activates draft organisations atomically, without fabricating a website. Hostinger SMTP delivery is outside the transaction and failures are retried by issuing a replacement invitation. See [organisation access](ORGANISATION_ACCESS.md) for routes, role naming, activation, test commands and remaining MFA/business-screen scope.
+Migration `1793491200011` adds durable invitations. Migration `1793491200012` adds nullable invitation recipient names for personalised greetings; new invitations require a name. There are now 13 application migrations and 12 tables including metadata. Platform-owner bootstrap is an explicit verified-account operator command, not startup behavior. The platform creates draft organisations and invites RA Admins; acceptance creates membership and activates draft organisations atomically, without fabricating a website. Hostinger SMTP delivery is outside the transaction and failures are retried by issuing a replacement invitation. See [organisation access](ORGANISATION_ACCESS.md) for routes, role naming, activation, test commands and remaining MFA/business-screen scope.
+
+## Exclusive subscriber and staff roles
+
+The existing unique identity/membership keys enforce one row per email identity per RA. Application policy now rejects staff subscriber signup/login/enrolment and subscriber staff invitations. Recipient checks run at invitation issuance, resend and locked acceptance; conflicts do not replace pending links or send mail. Issuance/resend use READ COMMITTED with the tenant lock; acceptance/enrolment serialize the competing membership writes, and a late conflict cannot promote or overwrite a role. The membership API also rejects subscriber/staff conversion. This is an application policy update, not a schema or data migration. Existing records are not rewritten. See [role exclusivity](ROLE_EXCLUSIVITY.md).
