@@ -25,7 +25,7 @@ test("public login links open tenant-branded account pages and preserve language
   await expect(page.getByLabel("Full name")).toBeVisible();
   expect(
     (await request.get("/login", { maxRedirects: 0 })).headers().location,
-  ).toBe("/ra/stocksbuddha/login");
+  ).toBe("/?lang=en#access");
   expect((await request.get("/ra/unknown/login")).status()).toBe(404);
   await page.goto("/ra/beta/signup?lang=hi");
   await expect(

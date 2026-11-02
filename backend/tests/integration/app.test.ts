@@ -80,8 +80,8 @@ test("independent app instances expose health, tenant projections, 404s, headers
         (await fetch(`${base}/ra/example`, { method: "POST" })).status,
         405,
       );
+      assert.equal((await fetch(`${base}/`)).status, 200);
       for (const [url, status, destination] of [
-        ["/", 302, "/ra/stocksbuddha"],
         ["/ra/stocks-buddha?lang=hi", 308, "/ra/stocksbuddha?lang=hi"],
         ["/ra/stocks-buddha", 308, "/ra/stocksbuddha"],
       ] as const) {

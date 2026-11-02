@@ -255,3 +255,40 @@ test("the production CLI dispatches startup through the default Nest adapter wit
     else process.env.NODE_ENV = mode;
   }
 });
+
+test("platform indexing requires an explicit production opt-in and is disabled for public previews", async () => {
+  for (const [env, expected] of [
+    [{ NODE_ENV: "production", BRAND_SITE_INDEXABLE: "true" }, true],
+    [
+      {
+        NODE_ENV: "production",
+        BRAND_SITE_INDEXABLE: "true",
+        ALLOW_PUBLIC_PREVIEW: "true",
+      },
+      false,
+    ],
+    [{ NODE_ENV: "production", BRAND_SITE_INDEXABLE: "false" }, false],
+    [{ BRAND_SITE_INDEXABLE: "true" }, false],
+  ] as const) {
+    let dependencies: PublicAppDependencies | undefined;
+    await startServer({
+      env,
+      persistenceFactory: async () => ({
+        resolvePage: async () => makePage(),
+        ready: async () => true,
+        close: async () => {},
+      }),
+      createVite: async () => ({ middlewares: express.Router() }) as never,
+      buildApp: (options) => {
+        dependencies = options;
+        return express();
+      },
+      createNest: (async () => ({
+        enableShutdownHooks() {},
+        listen: async () => {},
+      })) as unknown as NonNullable<StartupOptions["createNest"]>,
+      log: () => {},
+    });
+    assert.equal(dependencies?.brandSiteIndexable, expected);
+  }
+});

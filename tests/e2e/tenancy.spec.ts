@@ -5,7 +5,8 @@ test("canonical slug and old-address redirect preserve the requested language", 
   request,
 }) => {
   const home = await request.get("/", { maxRedirects: 0 });
-  expect(home.headers().location).toBe("/ra/stocksbuddha");
+  expect(home.status()).toBe(200);
+  expect(home.headers().location).toBeUndefined();
   const old = await request.get("/ra/stocks-buddha?lang=hi", {
     maxRedirects: 0,
   });
@@ -79,11 +80,13 @@ test("different tenant templates render configured DOM order with accessible res
       .locator("main > section[id]")
       .evaluateAll((nodes) => nodes.map((n) => n.id)),
   ).toEqual([
+    "hero",
     "research",
     "approach",
     "about",
     "expectations",
     "plans",
+    "faq",
     "investor",
   ]);
   await page.goto("/ra/beta");
@@ -98,11 +101,13 @@ test("different tenant templates render configured DOM order with accessible res
       .locator("main > section[id]")
       .evaluateAll((nodes) => nodes.map((n) => n.id)),
   ).toEqual([
+    "hero",
     "about",
     "research",
     "approach",
     "expectations",
     "plans",
+    "faq",
     "investor",
   ]);
   for (const locale of ["en", "hi"]) {

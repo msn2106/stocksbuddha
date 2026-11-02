@@ -219,11 +219,7 @@ export function WorkspaceShell({ data }: { data: PageData }) {
             })}
           </nav>
           <div className="workspace-sidebar-footer">
-            <a
-              href={
-                data.tenant ? `/ra/${data.tenant.slug}` : "/ra/stocksbuddha"
-              }
-            >
+            <a href={data.tenant ? `/ra/${data.tenant.slug}` : "/"}>
               {t("auth.back")}
             </a>
             {!platform && <a href="/workspaces">{t("auth.switch")}</a>}

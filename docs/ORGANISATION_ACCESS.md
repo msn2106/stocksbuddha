@@ -2,6 +2,8 @@
 
 The login identity is global. The selected login section determines the intended destination, while current database roles determine access. Selecting Organisation never grants a role or enrolls the user as an investor.
 
+The public platform website is `/`; its access section routes RA members explicitly to their organisation login. `/login` and `/signin` no longer choose the StocksBuddha RA implicitly. Demo enquiries do not create accounts or organisations. See [platform website](PLATFORM_WEBSITE.md).
+
 ## Routes and roles
 
 | Route                        | Access / purpose                                                                                          |

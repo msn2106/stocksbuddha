@@ -11,7 +11,7 @@ npm ci
 npm run dev
 ```
 
-Open [Stocks Buddha](http://localhost:3000/ra/stocksbuddha), [Alpha demo](http://localhost:3000/ra/alpha), or [Beta demo](http://localhost:3000/ra/beta). `/` redirects to Stocks Buddha. The former `/ra/stocks-buddha` address redirects permanently to `/ra/stocksbuddha`, preserving the query string. Unknown/reserved tenant slugs and unsupported routes return HTTP 404, not another tenant’s content.
+Open the [StocksBuddha platform website](http://localhost:3000/). RA websites remain available at [Stocks Buddha](http://localhost:3000/ra/stocksbuddha), [Alpha demo](http://localhost:3000/ra/alpha), and [Beta demo](http://localhost:3000/ra/beta). The former `/ra/stocks-buddha` address redirects permanently to `/ra/stocksbuddha`, preserving the query string. Unknown/reserved tenant slugs and unsupported routes return HTTP 404, not another tenant’s content.
 
 ```sh
 npm run typecheck
@@ -142,6 +142,12 @@ The affected paths include `@sentry/node` / `@sentry/vite-plugin → @sentry/bun
 
 Registry publication timestamps make `glob@14.0.2` eligible on **4 November 2026 at 03:37:00.325 IST** and `minimatch@11.0.1` eligible at **03:56:03.755 IST** that day. These are the earliest fixed versions, not a validated upgrade recommendation. After both times, recheck advisories and release timestamps, select exact versions, regenerate the root lockfile with the unchanged age policy, and validate compatibility with `npm run verify`. Both fixes cross major versions relative to the installed packages, so overrides require compatibility testing. Until then, clearing the audit requires replacing the affected tooling and validating equivalent lint and per-file coverage checks; no dependency-only remediation currently satisfies the seven-day policy.
 
+## Platform website and RA routes
+
+The root `/` is the StocksBuddha platform brand website, with English/Hindi content, demo enquiries by email and separate sign-in entry points for investors, RA teams and platform administration. It does not inherit the Stocks Buddha RA's identity or registration. Each RA keeps its public website at `/ra/<slug>`, including `/ra/stocksbuddha`, and its membership-protected workspace at `/ra/<slug>/workspace`. Platform-owner administration stays at `/workspace`. Generic `/login` and `/signin` now lead to the platform's RA access section; `/signup` leads to demo enquiries. Organisation onboarding remains owner-managed and invitation-based. See [platform website, routes and indexing](docs/PLATFORM_WEBSITE.md).
+
+All pages remain non-indexable by default. An explicit production-only `BRAND_SITE_INDEXABLE=true` setting enables indexing for the root platform page; RA websites, authentication, workspaces, previews and errors retain their restrictions. No live hosting or DNS changes are included.
+
 ## Database foundation
 
 MariaDB persistence uses TypeORM/mysql2 with twelve tables including migration metadata, locked migrations, an execution ledger/attempt history and repeatable dev preview seeds. Docker runs the local database and DbGate browser client; the application remains one Node process. Start both tools with `docker compose --env-file backend/.env up -d --wait`, then open [DbGate](http://localhost:8082) and log in as `stocksbuddha` with your local `DB_PASSWORD`. DbGate is local-only; use migrations for schema changes and Beekeeper for deployed dev/prod. Follow [database setup](database/README.md), [reviewed schema](docs/DATABASE_DESIGN.md) and [implementation/recovery notes](docs/DATABASE_IMPLEMENTATION.md).
@@ -162,7 +168,7 @@ Tenant profiles and localized publications can use either validated source fixtu
 
 Stocks Buddha details reproduce the owner’s supplied brand, legal name and registration string; verification and approved content remain prerequisites for launch. Alpha and Beta are explicitly synthetic and use no registration credentials. The monogram and portrait area are placeholders. No invented pricing, testimonials, performance results, or research recommendations appear.
 
-All preview pages use `noindex` and `no-store`. Google Fonts are optional network enhancements with local serif/sans fallbacks. Revisit font self-hosting and the content security policy before production. Path tenancy separates resolution, not browser origins; workspace authorization checks persistent sessions and current memberships on every private request; future business endpoints must enforce their capabilities too.
+All preview pages use `noindex` and `no-store`; only the platform homepage has an explicit production indexing opt-in. Google Fonts are optional network enhancements with local serif/sans fallbacks. Revisit font self-hosting and the content security policy before production. Path tenancy separates resolution, not browser origins; workspace authorization checks persistent sessions and current memberships on every private request; future business endpoints must enforce their capabilities too.
 
 The public access policy and internal database operations are tested separately. Internal operations validate stored sessions, permissions and transaction concurrency; authentication and workspace membership routes are mounted in MariaDB mode. Hostinger SMTP-backed verification/recovery, shared MariaDB authentication limits and explicit trusted-proxy configuration are available; see [authentication setup](docs/AUTHENTICATION.md). Production requires an active Hostinger mailbox and authenticated SMTP credentials. Platform-owner setup, RA Admin/team invitations and role-scoped blank workspaces are available; see [organisation access and bootstrap](docs/ORGANISATION_ACCESS.md). The owner editor/API now uses this foundation; administrator MFA remains future work. The reference project remains intact. No deployment or changes to the existing Hostinger site are included.
 

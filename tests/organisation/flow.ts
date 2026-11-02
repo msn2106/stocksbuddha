@@ -443,3 +443,48 @@ test("tenant logout still invalidates the global session after suspension", asyn
   expect(response.status()).toBe(303);
   expect((await page.request.get("/api/session")).status()).toBe(401);
 });
+
+test("platform homepage reaches owner administration without acquiring an RA context", async ({
+  page,
+  request,
+}) => {
+  const home = await request.get("/");
+  expect(home.status()).toBe(200);
+  const html = await home.text();
+  const bootstrap = JSON.parse(
+    html.match(
+      /<script id="page-data" type="application\/json">(.*?)<\/script>/s,
+    )![1]!,
+  );
+  expect(bootstrap.tenant).toBeNull();
+  expect(bootstrap.website).toBeNull();
+  expect(
+    (await request.get("/login", { maxRedirects: 0 })).headers().location,
+  ).toBe("/?lang=en#access");
+  expect(
+    (await request.get("/workspaces", { maxRedirects: 0 })).headers().location,
+  ).toBe("/#access");
+  await page.goto("/");
+  await page
+    .getByRole("link", { name: "Platform owner sign in", exact: true })
+    .click();
+  await page
+    .getByLabel("Email address", { exact: true })
+    .fill("owner@example.test");
+  await page.getByLabel("Password", { exact: true }).fill("test-password-123");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page).toHaveURL(/\/workspace$/);
+  await expect(
+    page.locator(".workspace-sidebar-footer a").first(),
+  ).toHaveAttribute("href", "/");
+  const response = await page.request.post("/logout", {
+    headers: { origin: "http://127.0.0.1:3111" },
+    maxRedirects: 0,
+  });
+  expect(response.status()).toBe(303);
+  expect(response.headers().location).toBe("/#access");
+  expect(
+    (await page.request.get("/workspace", { maxRedirects: 0 })).headers()
+      .location,
+  ).toBe("/workspace/login");
+});

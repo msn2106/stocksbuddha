@@ -27,7 +27,10 @@ export {
 export type PageData = {
   tenant: Tenant | null;
   website: PublicWebsite | null;
-  page: "landing" | "not-found" | "account";
+  page: "landing" | "not-found" | "account" | "platform";
+  /** Explicit production opt-in applies only to the platform homepage. */
+  indexable?: boolean;
+  platformAccessError?: boolean;
   locale: Locale;
   preview?: boolean;
   account?: AccountView;

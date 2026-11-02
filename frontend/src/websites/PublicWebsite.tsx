@@ -212,10 +212,7 @@ export function PublicWebsite({ data }: { data: PageData }) {
             {t("error.headingEnd")}{" "}
           </h1>
           <p>{t("error.description")} </p>
-          <a
-            className="button primary"
-            href={`/ra/stocksbuddha?lang=${locale}`}
-          >
+          <a className="button primary" href={`/?lang=${locale}`}>
             {t("error.visitHome")} <ArrowRight size={18} />
           </a>
         </main>

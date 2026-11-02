@@ -1184,7 +1184,7 @@ test("tenant logout revokes the shared session even when the organisation is una
   );
   assert.equal(
     (await request("/logout", "POST", undefined, { origin })).headers.location,
-    "/ra/stocksbuddha/login",
+    "/#access",
   );
 });
 
@@ -1416,4 +1416,17 @@ test("website mutations validate envelopes, propagate safe field errors and reta
   assert.equal(JSON.parse(defaultLanguage.body).locale, "en");
   complete = false;
   assert.equal((await h.request(preview)).status, 422);
+});
+
+test("authenticated-mode platform entry points do not default to an RA", async () => {
+  const { request, state } = harness();
+  for (const [path, destination] of [
+    ["/login", "/?lang=en#access"],
+    ["/signin?lang=hi", "/?lang=hi#access"],
+    ["/signup", "/?lang=en#contact"],
+  ]) {
+    assert.equal((await request(path!)).headers.location, destination);
+  }
+  state.signedIn = false;
+  assert.equal((await request("/workspaces")).headers.location, "/#access");
 });

@@ -1,4 +1,5 @@
 import { renderToString } from "react-dom/server";
+import { platformContent } from "./platform/content";
 import { App } from "./App";
 import { serializePage, type PageData } from "@ra/contracts";
 import { translator } from "./locales/messages";
@@ -25,22 +26,30 @@ const escape = (value: string) =>
  */
 export function render(data: PageData) {
   const t = translator(data.locale, data.website?.content);
-  const title = data.account
-    ? `${t(`auth.${data.account.mode.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase())}.title` as UiMessageKey)} | ${data.tenant?.profile.name ?? t("auth.platform")}`
-    : data.tenant
-      ? `${data.tenant.profile.name} | ${t("metadata.research")}`
-      : t("metadata.notFoundTitle");
-  const description = data.account
-    ? t("auth.story.body", {
-        tenant: data.tenant?.profile.name ?? t("auth.platform"),
-      })
-    : data.tenant
-      ? data.website!.content["site.description"]
-      : t("metadata.notFoundDescription");
+  const platform =
+    data.page === "platform" ? platformContent[data.locale] : null;
+  const robots =
+    platform && data.indexable ? "index,follow" : "noindex,nofollow";
+  const title = platform
+    ? platform.title
+    : data.account
+      ? `${t(`auth.${data.account.mode.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase())}.title` as UiMessageKey)} | ${data.tenant?.profile.name ?? t("auth.platform")}`
+      : data.tenant
+        ? `${data.tenant.profile.name} | ${t("metadata.research")}`
+        : t("metadata.notFoundTitle");
+  const description = platform
+    ? platform.description
+    : data.account
+      ? t("auth.story.body", {
+          tenant: data.tenant?.profile.name ?? t("auth.platform"),
+        })
+      : data.tenant
+        ? data.website!.content["site.description"]
+        : t("metadata.notFoundDescription");
   return {
     lang: data.locale,
     html: renderToString(<App data={data} />),
-    head: `<title>${escape(title)}</title><meta name="description" content="${escape(description)}"/><meta name="robots" content="noindex,nofollow"/><meta name="theme-color" content="${data.website?.branding.accent ?? "#244b3b"}"/><meta property="og:title" content="${escape(title)}"/><meta property="og:description" content="${escape(description)}"/><meta property="og:type" content="website"/>`,
+    head: `<title>${escape(title)}</title><meta name="description" content="${escape(description)}"/><meta name="robots" content="${robots}"/><meta name="theme-color" content="${data.website?.branding.accent ?? "#244b3b"}"/><meta property="og:title" content="${escape(title)}"/><meta property="og:description" content="${escape(description)}"/><meta property="og:type" content="website"/>`,
     data: `<script id="page-data" type="application/json">${serializePage(data)}</script>`,
   };
 }

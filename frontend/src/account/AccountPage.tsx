@@ -34,7 +34,7 @@ export function AccountPage({ data }: { data: PageData }) {
     ? "/workspace"
     : data.tenant
       ? `/ra/${data.tenant.slug}`
-      : "/ra/stocksbuddha";
+      : "/";
   const tenant = data.tenant?.profile.name ?? t("auth.platform");
   const signup = account.mode === "signup";
   const credentials = account.mode === "login" || signup;
@@ -69,10 +69,7 @@ export function AccountPage({ data }: { data: PageData }) {
             tagline={data.website ? undefined : t("auth.tagline")}
           />
         ) : (
-          <a
-            className="account-platform"
-            href={platform ? "/workspace/login" : base}
-          >
+          <a className="account-platform" href="/">
             {tenant}
           </a>
         )}

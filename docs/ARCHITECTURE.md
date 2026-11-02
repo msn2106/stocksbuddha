@@ -2,7 +2,7 @@
 
 ## Implemented boundary
 
-One application serves `/ra/stocksbuddha`, `/ra/alpha`, and `/ra/beta`. The old `/ra/stocks-buddha` public address redirects permanently (308), preserving the query string. The root currently redirects to the demo; a future platform marketing homepage can replace that redirect. Slugs are addresses, while UUID tenant IDs own data.
+One application serves `/ra/stocksbuddha`, `/ra/alpha`, and `/ra/beta`. The old `/ra/stocks-buddha` public address redirects permanently (308), preserving the query string. The root `/` renders a separate English/Hindi platform brand website without resolving a tenant. Its public RA sign-in form takes an explicit slug; platform-owner access remains at `/workspace/login`. See [platform routes and indexing](PLATFORM_WEBSITE.md). Slugs are addresses, while UUID tenant IDs own data.
 
 `backend/src/main.ts` composes the adapters and HTTP/SSR runtime. `backend/src/tenancy/resolve-public-site.ts` resolves a request using injected asynchronous repository interfaces. It validates the exact path, resolves an active tenant, fetches that tenant's published website, checks ownership/publication again, selects one enabled language and returns a public projection. No module-level current tenant or browser-selected tenant authorizes a request. Unknown paths return 404; arbitrary tenant headers/query IDs have no authority. Backend failures produce an error, not another tenant's site.
 
@@ -18,6 +18,7 @@ One application serves `/ra/stocksbuddha`, `/ra/alpha`, and `/ra/beta`. The old 
 | `backend/src/websites/`             | Validated website seed adapter and per-tenant/per-language content                   |
 | `backend/src/access/`               | Tenant membership/capability and separate platform-role policy                       |
 | `frontend/src/locales/`             | Shared UI translations, accessibility controls and application-owned disclosure text |
+| `frontend/src/platform/`            | Tenant-independent platform homepage, audience entry points and localized brand copy |
 | `frontend/src/websites/`            | Approved page components, template presentation and configured section rendering     |
 | `database/`                         | MariaDB schema, locked migration runner, release manifest and repeatable dev seeds   |
 | `backend/src/database/`             | Persistent repositories and internal transactional tenant/publication operations     |
@@ -53,7 +54,7 @@ Published snapshots stay immutable through application operations. Version 1 is 
 
 ## Hosts and environments
 
-Planned production: `https://stocksbuddha.com/ra/<slug>`. Planned development: `https://dev.stocksbuddha.com/ra/<slug>`. Both can run this code, with separate deployments, databases, credentials, host-only session cookies and provider sandbox/live configuration. Keep development access protected and noindex. All current pages remain noindex/no-store; no hosting/DNS change is part of S0.2.
+Planned production: `https://stocksbuddha.com/ra/<slug>`. Planned development: `https://dev.stocksbuddha.com/ra/<slug>`. Both can run this code, with separate deployments, databases, credentials, host-only session cookies and provider sandbox/live configuration. Keep development access protected and noindex. All pages default to noindex/no-store; only the root platform page supports an explicit production indexing opt-in. RA websites, private pages and previews retain their restrictions. No hosting/DNS change is included.
 
 Custom-domain resolution is not implemented. Add verified domain-to-tenant mappings later, retaining immutable tenant ownership. Resolve allowed host/path combinations explicitly and reject conflicts; never trust forwarded host headers without a configured proxy boundary. Build navigation from a resolved public base URL when custom domains arrive. Current path tenants share a browser origin, so arbitrary tenant scripts are excluded. Review custom-domain routing support and app quotas on the selected host before offering it commercially.
 

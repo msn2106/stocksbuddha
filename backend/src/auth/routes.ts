@@ -154,7 +154,7 @@ export function createAuthRoutes({
   router.get(["/login", "/signin", "/signup"], (req, res) =>
     res.redirect(
       302,
-      `/ra/stocksbuddha/${req.path === "/signup" ? "signup" : "login"}`,
+      `/?lang=${req.query.lang === "hi" ? "hi" : "en"}#${req.path === "/signup" ? "contact" : "access"}`,
     ),
   );
   router.get("/ra/:slug/signin", (req, res) =>
@@ -343,7 +343,9 @@ export function createAuthRoutes({
     res.setHeader("Set-Cookie", response.headers.getSetCookie());
     return res.redirect(
       303,
-      `/ra/${slugSchema.safeParse(req.params.slug).success ? req.params.slug : "stocksbuddha"}/login`,
+      slugSchema.safeParse(req.params.slug).success
+        ? `/ra/${req.params.slug}/login`
+        : "/#access",
     );
   });
   router.use(
@@ -364,7 +366,9 @@ export function createAuthRoutes({
         if (!req.originalUrl.startsWith("/api/"))
           return res.redirect(
             303,
-            `/ra/${res.locals.accountTenant?.slug ?? req.params.slug ?? "stocksbuddha"}/login`,
+            res.locals.accountTenant?.slug || req.params.slug
+              ? `/ra/${res.locals.accountTenant?.slug ?? req.params.slug}/login`
+              : "/#access",
           );
         return res.status(401).json({ error: "unauthorized" });
       }

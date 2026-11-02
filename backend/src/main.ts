@@ -56,6 +56,10 @@ export async function startServer({
           appType: "custom",
         });
     const server = buildApp({
+      brandSiteIndexable:
+        production &&
+        env.BRAND_SITE_INDEXABLE === "true" &&
+        env.ALLOW_PUBLIC_PREVIEW !== "true",
       /** Report handled request failures to Sentry and retain the existing console diagnostic. */
       onError: (error) => {
         const metadata = requestMetadata();

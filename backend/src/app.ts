@@ -1,6 +1,6 @@
 import { accountTenant } from "./auth/account-tenant";
 import express, { type Request, type RequestHandler } from "express";
-import type { PageData } from "@ra/contracts";
+import { slugSchema, type PageData } from "@ra/contracts";
 import { requestMonitoring, monitorTenant } from "./monitoring";
 
 export type RenderedPage = {
@@ -17,6 +17,7 @@ export type PublicAppDependencies = {
     cookies?: string,
   ) => Promise<PageData>;
   renderPage: (data: PageData, request: Request) => Promise<RenderedPage>;
+  brandSiteIndexable?: boolean;
   assets?: RequestHandler;
   authentication?: RequestHandler;
   onError?: (error: unknown) => void;
@@ -32,6 +33,7 @@ export function createPublicApp({
   resolvePage,
   renderPage,
   assets,
+  brandSiteIndexable = false,
   authentication,
   ready = async () => true,
   onError = (error) =>
@@ -97,7 +99,7 @@ export function createPublicApp({
     server.get(["/login", "/signin", "/signup"], (req, res) =>
       res.redirect(
         302,
-        `/ra/stocksbuddha/${req.path === "/signup" ? "signup" : "login"}`,
+        `/?lang=${req.query.lang === "hi" ? "hi" : "en"}#${req.path === "/signup" ? "contact" : "access"}`,
       ),
     );
     server.get(
@@ -127,6 +129,10 @@ export function createPublicApp({
               | "verify-email"
               | "forgot-password"
               | "reset-password",
+            audience:
+              req.query.audience === "organisation"
+                ? "organisation"
+                : "investor",
             error: "service",
           },
         } satisfies PageData;
@@ -176,7 +182,30 @@ export function createPublicApp({
       : "";
     res.redirect(308, `/ra/stocksbuddha${query}`);
   });
-  server.get("/", (_req, res) => res.redirect(302, "/ra/stocksbuddha"));
+  // Platform access never chooses an RA or grants a membership implicitly.
+  server.get("/access", (req, res) => {
+    const locale = req.query.lang === "hi" ? "hi" : "en";
+    const slug = slugSchema.safeParse(req.query.slug);
+    if (!slug.success)
+      return res.redirect(303, `/?lang=${locale}&access=invalid#access`);
+    const audience =
+      req.query.audience === "organisation" ? "organisation" : "investor";
+    return res.redirect(
+      303,
+      `/ra/${slug.data}/login?lang=${locale}&audience=${audience}`,
+    );
+  });
+  server.get("/", (req, res, next) => {
+    res.locals.platformPage = {
+      page: "platform",
+      tenant: null,
+      website: null,
+      locale: req.query.lang === "hi" ? "hi" : "en",
+      indexable: brandSiteIndexable && req.query.access !== "invalid",
+      platformAccessError: req.query.access === "invalid",
+    } satisfies PageData;
+    next();
+  });
 
   if (assets) server.use(assets);
   server.use(async (req, res, next) => {
@@ -184,11 +213,13 @@ export function createPublicApp({
     if (!account && req.method !== "GET" && req.method !== "HEAD")
       return res.status(405).send("Method not allowed");
     try {
-      const publicData = await resolvePage(
-        account?.tenant ? `/ra/${account.tenant.slug}` : req.path,
-        req.query.lang,
-        req.headers.cookie,
-      );
+      const publicData: PageData =
+        res.locals.platformPage ??
+        (await resolvePage(
+          account?.tenant ? `/ra/${account.tenant.slug}` : req.path,
+          req.query.lang,
+          req.headers.cookie,
+        ));
       const data =
         res.locals.websitePreview ??
         (account
@@ -201,8 +232,16 @@ export function createPublicApp({
           : publicData);
       if (data.tenant) monitorTenant(data.tenant.id);
       const rendered = await renderPage(data, req);
+      if (data.page === "platform" && data.indexable)
+        res.setHeader("X-Robots-Tag", "index, follow");
       res
-        .status(account ? res.statusCode : data.tenant ? 200 : 404)
+        .status(
+          account
+            ? res.statusCode
+            : data.page === "platform" || data.tenant
+              ? 200
+              : 404,
+        )
         .type("html")
         .send(
           rendered.template

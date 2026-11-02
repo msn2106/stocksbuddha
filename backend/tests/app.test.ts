@@ -116,7 +116,7 @@ test("public route handlers select success/not-found/method/redirect responses w
     404,
   );
   assert.equal((await request({}, "/ra/example", "HEAD")).body, "");
-  for (const url of ["/ra/stocks-buddha", "/ra/stocks-buddha?lang=hi", "/"])
+  for (const url of ["/ra/stocks-buddha", "/ra/stocks-buddha?lang=hi"])
     assert.ok([302, 308].includes((await request({}, url)).status));
 });
 
@@ -143,4 +143,74 @@ test("render errors are redacted and optional assets take precedence over render
     "/assets/x.js",
   );
   assert.equal(asset.body, "asset");
+});
+
+test("platform homepage renders without tenant resolution and defaults to preview indexing", async () => {
+  const pages: unknown[] = [];
+  const deps: Partial<PublicAppDependencies> = {
+    resolvePage: async () => {
+      throw new Error("Platform must not resolve an RA");
+    },
+    renderPage: async (data) => {
+      pages.push(data);
+      return {
+        template: "<!--app-html-->",
+        html: data.page,
+        head: "",
+        data: "",
+        lang: data.locale,
+      };
+    },
+  };
+  const home = await request(deps, "/?lang=hi", "GET");
+  assert.equal(home.status, 200);
+  assert.equal(home.body, "platform");
+  assert.equal(home.headers["x-robots-tag"], "noindex, nofollow");
+  assert.deepEqual(pages[0], {
+    tenant: null,
+    website: null,
+    page: "platform",
+    locale: "hi",
+    indexable: false,
+    platformAccessError: false,
+  });
+  assert.equal((await request(deps, "/", "HEAD")).body, "");
+  assert.equal((await request(deps, "/", "POST")).status, 405);
+  const live = await request(
+    { ...deps, brandSiteIndexable: true },
+    "/?lang=invalid",
+  );
+  assert.equal(live.headers["x-robots-tag"], "index, follow");
+  assert.equal((pages.at(-1) as { locale: string }).locale, "en");
+  const invalid = await request(deps, "/?access=invalid");
+  assert.equal(invalid.status, 200);
+  assert.equal(
+    (pages.at(-1) as { platformAccessError: boolean }).platformAccessError,
+    true,
+  );
+});
+
+test("platform access validates slug and never implicitly chooses an RA", async () => {
+  for (const [path, target] of [
+    ["/login", "/?lang=en#access"],
+    ["/signin?lang=hi", "/?lang=hi#access"],
+    ["/signup", "/?lang=en#contact"],
+    [
+      "/access?slug=alpha&audience=organisation&lang=hi",
+      "/ra/alpha/login?lang=hi&audience=organisation",
+    ],
+    [
+      "/access?slug=beta&audience=unknown&lang=unknown",
+      "/ra/beta/login?lang=en&audience=investor",
+    ],
+    ["/access?slug=../../workspace", "/?lang=en&access=invalid#access"],
+    ["/access?slug=admin", "/?lang=en&access=invalid#access"],
+    ["/access", "/?lang=en&access=invalid#access"],
+  ]) {
+    const response = await request({}, path);
+    assert.equal(response.headers.location, target);
+    assert.ok([302, 303].includes(response.status));
+  }
+  const tenant = await request({ brandSiteIndexable: true }, "/ra/example");
+  assert.equal(tenant.headers["x-robots-tag"], "noindex, nofollow");
 });
