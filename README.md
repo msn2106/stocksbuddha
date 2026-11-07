@@ -104,7 +104,7 @@ npm run typecheck --workspace @ra/contracts
 npm run verify
 ```
 
-`npm run dev` runs the backend with Vite middleware and React hot reload. The browser acceptance server uses port **3100**, separate from the normal preview on port **3000**, and always starts a fresh production server. `npm run verify` performs dependency policy/audit checks, formatting, lint, whole-repository unit coverage, integration tests, the production build/type checks, and browser tests in sequence. The checked-in GitHub Actions workflow runs this same command.
+`npm run dev` runs the backend with Vite middleware and React hot reload. The terminal prints the StocksBuddha platform website URL first, followed by the Stocks Buddha RA website URL. The browser acceptance server uses port **3100**, separate from the normal preview on port **3000**, and always starts a fresh production server. `npm run verify` performs dependency policy/audit checks, formatting, lint, whole-repository unit coverage, integration tests, the production build/type checks, and browser tests in sequence. The checked-in GitHub Actions workflow runs this same command.
 
 See [multi-tenant architecture](docs/ARCHITECTURE.md), [database ownership](database/README.md), [repository scripts](scripts/README.md), and [S0.1 evidence](docs/S0.1.md).
 

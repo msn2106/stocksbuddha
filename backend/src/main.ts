@@ -134,6 +134,7 @@ export async function startServer({
     app.enableShutdownHooks();
     const port = Number(env.PORT || 3000);
     await app.listen(port, env.HOST || "127.0.0.1");
+    log(`StocksBuddha platform website: http://localhost:${port}/`);
     log(`RA website: http://localhost:${port}/ra/stocksbuddha`);
     return app;
   } catch (error) {
