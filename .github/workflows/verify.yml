@@ -5,6 +5,20 @@ on:
 permissions:
   contents: read
 jobs:
+  critical-audit:
+    name: Critical dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - run: npm install --global npm@11.19.1
+      - name: Fail when critical vulnerabilities are present
+        run: npm run security:audit:critical
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20

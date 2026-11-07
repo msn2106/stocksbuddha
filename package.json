@@ -33,6 +33,7 @@
     "preinstall": "node scripts/check-dependency-policy.mjs",
     "security:policy": "node scripts/check-dependency-policy.mjs",
     "security:audit": "npm audit --workspaces --include-workspace-root --include=dev --audit-level=low",
+    "security:audit:critical": "npm audit --package-lock-only --workspaces --include-workspace-root --include=dev --include=optional --audit-level=critical",
     "security:check": "npm run security:policy && npm run security:audit",
     "test:policy": "node scripts/run-tests.mjs integration scripts/tests",
     "db:build": "tsx database/build.ts",
