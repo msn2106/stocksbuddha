@@ -49,7 +49,7 @@ export type AccountView = {
     | "invitation";
   audience?: "investor" | "organisation" | "platform";
   area?: "investor" | "organisation" | "platform";
-  section?: "overview" | "organisations" | "team" | "website";
+  section?: "overview" | "organisations" | "team" | "website" | "documents";
   profile?: { name: string; email: string; emailVerified: boolean };
   organisations?: {
     id: string;

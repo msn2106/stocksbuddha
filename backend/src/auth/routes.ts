@@ -1,3 +1,5 @@
+import { mountDocuments } from "../documents/routes";
+import type { DocumentService } from "../documents/service";
 import {
   mountWebsiteEditor,
   type WebsiteOperations,
@@ -41,6 +43,7 @@ export type AuthRoutesDependencies = {
   emailEnabled?: boolean;
   organisations?: OrganisationService;
   mailer?: AuthMailer;
+  documents?: DocumentService;
 };
 
 /** Pass a safe account projection to the shared React SSR pipeline, excluding session tokens. */
@@ -84,6 +87,7 @@ export function createAuthRoutes({
   trustedProxyAddresses,
   emailEnabled = false,
   organisations,
+  documents,
   mailer,
 }: AuthRoutesDependencies) {
   const router = express.Router();
@@ -125,6 +129,14 @@ export function createAuthRoutes({
   router.all("/api/auth/{*path}", (req, res) =>
     withAuthTenant(null, () => authHandler(req, res)),
   );
+  if (documents)
+    mountDocuments(router, {
+      auth,
+      store,
+      service: documents,
+      origin,
+      page: accountPage,
+    });
   router.use("/api/workspaces/:slug/website", express.json({ limit: "600kb" }));
   router.use(
     express.json({ limit: "8kb" }),

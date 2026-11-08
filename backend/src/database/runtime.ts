@@ -1,3 +1,5 @@
+import { driveConfig, GoogleDriveStorage } from "../documents/drive";
+import { DocumentService } from "../documents/service";
 import { createDatabase, databaseConfig } from "../../../database/config";
 import {
   MariaDbTenantRepository,
@@ -78,6 +80,7 @@ export async function createPersistence(
   }
   let authentication: ReturnType<typeof createAuthentication>;
   let mailer: ReturnType<typeof authMailer>;
+  let storageConfig: ReturnType<typeof driveConfig>;
   try {
     if (!env.AUTH_SECRET || !env.AUTH_BASE_URL)
       throw new Error(
@@ -90,6 +93,7 @@ export async function createPersistence(
       throw new Error(
         "Production authentication requires an HTTPS AUTH_BASE_URL",
       );
+    storageConfig = driveConfig(env);
     mailer = authMailer(env);
     authentication = authenticationFactory(
       databaseConfig(env),
@@ -104,6 +108,10 @@ export async function createPersistence(
   }
   return {
     authentication: createAuthRoutes({
+      documents: new DocumentService(
+        db,
+        storageConfig ? new GoogleDriveStorage(storageConfig) : null,
+      ),
       auth: authentication.auth,
       store: new MariaDbWorkspaceStore(db),
       operations: new TenantOperations(db),

@@ -1,3 +1,4 @@
+import { CreateDocuments1794009600000 } from "./migrations/1794009600000-Documents";
 import { CreateTenants1793491200000 } from "./migrations/1793491200000-Tenants";
 import { CreateAuthUsers1793491200001 } from "./migrations/1793491200001-AuthUsers";
 import { CreateAuthAccounts1793491200002 } from "./migrations/1793491200002-AuthAccounts";
@@ -29,4 +30,5 @@ export const migrationClasses = [
   CreateAuthRateLimits1793491200010,
   CreateOrganisationInvitations1793491200011,
   AddInvitationNames1793491200012,
+  CreateDocuments1794009600000,
 ];

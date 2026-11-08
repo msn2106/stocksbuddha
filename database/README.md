@@ -1,6 +1,6 @@
 # MariaDB persistence
 
-The twelve-table foundation uses TypeORM and mysql2. Twelve ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
+The current thirteen-table schema uses TypeORM and mysql2. Fourteen ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
 
 ## Local setup
 
@@ -64,7 +64,7 @@ Do not grant database-creation privileges to the application user just to run te
 
 ## Authentication provenance migration and legacy users
 
-Migration `AddAuthTenantContext1793491200009` adds nullable signup/login RA FKs to `auth_users` / `auth_sessions`, plus two audit triggers. That migration does not add a table; the authentication-limit and organisation-invitation migrations bring the current foundation to twelve. It preserves existing rows with unknown (`NULL`) provenance; no users are automatically assigned to RAs. The migration operator needs ALTER/TRIGGER privileges, and the trigger definer must remain valid with audit insert access. See [implementation and partial-DDL recovery](../docs/DATABASE_IMPLEMENTATION.md).
+Migration `AddAuthTenantContext1793491200009` adds nullable signup/login RA FKs to `auth_users` / `auth_sessions`, plus two audit triggers. That migration does not add a table; the authentication-limit and organisation-invitation migrations brought that foundation to twelve before the document extension. It preserves existing rows with unknown (`NULL`) provenance; no users are automatically assigned to RAs. The migration operator needs ALTER/TRIGGER privileges, and the trigger definer must remain valid with audit insert access. See [implementation and partial-DDL recovery](../docs/DATABASE_IMPLEMENTATION.md).
 
 After `npm run db:migrate -- --target dev`, use [backfill-auth-tenant-context.sql](queries/backfill-auth-tenant-context.sql) in a single database-client connection. Substitute known emails/slugs in the signup block; run it separately for Stocks Buddha and Beta. Session backfill is optional and requires a known original session RA, not just the user's signup origin. The transaction blocks preserve existing non-NULL values and audit corrections without granting memberships or marking emails verified. See [authentication provenance](../docs/AUTHENTICATION.md#signup-and-login-ra-provenance).
 
@@ -79,3 +79,7 @@ Migration `CreateOrganisationInvitations1793491200011` adds the tenant-bound, ha
 Migration `AddInvitationNames1793491200012` adds nullable `organisation_invitations.full_name` for personalised email greetings (13 application migrations; still 12 total tables including migration metadata). New invitations require a full name; historical rows keep NULL and request a name when resent. Run the normal explicit migration command before starting this version. Resend/revoke actions use current tenant-admin checks and audit events; revocation does not delete the shared identity or memberships in other organisations.
 
 The current access policy is **one email, one role per RA**. Existing `auth_users.email` and `(tenant_id,user_id)` uniqueness remain unchanged; no migration or automatic role conversion is required. Subscriber and staff roles are mutually exclusive in one RA, including invitation resend/acceptance and enrolment/API paths. Application data keeps its current role. See [policy, concurrency and test coverage](../docs/ROLE_EXCLUSIVITY.md).
+
+## Private documents
+
+Migration `CreateDocuments1794009600000` adds retained document metadata, tenant/customer foreign keys and private Drive object references (14 application migrations; 13 total tables including migration metadata). File bytes stay in Google Drive. Apply the normal explicit migration before startup; configure backend OAuth separately. See [Drive activation, document roles and recovery](../docs/GOOGLE_DRIVE.md).

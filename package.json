@@ -43,7 +43,9 @@
     "db:typecheck": "tsc --noEmit -p database/tsconfig.json",
     "test:database": "node --env-file-if-exists=backend/.env --import tsx --test --test-timeout=60000 backend/tests/integration/database.test.ts",
     "auth:bootstrap-owner": "node --env-file-if-exists=backend/.env --import tsx database/bootstrap-owner.ts",
-    "test:e2e:organisations": "playwright test --config tests/organisation/playwright.config.ts"
+    "test:e2e:organisations": "playwright test --config tests/organisation/playwright.config.ts",
+    "drive:authorize": "node --env-file-if-exists=backend/.env --import tsx scripts/google-drive.ts authorize",
+    "drive:check": "node --env-file-if-exists=backend/.env --import tsx scripts/google-drive.ts check"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",

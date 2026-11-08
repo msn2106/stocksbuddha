@@ -46,7 +46,7 @@ test(
     const manifest = await loadManifest();
     try {
       await context.test(
-        "fresh and repeated migrations have one success per migration and exactly twelve tables",
+        "fresh and repeated migrations have one success per migration and exactly thirteen tables",
         async () => {
           await runMigrations(db, manifest, true);
           await runMigrations(db, manifest, true);
@@ -54,7 +54,7 @@ test(
             "SELECT COUNT(*) AS count FROM information_schema.tables WHERE table_schema=?",
             [name],
           );
-          assert.equal(Number(count), 12);
+          assert.equal(Number(count), 13);
           const [{ attempts }] = await db.query(
             "SELECT COUNT(*) AS attempts FROM migration_attempts",
           );

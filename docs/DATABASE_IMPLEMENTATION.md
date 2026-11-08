@@ -5,7 +5,7 @@
 ## Implemented
 
 - Local Docker Compose for MariaDB and the DbGate Community browser client; the application continues directly in Node. DbGate is bound to loopback, preconfigured only for the local dev database and excluded from hosted deployment.
-- Twelve constrained InnoDB tables, thirteen TypeORM application migrations and verified metadata bootstrap.
+- Thirteen constrained InnoDB tables, fourteen TypeORM application migrations and verified metadata bootstrap.
 - Separate `stocksbuddha_dev` / `stocksbuddha_prod` targets, including optional Hostinger account prefix. No persistent third environment. SQL timestamp defaults explicitly use UTC expressions; the driver timezone setting controls value conversion and is not assumed to set server timezone.
 - Source-checksum manifest, applied ledger, attempt outcomes, one release lock, drift rejection and refusal to retry failed/unfinished migrations automatically.
 - Repeatable dev preview seeds preserving UUIDs, localized websites, owner edits and explicit unpublication.
@@ -56,7 +56,7 @@ There is no unattended repair command because the runner cannot infer safe recov
 
 Real-DB tests use disposable `sb_test_*` databases on local MariaDB 11.4.8. They cover fresh/repeated/concurrent runners, drift/failure blocking, seed safety, tenant constraints, frozen projections, unknown/corrupt snapshots, incomplete/stale drafts, retries, revocation, last owner, atomic provisioning rollback and pinned core authentication. Unit tests cover controlled dependency failures, domain denials, projections and lifecycle. Browser tests use explicit fixture-preview configuration.
 
-These checks are not Hostinger deployment, load or restore evidence. Before production: inspect actual engine/grants/connection budget/TLS; test against its version; provision separate dev/prod databases and credentials; rehearse backups with required key/document recovery; verify live Hostinger SMTP mailbox/DNS readiness, chosen auth plugins, administrator MFA and deployed editor API/UI; approve privacy/retention policies. Payments, KYC evidence, files, providers and durable delivery remain deferred modules as reviewed.
+These checks are not Hostinger deployment, load or restore evidence. Before production: inspect actual engine/grants/connection budget/TLS; test against its version; provision separate dev/prod databases and credentials; rehearse backups with required key/document recovery; verify live Hostinger SMTP mailbox/DNS readiness, chosen auth plugins, administrator MFA and deployed editor API/UI; approve privacy/retention policies. Payments, KYC verification, provider workflows and durable delivery remain deferred. Private document storage is implemented and the local OAuth-backed test uploads/downloads have been verified; see [Drive setup](GOOGLE_DRIVE.md).
 
 Local validation also exercised the compiled migration/seed artifact and production server against a fresh disposable database: readiness, Hindi API projection, SSR, frozen identity after an administrative edit, explicit unpublication and graceful pool shutdown passed. All 16 browser acceptance tests passed. The full `verify` command remains blocked by 17 pre-existing moderate tooling audit findings; the dependency age policy was not weakened.
 
@@ -66,8 +66,12 @@ Migration `1793491200010` adds shared expiring counters with row-locked atomic c
 
 ## Organisation access extension
 
-Migration `1793491200011` adds durable invitations. Migration `1793491200012` adds nullable invitation recipient names for personalised greetings; new invitations require a name. There are now 13 application migrations and 12 tables including metadata. Platform-owner bootstrap is an explicit verified-account operator command, not startup behavior. The platform creates draft organisations and invites RA Admins; acceptance creates membership and activates draft organisations atomically, without fabricating a website. Hostinger SMTP delivery is outside the transaction and failures are retried by issuing a replacement invitation. See [organisation access](ORGANISATION_ACCESS.md) for routes, role naming, activation, test commands and remaining MFA/business-screen scope.
+Migration `1793491200011` adds durable invitations. Migration `1793491200012` adds nullable invitation recipient names for personalised greetings; new invitations require a name. That invitation foundation had 13 application migrations and 12 tables including metadata; the document extension below brings the current totals to 14 migrations and 13 tables. Platform-owner bootstrap is an explicit verified-account operator command, not startup behavior. The platform creates draft organisations and invites RA Admins; acceptance creates membership and activates draft organisations atomically, without fabricating a website. Hostinger SMTP delivery is outside the transaction and failures are retried by issuing a replacement invitation. See [organisation access](ORGANISATION_ACCESS.md) for routes, role naming, activation, test commands and remaining MFA/business-screen scope.
 
 ## Exclusive subscriber and staff roles
 
 The existing unique identity/membership keys enforce one row per email identity per RA. Application policy now rejects staff subscriber signup/login/enrolment and subscriber staff invitations. Recipient checks run at invitation issuance, resend and locked acceptance; conflicts do not replace pending links or send mail. Issuance/resend use READ COMMITTED with the tenant lock; acceptance/enrolment serialize the competing membership writes, and a late conflict cannot promote or overwrite a role. The membership API also rejects subscriber/staff conversion. This is an application policy update, not a schema or data migration. Existing records are not rewritten. See [role exclusivity](ROLE_EXCLUSIVITY.md).
+
+## Private document storage extension (7 November 2026)
+
+The schema now includes migration `CreateDocuments1794009600000`, adding the `documents` table (14 application migrations, 13 total tables including migration metadata). It stores scoped metadata and integrity hashes; file bytes remain in Google Drive. This extends the historical foundation inventory above. Run the explicit migration before startup. Runtime OAuth activation and the Drive/SQL reconciliation boundary are documented in [GOOGLE_DRIVE.md](GOOGLE_DRIVE.md).

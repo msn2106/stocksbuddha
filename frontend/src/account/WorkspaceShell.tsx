@@ -1,3 +1,4 @@
+import { Documents } from "./Documents";
 import { roleErrorMessage } from "./role-errors";
 import { WorkspaceActionButton } from "./WorkspaceActionButton";
 import { WebsiteEditor } from "../websites/WebsiteEditor";
@@ -206,9 +207,15 @@ export function WorkspaceShell({ data }: { data: PageData }) {
                   Edit website
                 </a>
               )}
+            <a
+              href={`${base}/documents?lang=${locale}`}
+              aria-current={section === "documents" ? "page" : undefined}
+            >
+              <FileText size={19} aria-hidden="true" />
+              {t("org.documents")}
+            </a>
             {[
               [BookOpen, "org.research"],
-              [FileText, "org.documents"],
               [Settings, "org.settings"],
             ].map(([Icon, key]) => {
               const Symbol = Icon as typeof BookOpen;
@@ -242,10 +249,12 @@ export function WorkspaceShell({ data }: { data: PageData }) {
           className="workspace-content"
           tabIndex={-1}
         >
-          {section === "website" &&
-          !platform &&
-          !investor &&
-          account.role === "owner" ? (
+          {section === "documents" ? (
+            <Documents data={data} />
+          ) : section === "website" &&
+            !platform &&
+            !investor &&
+            account.role === "owner" ? (
             <WebsiteEditor tenant={data.tenant!} />
           ) : section === "overview" ? (
             <h1 className="sr-only">{t("org.overview")}</h1>
