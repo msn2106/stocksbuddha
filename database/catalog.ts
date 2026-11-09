@@ -1,3 +1,6 @@
+import { TenantIntegrations1794441600000 } from "./migrations/1794441600000-TenantIntegrations";
+import { RecoveryEmailLimits1794355200000 } from "./migrations/1794355200000-RecoveryEmailLimits";
+import { MobileVerification1794268800000 } from "./migrations/1794268800000-MobileVerification";
 import { DocumentStorageLeases1794182400000 } from "./migrations/1794182400000-DocumentStorageLeases";
 import { InvestorOnboarding1794096000000 } from "./migrations/1794096000000-InvestorOnboarding";
 import { CreateDocuments1794009600000 } from "./migrations/1794009600000-Documents";
@@ -35,4 +38,7 @@ export const migrationClasses = [
   CreateDocuments1794009600000,
   InvestorOnboarding1794096000000,
   DocumentStorageLeases1794182400000,
+  MobileVerification1794268800000,
+  RecoveryEmailLimits1794355200000,
+  TenantIntegrations1794441600000,
 ];

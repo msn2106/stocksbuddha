@@ -3750,3 +3750,460 @@ footer[data-footer="compact"] .footer-top {
   background: #fffefa;
   color: inherit;
 }
+
+/* Private RA integrations share the editor's brand, with connection and message work kept distinct. */
+.service-settings {
+  --settings-surface: #fff;
+  --settings-soft: #eef2eb;
+  --settings-line: var(--border);
+  --settings-text: #26342d;
+  padding-block: 32px;
+  color: var(--settings-text);
+  min-width: 0;
+}
+.service-settings-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+.service-settings-heading h2 {
+  font-size: 30px;
+  margin: 0 0 8px;
+}
+.service-settings-heading p {
+  color: var(--muted);
+  max-width: 65ch;
+  margin: 0;
+  line-height: 1.65;
+}
+.settings-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 7px 10px;
+  border: 1px solid var(--settings-line);
+  border-radius: 4px;
+}
+.settings-state.is-configured {
+  color: var(--primary);
+  background: var(--settings-soft);
+  border-color: #b9cbbd;
+}
+.settings-form-body {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.settings-section {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 40px;
+  padding-block: 28px;
+  border-top: 1px solid var(--settings-line);
+}
+.settings-section-copy h3 {
+  margin: 0 0 10px;
+  font-family: var(--font-sans);
+  font-size: 18px;
+  font-weight: 600;
+}
+.settings-section-copy p,
+.settings-section-copy > small {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.65;
+  display: block;
+}
+.settings-section-copy a {
+  font-size: 14px;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.settings-mode {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+}
+.settings-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px 24px;
+  min-width: 0;
+}
+.settings-field {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-field label {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  display: block;
+}
+.settings-field label span {
+  color: var(--primary);
+}
+.service-settings :is(input:not([type="checkbox"]), select, textarea) {
+  border: 1px solid #b8bfb4;
+  background: var(--settings-surface);
+  border-radius: 5px;
+  width: 100%;
+  min-height: 46px;
+  color: var(--settings-text);
+  font: inherit;
+  font-size: 16px;
+  padding: 11px 12px;
+}
+.service-settings input::placeholder,
+.service-settings textarea::placeholder {
+  color: #737b71;
+  opacity: 1;
+  font-size: 14px;
+}
+.service-settings textarea {
+  resize: vertical;
+  line-height: 1.65;
+}
+.service-settings :is(input, select, textarea, button):focus-visible {
+  outline: 3px solid #58856d;
+  outline-offset: 3px;
+}
+.settings-field small,
+.settings-checkbox small {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.6;
+  font-weight: 400;
+}
+.settings-field-wide {
+  grid-column: 1/-1;
+  min-width: 0;
+}
+.settings-secret {
+  position: relative;
+}
+.settings-secret input {
+  padding-right: 48px !important;
+}
+.website-editor .settings-reveal {
+  position: absolute;
+  right: 3px;
+  top: 3px;
+  width: 40px;
+  min-height: 40px;
+  border: 0;
+  padding: 8px;
+  background: transparent;
+}
+.settings-checkbox {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin: 0;
+  padding-top: 3px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.settings-checkbox input {
+  margin-top: 5px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+  flex-shrink: 0;
+}
+.settings-checkbox small {
+  display: block;
+  margin-top: 5px;
+}
+.settings-template-workspace {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  border: 1px solid var(--settings-line);
+  border-radius: 6px;
+  background: var(--settings-surface);
+}
+.settings-template-list {
+  padding: 10px;
+  border-right: 1px solid var(--settings-line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.website-editor .settings-template-list button {
+  border: 0;
+  border-radius: 4px;
+  justify-content: flex-start;
+  align-items: flex-start;
+  text-align: left;
+  padding: 12px 10px;
+  gap: 10px;
+  line-height: 1.45;
+  white-space: normal;
+}
+.settings-template-list button > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.settings-template-list button span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+  font-size: 15px;
+}
+.settings-template-list small {
+  display: block;
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 5px;
+}
+.website-editor .settings-template-list .is-selected {
+  background: var(--settings-soft);
+  color: var(--primary);
+  box-shadow: inset 3px 0 var(--primary);
+}
+.website-editor .settings-template-list .settings-add-template {
+  font-size: 14px;
+  color: var(--primary);
+  margin-top: 8px;
+  border-top: 1px solid var(--settings-line);
+  border-radius: 0;
+  padding-top: 16px;
+}
+.settings-template-editor {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+.settings-template-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.settings-template-heading h4 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.website-editor .settings-template-heading button {
+  font-size: 13px;
+  padding: 6px 8px;
+  min-height: 36px;
+}
+.settings-explanation {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px 14px;
+  background: var(--settings-soft);
+  font-size: 14px;
+  color: #415444;
+  line-height: 1.65;
+  margin: 0 0 24px;
+}
+.settings-template-editor .settings-explanation {
+  margin: 0;
+}
+.settings-explanation > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.settings-message-preview {
+  background: #f4f6f1;
+  padding: 18px;
+  border-left: 3px solid #aec3b1;
+}
+.settings-message-preview > span {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.settings-message-preview p {
+  font-size: 15px;
+  line-height: 1.75;
+  margin: 9px 0 12px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.settings-message-preview small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.settings-save-bar {
+  border-top: 1px solid var(--settings-line);
+  margin-top: 8px;
+  padding: 22px 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.settings-save-bar p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+  line-height: 1.6;
+}
+.settings-save-bar svg {
+  flex-shrink: 0;
+}
+.settings-save-bar .button {
+  flex-shrink: 0;
+}
+.settings-feedback {
+  padding: 14px 18px;
+  border: 1px solid #c4cdbd;
+  background: #f1f4ee;
+  color: var(--settings-text);
+  font-size: 15px;
+  margin: 0 0 24px;
+  line-height: 1.65;
+}
+.settings-feedback.is-error {
+  border-color: #d5b9b4;
+  background: #faf0ee;
+  color: #7b302b;
+}
+.settings-feedback.is-success {
+  border-color: #b9cbbd;
+  background: #eef4ed;
+}
+.settings-feedback button {
+  margin-left: 12px;
+}
+.settings-delivery {
+  border-top: 1px solid var(--settings-line);
+  margin-top: 30px;
+  padding-top: 24px;
+}
+.settings-delivery-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+.settings-delivery h3 {
+  font-size: 18px;
+  margin: 0 0 8px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+}
+.settings-delivery p {
+  color: var(--muted);
+  font-size: 14px;
+}
+.settings-delivery ul {
+  list-style: none;
+  padding: 0;
+  margin: 18px 0;
+}
+.settings-delivery li {
+  padding: 12px 0;
+  border-top: 1px solid var(--settings-line);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+}
+.settings-delivery > a {
+  font-size: 14px;
+}
+.settings-empty {
+  padding: 16px 0;
+}
+.editor-tabs {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+@media (max-width: 1050px) {
+  .settings-section {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+  .settings-template-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .settings-template-list {
+    border-right: 0;
+    border-bottom: 1px solid var(--settings-line);
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .settings-template-list > button {
+    flex: 1 1 160px;
+  }
+  .settings-delivery-heading {
+    flex-direction: column;
+    gap: 12px;
+  }
+}
+@media (max-width: 700px) {
+  .service-settings {
+    padding-block: 24px;
+  }
+  .service-settings-heading {
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  .service-settings-heading h2 {
+    font-size: 27px;
+  }
+  .settings-section {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 22px;
+    padding-block: 24px;
+  }
+  .settings-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+  .settings-template-editor {
+    padding: 18px;
+  }
+  .settings-template-list > button {
+    flex-basis: 100%;
+  }
+  .settings-template-heading {
+    align-items: flex-start;
+  }
+  .settings-save-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 18px;
+  }
+  .settings-save-bar .button {
+    width: 100%;
+  }
+  .settings-delivery-heading {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .editor-tabs {
+    gap: 7px;
+  }
+  .website-editor .editor-tabs button {
+    padding: 9px 10px;
+    font-size: 13px;
+    min-height: 42px;
+  }
+}

@@ -260,6 +260,7 @@ test("runtime selection is explicit, rejects unavailable schema and closes the o
     DB_USER: "local",
     DB_PASSWORD: "local",
     AUTH_SECRET: "test-secret-with-at-least-32-characters",
+    ONBOARDING_DATA_KEY: "a".repeat(64),
     AUTH_BASE_URL: "http://localhost:3000",
   };
   const runtime = await createPersistence(env, factory);
@@ -683,4 +684,104 @@ test("subscriber enrollment rejects every staff role and the membership API cann
     );
     assert.equal(state.receipt, null);
   }
+});
+
+test("runtime worker delivers queued security notices, reconciles periodically and closes safely after provider failure", async (context) => {
+  const { default: nodemailer } = await import("nodemailer");
+  let pending = true,
+    failed = false,
+    closed = 0;
+  const queries: string[] = [],
+    messages: { subject?: string; text?: string }[] = [];
+  context.mock.method(nodemailer, "createTransport", (() => ({
+    sendMail: async (message: { subject?: string; text?: string }) => {
+      messages.push(message);
+      return { accepted: ["test@example.test"], rejected: [] };
+    },
+    close: () => {},
+  })) as unknown as typeof nodemailer.createTransport);
+  const query = async (sql: string) => {
+    queries.push(sql);
+    if (sql.includes("SELECT id FROM sms_mutex")) return [{ id: 1 }];
+    if (sql.includes("SELECT name FROM migrations"))
+      return migrationClasses.map((Class) => ({ name: new Class().name }));
+    if (sql.includes("SELECT n.id") && pending)
+      return [{ id: "notice", attempts: 0, email: "test@example.test" }];
+    if (sql.startsWith("UPDATE sms_security_notices")) pending = false;
+    return [];
+  };
+  const pool = {
+    initialize: async () => {},
+    query,
+    destroy: async () => {
+      closed++;
+    },
+    transaction: async (
+      work: (manager: { query: typeof query }) => Promise<unknown>,
+    ) => {
+      if (failed) throw new Error("injected worker failure");
+      return work({ query });
+    },
+  };
+  const dbFactory = (() => pool) as unknown as typeof createDatabase;
+  const authFactory = (() => ({
+    auth: {
+      handler: async () => new Response(),
+      api: { getSession: async () => null },
+    },
+    close: async () => {},
+  })) as unknown as typeof createAuthentication;
+  const env = {
+    DATABASE_MODE: "mariadb",
+    DB_ENV: "dev",
+    DB_USER: "test",
+    DB_PASSWORD: "test",
+    AUTH_SECRET: "test-secret-with-at-least-32-characters",
+    AUTH_BASE_URL: "http://localhost:3000",
+    ONBOARDING_DATA_KEY: "a".repeat(64),
+  };
+  context.mock.timers.enable({ apis: ["setInterval"] });
+  const runtime = await createPersistence(
+    {
+      ...env,
+      SMTP_HOST: "smtp.hostinger.com",
+      SMTP_PORT: "465",
+      SMTP_USER: "test@example.test",
+      SMTP_PASSWORD: "test",
+      AUTH_EMAIL_FROM: "test@example.test",
+    },
+    dbFactory,
+    authFactory,
+  );
+  for (let i = 0; i < 6; i++) {
+    context.mock.timers.tick(10000);
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.equal(messages.length, 1);
+  assert.ok(messages[0].subject?.includes("security changed"));
+  assert.ok(queries.some((sql) => sql.includes("SELECT MIN(CASE")));
+  failed = true;
+  context.mock.timers.tick(10000);
+  await new Promise((resolve) => setImmediate(resolve));
+  await runtime.close();
+  assert.equal(closed, 1);
+  failed = false;
+  pending = true;
+  const noMailer = await createPersistence(env, dbFactory, authFactory);
+  context.mock.timers.tick(10000);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.ok(
+    queries.some((sql) =>
+      sql.includes("UPDATE sms_security_notices SET available_at"),
+    ),
+  );
+  await noMailer.close();
+  await assert.rejects(
+    createPersistence(
+      { ...env, SMS_RECOVERY_SETTINGS_JSON: "{}" },
+      dbFactory,
+      authFactory,
+    ),
+    /requires security notification email/,
+  );
 });

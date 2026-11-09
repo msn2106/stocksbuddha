@@ -1981,3 +1981,50 @@ test("a revoked invitation recipient cannot publish the newly authenticated sess
     ),
   );
 });
+
+test("private integration routes share owner/origin guards and sanitize service errors", async () => {
+  const { OnboardingError } = await import("../src/onboarding/domain");
+  const writes: unknown[][] = [];
+  let failure: unknown;
+  const integrations = {
+    read: async (...args: unknown[]) => {
+      writes.push(args);
+      if (failure) throw failure;
+      return { version: 0, configured: false };
+    },
+    save: async (...args: unknown[]) => {
+      writes.push(args);
+      if (failure) throw failure;
+      return { ok: true };
+    },
+  };
+  const h = harness({
+    websiteOperations: {} as never,
+    integrations: integrations as never,
+  });
+  const api = `/api/workspaces/${tenant.slug}/website/integrations/telegram`;
+  assert.equal((await h.request(api)).status, 200);
+  assert.equal(
+    (await h.request(api, "POST", { version: 0 }, { origin })).status,
+    200,
+  );
+  assert.equal((await h.request(api, "POST", { version: 0 })).status, 403);
+  assert.equal(
+    (await h.request(api, "DELETE", undefined, { origin })).status,
+    405,
+  );
+  assert.equal(
+    (await harness({ websiteOperations: {} as never }).request(api)).status,
+    503,
+  );
+  failure = new OnboardingError("version_conflict", 409);
+  assert.equal(
+    (await h.request(api, "POST", { version: 0 }, { origin })).status,
+    409,
+  );
+  failure = new Error("private provider credential");
+  const failed = await h.request(api);
+  assert.equal(failed.status, 503);
+  assert.ok(!failed.body.includes("credential"));
+  assert.equal((writes[0][0] as { tenantId: string }).tenantId, tenant.id);
+});

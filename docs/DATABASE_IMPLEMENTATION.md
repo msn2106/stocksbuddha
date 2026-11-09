@@ -5,7 +5,7 @@
 ## Implemented
 
 - Local Docker Compose for MariaDB and the DbGate Community browser client; the application continues directly in Node. DbGate is bound to loopback, preconfigured only for the local dev database and excluded from hosted deployment.
-- Twenty-one constrained InnoDB tables, sixteen TypeORM application migrations and verified metadata bootstrap.
+- Twenty-nine constrained InnoDB tables, nineteen TypeORM application migrations and verified metadata bootstrap.
 - Separate `stocksbuddha_dev` / `stocksbuddha_prod` targets, including optional Hostinger account prefix. No persistent third environment. SQL timestamp defaults explicitly use UTC expressions; the driver timezone setting controls value conversion and is not assumed to set server timezone.
 - Source-checksum manifest, applied ledger, attempt outcomes, one release lock, drift rejection and refusal to retry failed/unfinished migrations automatically.
 - Repeatable dev preview seeds preserving UUIDs, localized websites, owner edits and explicit unpublication.
@@ -78,8 +78,18 @@ The schema now includes migration `CreateDocuments1794009600000`, adding the `do
 
 ## Investor onboarding extension — 8 November 2026
 
-Migration `1794096000000-InvestorOnboarding` adds `ra_agreement_settings`, `subscription_plans`, `discount_codes`, `investor_kyc`, `kyc_history`, `subscription_orders`, `onboarding_deliveries` and `auth_users.signup_phone`. Current totals are sixteen application migrations and twenty-one tables including metadata. Identity/agreement snapshots are encrypted; per-tenant row locks serialize reservations and transitions. Payment activation and durable delivery jobs commit together. Apply this migration explicitly before startup. See [schema, operating rules and encryption-key recovery](INVESTOR_ONBOARDING.md).
+Migration `1794096000000-InvestorOnboarding` adds `ra_agreement_settings`, `subscription_plans`, `discount_codes`, `investor_kyc`, `kyc_history`, `subscription_orders`, `onboarding_deliveries` and `auth_users.signup_phone`. Current totals are nineteen application migrations and twenty-nine tables including metadata. Identity/agreement snapshots are encrypted; per-tenant row locks serialize reservations and transitions. Payment activation and durable delivery jobs commit together. Apply this migration explicitly before startup. See [schema, operating rules and encryption-key recovery](INVESTOR_ONBOARDING.md).
 
 ## Document transfer concurrency extension
 
 Migration `1794182400000-DocumentStorageLeases` adds a twenty-first table and is the sixteenth application migration. Its scope key, token and UTC expiry coordinate Drive uploads without holding tenant/authentication row locks across network requests. Rollout requires stopping older binaries before enabling new writers. Apply the additive migration explicitly, verify status, then start the new release. See [Drive operations](GOOGLE_DRIVE.md) for busy/expiry/orphan handling and [the rollout sequence](ROLLOUT_PLAN.md).
+
+## Mobile verification migration
+
+Migration `1794268800000-MobileVerification` is the seventeenth application migration and adds six tables to the prior 21-table baseline. That migration produced the 27-table baseline. Apply explicitly before restarting; no legacy mobile is automatically verified. MariaDB SMS requires the retained onboarding data key in development and production. The mutex serializes local SMS decisions but is released before provider I/O. See [the migration and recovery runbook](MOBILE_VERIFICATION.md).
+
+## Password-recovery email quota migration
+
+`1794355200000-RecoveryEmailLimits` is migration 18 and adds `recovery_email_sends`, for 28 tables at that migration including metadata. Apply it explicitly before startup. This ledger persists global account-level email recovery reservations; a locked identity row prevents concurrent sends from exceeding either the minute cooldown or the rolling five-send daily allowance. SMTP is outside the transaction. The native Better Auth reset-mail callback applies the reservation to all production reset entry points.
+
+Migration 19, `1794441600000-TenantIntegrations`, adds separately encrypted/versioned private Telegram/payment settings and expands the existing SMS ciphertext column for a template library. Current totals are nineteen application migrations and twenty-nine tables including metadata. Apply it before startup; legacy SMS records are normalized into starter templates on read. See [private configuration](WEBSITE_EDITOR.md#private-service-settings).

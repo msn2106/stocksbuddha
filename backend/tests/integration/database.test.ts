@@ -46,7 +46,7 @@ test(
     const manifest = await loadManifest();
     try {
       await context.test(
-        "fresh and repeated migrations have one success per migration and exactly twenty-one tables",
+        "fresh and repeated migrations have one success per migration and exactly twenty-nine tables",
         async () => {
           await runMigrations(db, manifest, true);
           await runMigrations(db, manifest, true);
@@ -54,7 +54,7 @@ test(
             "SELECT COUNT(*) AS count FROM information_schema.tables WHERE table_schema=?",
             [name],
           );
-          assert.equal(Number(count), 21);
+          assert.equal(Number(count), 29);
           const [{ attempts }] = await db.query(
             "SELECT COUNT(*) AS attempts FROM migration_attempts",
           );
@@ -1168,7 +1168,7 @@ test(
             mailer: async (message: {
               to: string;
               url: string;
-              kind: "verify" | "reset" | "invite";
+              kind: "verify" | "reset" | "invite" | "security";
             }) => {
               emails.push(message);
             },

@@ -1,3 +1,5 @@
+import { authOptions } from "../src/auth/config";
+import { createPool } from "mysql2/promise";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Request, Response } from "express";
@@ -424,4 +426,55 @@ test("business mail sends an order-bound confirmation code and PDF buffers witho
   assert.deepEqual(sent[1].attachments, attachments);
   assert.match(String(sent[1].subject), /documents/);
   assert.match(String(sent[1].text), /attached/);
+});
+
+test("native reset-mail callback applies the account reservation to every reset send while keeping denial generic", async () => {
+  const pool = createPool({
+    host: "127.0.0.1",
+    user: "test",
+    database: "test",
+  });
+  const ids: string[] = [],
+    sent: string[] = [];
+  let allowed = true,
+    broken = false;
+  try {
+    const options = authOptions(
+      pool,
+      "test-secret-at-least-thirty-two-characters",
+      "https://example.test",
+      {
+        mailer: async (message) => {
+          sent.push(message.kind);
+        },
+        reserveRecoveryEmail: async (userId) => {
+          ids.push(userId);
+          if (broken) throw new Error("quota unavailable");
+          return allowed;
+        },
+      },
+    );
+    const input = {
+      user: { id: "shared-investor", email: "investor@example.test" },
+      url: "https://example.test/reset",
+      token: "private",
+    } as Parameters<
+      NonNullable<
+        NonNullable<typeof options.emailAndPassword>["sendResetPassword"]
+      >
+    >[0];
+    await options.emailAndPassword!.sendResetPassword!(input);
+    allowed = false;
+    await options.emailAndPassword!.sendResetPassword!(input);
+    assert.deepEqual(sent, ["reset"]);
+    assert.deepEqual(ids, ["shared-investor", "shared-investor"]);
+    broken = true;
+    await assert.rejects(
+      options.emailAndPassword!.sendResetPassword!(input),
+      /quota unavailable/,
+    );
+    assert.equal(sent.length, 1);
+  } finally {
+    await pool.end();
+  }
 });

@@ -7,7 +7,7 @@ export type AuthEmail = {
   to: string;
   fullName?: string;
   url: string;
-  kind: "verify" | "reset" | "invite";
+  kind: "verify" | "reset" | "invite" | "security";
   code?: string;
   attachments?: { filename: string; content: Buffer; contentType: string }[];
 };
@@ -82,15 +82,17 @@ export function authMailer(
     if (!mailbox.test(to))
       throw new Error("Invalid authentication email recipient");
     const subject =
-      kind === "signing"
-        ? "Confirm your research agreement"
-        : kind === "receipt"
-          ? "Your research subscription documents"
-          : kind === "invite"
-            ? "Your organisation invitation"
-            : kind === "verify"
-              ? "Verify your StocksBuddha account"
-              : "Reset your StocksBuddha password";
+      kind === "security"
+        ? "Your StocksBuddha account security changed"
+        : kind === "signing"
+          ? "Confirm your research agreement"
+          : kind === "receipt"
+            ? "Your research subscription documents"
+            : kind === "invite"
+              ? "Your organisation invitation"
+              : kind === "verify"
+                ? "Verify your StocksBuddha account"
+                : "Reset your StocksBuddha password";
     let client: SmtpClient | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -102,11 +104,13 @@ export function authMailer(
           subject,
           ...(kind === "receipt" ? { attachments } : {}),
           text:
-            kind === "signing"
-              ? `Your agreement confirmation code is ${code}. It expires in ten minutes. Open your agreement: ${url}. Never share this code with anyone.`
-              : kind === "receipt"
-                ? `Your subscription is confirmed. Your agreement and invoice are attached. Download your documents at ${url}.`
-                : `${kind === "invite" && fullName ? `Hello ${fullName},\n\n` : ""}${subject}\n\n${url}\n\nThis link expires in one hour. If you did not request this, you can ignore this email. Your identity is shared across StocksBuddha workspaces. ${kind === "invite" ? "Open this link to choose a password for a new account, or sign in with your existing password, and join the organisation. For a new account, this invitation confirms the invited email." : "This email does not grant tenant membership or organisation roles."}`,
+            kind === "security"
+              ? `Your password or SMS recovery settings changed. If you did not make this change, contact support immediately and use email password recovery. Open your account: ${url}.`
+              : kind === "signing"
+                ? `Your agreement confirmation code is ${code}. It expires in ten minutes. Open your agreement: ${url}. Never share this code with anyone.`
+                : kind === "receipt"
+                  ? `Your subscription is confirmed. Your agreement and invoice are attached. Download your documents at ${url}.`
+                  : `${kind === "invite" && fullName ? `Hello ${fullName},\n\n` : ""}${subject}\n\n${url}\n\nThis link expires in one hour. If you did not request this, you can ignore this email. Your identity is shared across StocksBuddha workspaces. ${kind === "invite" ? "Open this link to choose a password for a new account, or sign in with your existing password, and join the organisation. For a new account, this invitation confirms the invited email." : "This email does not grant tenant membership or organisation roles."}`,
         }),
         new Promise<never>((_resolve, reject) => {
           timer = setTimeout(

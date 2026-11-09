@@ -1,3 +1,6 @@
+import type { IntegrationSettingsService } from "../integrations/service";
+import { mountSms } from "../sms/routes";
+import type { SmsService } from "../sms/service";
 import { mountOnboarding } from "../onboarding/routes";
 import type { OnboardingService } from "../onboarding/service";
 import { phone as signupPhone } from "../onboarding/domain";
@@ -48,6 +51,8 @@ export type AuthRoutesDependencies = {
   mailer?: AuthMailer;
   documents?: DocumentService;
   onboarding?: OnboardingService;
+  sms?: SmsService;
+  integrations?: IntegrationSettingsService;
 };
 
 /** Pass a safe account projection to the shared React SSR pipeline, excluding session tokens. */
@@ -95,6 +100,8 @@ export function createAuthRoutes({
   organisations,
   documents,
   onboarding,
+  sms,
+  integrations,
   mailer,
 }: AuthRoutesDependencies) {
   const router = express.Router();
@@ -136,6 +143,14 @@ export function createAuthRoutes({
       next();
     },
   );
+  if (sms)
+    mountSms(router, {
+      auth,
+      store,
+      service: sms,
+      origin,
+      trustedProxyAddresses,
+    });
   const authHandler = toNodeHandler(auth);
   router.all("/api/auth/{*path}", (req, res) =>
     withAuthTenant(null, () => authHandler(req, res)),
@@ -768,7 +783,8 @@ export function createAuthRoutes({
       });
     },
   );
-  if (websiteOperations) mountWebsiteEditor(router, websiteOperations, origin);
+  if (websiteOperations)
+    mountWebsiteEditor(router, websiteOperations, origin, integrations);
   router.get("/api/workspaces/:slug/members", async (_req, res) => {
     const workspace: Workspace = res.locals.workspace;
     if (!workspace.capabilities.includes("staff:manage"))

@@ -1,3 +1,7 @@
+import { IntegrationSettingsService } from "../../backend/src/integrations/service";
+import { RecoveryEmailLimiter } from "../../backend/src/auth/recovery-limits";
+import { SmsService } from "../../backend/src/sms/service";
+import type { SmsMessage } from "../../backend/src/sms/horizon";
 import { OnboardingService } from "../../backend/src/onboarding/service";
 import { DocumentService } from "../../backend/src/documents/service";
 import type { GoogleDriveStorage } from "../../backend/src/documents/drive";
@@ -60,14 +64,16 @@ const factory = ((options: ReturnType<typeof authOptions>) =>
   betterAuth({ ...options, rateLimit: { enabled: false } })) as NonNullable<
   Parameters<typeof createAuthentication>[3]
 >;
+const recoveryEmails = new RecoveryEmailLimiter(db);
 const identity = createAuthentication(
   { ...config, database: name },
   "playwright-test-secret-with-at-least-32-characters",
   origin,
   factory,
-  { mailer },
+  { mailer, reserveRecoveryEmail: recoveryEmails.reserve.bind(recoveryEmails) },
 );
 for (const email of [
+  "settings-admin@example.test",
   "onboarding-admin@example.test",
   "onboarding-investor@example.test",
   "onboarding-other@example.test",
@@ -112,6 +118,11 @@ for (const [email, role] of [
     [randomUUID(), role, email],
   );
 }
+await db.query("UPDATE tenants SET status='active' WHERE slug='alpha'");
+await db.query(
+  "INSERT INTO tenant_memberships(id,tenant_id,user_id,role,status,profile_json,capabilities_json) SELECT ?,t.id,u.id,'owner','active','{\"schemaVersion\":1}','{}' FROM tenants t CROSS JOIN auth_users u WHERE t.slug='alpha' AND u.email='settings-admin@example.test'",
+  [randomUUID()],
+);
 const objects = new Map<string, Buffer>();
 const storage = {
   config: { mainId: "main" },
@@ -139,6 +150,11 @@ const gateway: PaymentGateway = {
   closed: async () => false,
   verify: (_raw, _timestamp, signature) => signature === "test-only-signature",
 };
+const integrations = new IntegrationSettingsService(db, {
+  ONBOARDING_DATA_KEY: "a".repeat(64),
+  DB_ENV: "dev",
+  NODE_ENV: "test",
+});
 const onboarding = new OnboardingService(db, {
   env: {
     AUTH_SECRET: "test-onboarding-secret-at-least-32-characters",
@@ -149,12 +165,47 @@ const onboarding = new OnboardingService(db, {
   documents,
   mailer,
   gateways: new Map([["stocksbuddha", gateway]]),
+  resolveGateway: (slug, manager) =>
+    integrations.gateway(
+      slug,
+      slug === "stocksbuddha" ? gateway : undefined,
+      manager,
+    ),
 });
+const smsMessages: SmsMessage[] = [];
+const sms = new SmsService(
+  db,
+  {
+    ONBOARDING_DATA_KEY: "a".repeat(64),
+    SMS_MODE: "trial",
+    SMS_RECOVERY_SETTINGS_JSON: JSON.stringify({
+      username: "platform",
+      apiKey: "platform-secret",
+      senderId: "HORIZN",
+      entityId: "110100000000001",
+      encoding: "txt",
+      template: {
+        id: "110100000000003",
+        text: "Your recovery code is {{otp}}. Valid for {{expiryMinutes}} minutes.",
+      },
+    }),
+  },
+  async (message) => {
+    smsMessages.push(message);
+    return { messageId: "123456", balance: "100" };
+  },
+  undefined,
+  async (email) => {
+    await mailer({ to: email, kind: "security", url: `${origin}/login` });
+  },
+);
 messages.length = 0;
 const service = new OrganisationService(db),
   store = new MariaDbWorkspaceStore(db);
 const app = createPublicApp({
   authentication: createAuthRoutes({
+    sms,
+    integrations,
     onboarding,
     documents,
     auth: identity.auth,
@@ -180,6 +231,14 @@ const app = createPublicApp({
       await onboarding.deliverOne();
       return res.sendStatus(204);
     })
+    .get("/__test/sms", (_req, res) =>
+      res.json(
+        smsMessages.map((message) => ({
+          mobile: message.mobile,
+          message: message.message,
+        })),
+      ),
+    )
     .get("/__test/mail", (_req, res) => res.json(messages))
     .post("/__test/suspend-beta", async (req, res) => {
       if (req.headers.origin !== origin) return res.sendStatus(403);

@@ -1,6 +1,8 @@
 import * as Sentry from "@sentry/node";
 
 export type BackgroundStage =
+  | "sms_low_balance"
+  | "sms_security_notice_failed"
   | "delivery"
   | "reconciliation"
   | "worker"
@@ -18,7 +20,10 @@ export function reportBackground(stage: BackgroundStage, orderId?: string) {
     Sentry.withScope(scope, () =>
       Sentry.captureEvent({
         message: `Background operation requires attention: ${stage}`,
-        level: stage.endsWith("queue_age") ? "warning" : "error",
+        level:
+          stage.endsWith("queue_age") || stage === "sms_low_balance"
+            ? "warning"
+            : "error",
       }),
     ),
   );

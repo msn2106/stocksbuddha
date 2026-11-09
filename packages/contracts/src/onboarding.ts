@@ -32,6 +32,8 @@ export type KycProfile = {
   declaration: boolean;
 };
 export type KycView = {
+  mobileVerified?: boolean;
+  verifiedMobile?: string;
   id: string;
   name: string;
   email: string;

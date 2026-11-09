@@ -1,10 +1,10 @@
 # MariaDB persistence
 
-The current twenty-one-table schema uses TypeORM and mysql2. Sixteen ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
+The current twenty-nine-table schema uses TypeORM and mysql2. Nineteen ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
 
 ## Local setup
 
-Copy `backend/.env.example` to ignored `backend/.env`, replace both local passwords, set a unique random `AUTH_SECRET` and the exact `AUTH_BASE_URL` origin, then:
+Copy `backend/.env.example` to ignored `backend/.env`, replace both local passwords, set a unique random `AUTH_SECRET`, a retained `ONBOARDING_DATA_KEY`, and the exact `AUTH_BASE_URL` origin, then:
 
 ```sh
 docker compose --env-file backend/.env up -d --wait
@@ -91,3 +91,15 @@ Migration `1794096000000` adds seven tenant-owned onboarding/billing/history/del
 ## External document transfer leases
 
 Apply migration `1794182400000-DocumentStorageLeases` before this application release. `document_storage_leases` stores one recoverable lease per tenant UUID or the platform key. It is operational coordination, not document authorization. Provider requests run outside database transactions; authorization and fenced publication use short transactions. A fifteen-minute lease expires after a crashed holder, and token-checked cleanup cannot remove a newer holder's lease. Deploy only after stopping older app instances that still serialize Drive calls on tenant rows. See [Drive concurrency and recovery](../docs/GOOGLE_DRIVE.md).
+
+## Mobile verification migration
+
+Migration `1794268800000-MobileVerification` adds six tables: `sms_settings`, `sms_mutex`, `sms_challenges`, `sms_events`, `sms_security_notices` and `account_recovery_mobiles`. Existing timestamps remain unchanged; there is no automatic legacy verification. Stop old writers, apply the migration explicitly and check status before starting the new release. Preserve the existing data key. See [the SMS operating runbook](../docs/MOBILE_VERIFICATION.md).
+
+## Password-recovery limits migration
+
+Apply additive migration `1794355200000-RecoveryEmailLimits` explicitly before starting this release. It adds `recovery_email_sends` without modifying the earlier SMS migration, and requires runtime SELECT/INSERT access to that table. Password-reset emails share a five-send rolling 24-hour cap and 60-second cooldown across RA, platform and direct auth routes. SMS password recovery has a separate three-send rolling-day cap across RAs; existing broader mobile/IP/tenant caps still apply. See [the recovery policy](../docs/MOBILE_VERIFICATION.md#password-recovery-budgets).
+
+## Private integrations and template libraries
+
+Apply `1794441600000-TenantIntegrations` (migration 19) explicitly before startup. It creates `tenant_integrations` for separately versioned encrypted Telegram/payment credentials and expands `sms_settings.config_cipher` to `MEDIUMTEXT` for up to 100 SMS templates. Current totals are 29 tables including metadata. Preserve the existing encryption key; no public website revision contains these credentials. See [configuration and merchant editing restrictions](../docs/WEBSITE_EDITOR.md#private-service-settings).

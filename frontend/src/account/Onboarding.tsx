@@ -1,3 +1,4 @@
+import { MobileVerification } from "./MobileVerification";
 import { DeliveryStatus } from "./DeliveryStatus";
 import { sampleResearchAgreement } from "@ra/contracts";
 import {
@@ -40,6 +41,10 @@ const errors: Record<string, [string, string]> = {
   record_exists: [
     "This PAN or discount code is already registered in this RA.",
     "यह पैन या छूट कोड इस आरए में पहले से दर्ज है।",
+  ],
+  mobile_verification_required: [
+    "Verify this mobile number before submitting KYC or starting checkout.",
+    "केवाईसी या चेकआउट से पहले यह मोबाइल नंबर सत्यापित करें।",
   ],
   kyc_required: [
     "Complete KYC verification before choosing a plan.",
@@ -996,6 +1001,27 @@ function Kyc({
         <ShieldCheck size={22} />
         <strong>{status(customer.status, hi)}</strong>
       </p>
+      <p>
+        {customer.mobileVerified
+          ? hi
+            ? "मोबाइल सत्यापित"
+            : "Mobile verified"
+          : hi
+            ? "मोबाइल सत्यापन बाकी"
+            : "Mobile verification pending"}
+      </p>
+      {!admin && (
+        <MobileVerification
+          slug={base.split("/")[2]}
+          hi={hi}
+          onVerified={() => {
+            void run(
+              async () => {},
+              hi ? "मोबाइल सत्यापित।" : "Mobile verified.",
+            );
+          }}
+        />
+      )}
       {customer.reason && <p>{customer.reason}</p>}
       {customer.checkedAt && (
         <p>
@@ -1005,131 +1031,139 @@ function Kyc({
       )}
       {editable ? (
         <form className="workspace-form onboarding-form" onSubmit={save}>
-          <div className="onboarding-fields">
-            <Field
-              label={hi ? "पैन के अनुसार पूरा नाम" : "Full name as on PAN"}
-            >
-              <input
-                name="fullName"
-                autoComplete="name"
-                required
-                maxLength={160}
-                defaultValue={customer.profile.fullName}
-              />
-            </Field>
-            <Field label={hi ? "फ़ोन नंबर" : "Phone number"}>
-              <input
-                name="phone"
-                type="tel"
-                autoComplete="tel"
-                required
-                maxLength={16}
-                defaultValue={customer.profile.phone}
-              />
-            </Field>
-            <Field label={hi ? "पैन नंबर" : "PAN number"}>
-              <input
-                name="pan"
-                required
-                minLength={10}
-                maxLength={10}
-                pattern="[A-Za-z]{3}[Pp][A-Za-z][0-9]{4}[A-Za-z]"
-                defaultValue={customer.profile.pan}
-              />
-            </Field>
-            <Field label={hi ? "जन्मतिथि" : "Date of birth"}>
-              <input
-                name="dob"
-                type="date"
-                required
-                defaultValue={customer.profile.dob}
-              />
-            </Field>
-          </div>
-          <Field
-            label={
-              hi
-                ? "पैन दस्तावेज़ (PDF, JPEG, PNG; अधिकतम 10 MiB)"
-                : "PAN document (PDF, JPEG, PNG; maximum 10 MiB)"
-            }
-          >
-            <input
-              type="file"
-              accept="application/pdf,image/jpeg,image/png"
-              disabled={pending}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file)
-                  void run(
-                    () => upload(file),
-                    hi
-                      ? "पैन दस्तावेज़ अपलोड हो गया।"
-                      : "PAN document uploaded.",
-                  );
-              }}
-            />
-          </Field>
-          {documentId && (
-            <p>
-              <a
-                href={`/api/workspaces/${base.split("/")[2]}/documents/${documentId}/download`}
+          <fieldset disabled={!admin && !customer.mobileVerified}>
+            <div className="onboarding-fields">
+              <Field
+                label={hi ? "पैन के अनुसार पूरा नाम" : "Full name as on PAN"}
               >
-                {hi ? "पैन दस्तावेज़ डाउनलोड करें" : "Download PAN document"}
-              </a>
-            </p>
-          )}
-          <details>
-            <summary>
-              {hi
-                ? "क्या आप परिवार के आश्रित सदस्य हैं?"
-                : "Are you a dependent family member?"}
-            </summary>
-            <p>
-              {hi
-                ? "आश्रित होने पर आय अर्जित करने वाले सदस्य का पैन दें ताकि परिवार का संयुक्त शुल्क सही गिना जाए।"
-                : "If your assets originate from another family member's income, enter that earning member's PAN so family fees can be counted together."}
-            </p>
+                <input
+                  name="fullName"
+                  autoComplete="name"
+                  required
+                  maxLength={160}
+                  defaultValue={customer.profile.fullName}
+                />
+              </Field>
+              <Field label={hi ? "फ़ोन नंबर" : "Phone number"}>
+                <input
+                  name="phone"
+                  readOnly={!admin}
+                  type="tel"
+                  autoComplete="tel"
+                  required
+                  maxLength={16}
+                  defaultValue={
+                    customer.verifiedMobile ?? customer.profile.phone
+                  }
+                />
+              </Field>
+              <Field label={hi ? "पैन नंबर" : "PAN number"}>
+                <input
+                  name="pan"
+                  required
+                  minLength={10}
+                  maxLength={10}
+                  pattern="[A-Za-z]{3}[Pp][A-Za-z][0-9]{4}[A-Za-z]"
+                  defaultValue={customer.profile.pan}
+                />
+              </Field>
+              <Field label={hi ? "जन्मतिथि" : "Date of birth"}>
+                <input
+                  name="dob"
+                  type="date"
+                  required
+                  defaultValue={customer.profile.dob}
+                />
+              </Field>
+            </div>
             <Field
               label={
                 hi
-                  ? "आय अर्जित करने वाले सदस्य का पैन (वैकल्पिक)"
-                  : "Earning family member PAN (if applicable)"
+                  ? "पैन दस्तावेज़ (PDF, JPEG, PNG; अधिकतम 10 MiB)"
+                  : "PAN document (PDF, JPEG, PNG; maximum 10 MiB)"
               }
             >
               <input
-                name="familyPan"
-                maxLength={10}
-                defaultValue={
-                  customer.profile.familyPan === customer.profile.pan
-                    ? ""
-                    : customer.profile.familyPan
-                }
+                type="file"
+                accept="application/pdf,image/jpeg,image/png"
+                disabled={pending}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file)
+                    void run(
+                      () => upload(file),
+                      hi
+                        ? "पैन दस्तावेज़ अपलोड हो गया।"
+                        : "PAN document uploaded.",
+                    );
+                }}
               />
             </Field>
-          </details>
-          <Field
-            label={
-              hi
-                ? "मैं पुष्टि करता/करती हूँ कि जानकारी और पारिवारिक विवरण सही हैं और केवाईसी जाँच के लिए सहमति देता/देती हूँ।"
-                : "I confirm these identity and family details are correct and consent to their use for KYC verification."
-            }
-          >
-            <input
-              name="declaration"
-              type="checkbox"
-              required
-              defaultChecked={customer.profile.declaration}
-            />
-          </Field>
-          <button className="button primary" disabled={pending || !documentId}>
-            {admin
-              ? hi
-                ? "सहेजें और समीक्षा के लिए भेजें"
-                : "Save and submit for review"
-              : hi
-                ? "सत्यापन के लिए जमा करें"
-                : "Submit for verification"}
-          </button>
+            {documentId && (
+              <p>
+                <a
+                  href={`/api/workspaces/${base.split("/")[2]}/documents/${documentId}/download`}
+                >
+                  {hi ? "पैन दस्तावेज़ डाउनलोड करें" : "Download PAN document"}
+                </a>
+              </p>
+            )}
+            <details>
+              <summary>
+                {hi
+                  ? "क्या आप परिवार के आश्रित सदस्य हैं?"
+                  : "Are you a dependent family member?"}
+              </summary>
+              <p>
+                {hi
+                  ? "आश्रित होने पर आय अर्जित करने वाले सदस्य का पैन दें ताकि परिवार का संयुक्त शुल्क सही गिना जाए।"
+                  : "If your assets originate from another family member's income, enter that earning member's PAN so family fees can be counted together."}
+              </p>
+              <Field
+                label={
+                  hi
+                    ? "आय अर्जित करने वाले सदस्य का पैन (वैकल्पिक)"
+                    : "Earning family member PAN (if applicable)"
+                }
+              >
+                <input
+                  name="familyPan"
+                  maxLength={10}
+                  defaultValue={
+                    customer.profile.familyPan === customer.profile.pan
+                      ? ""
+                      : customer.profile.familyPan
+                  }
+                />
+              </Field>
+            </details>
+            <Field
+              label={
+                hi
+                  ? "मैं पुष्टि करता/करती हूँ कि जानकारी और पारिवारिक विवरण सही हैं और केवाईसी जाँच के लिए सहमति देता/देती हूँ।"
+                  : "I confirm these identity and family details are correct and consent to their use for KYC verification."
+              }
+            >
+              <input
+                name="declaration"
+                type="checkbox"
+                required
+                defaultChecked={customer.profile.declaration}
+              />
+            </Field>
+            <button
+              className="button primary"
+              disabled={pending || !documentId}
+            >
+              {admin
+                ? hi
+                  ? "सहेजें और समीक्षा के लिए भेजें"
+                  : "Save and submit for review"
+                : hi
+                  ? "सत्यापन के लिए जमा करें"
+                  : "Submit for verification"}
+            </button>
+          </fieldset>
         </form>
       ) : (
         <p>
@@ -1348,7 +1382,7 @@ function Investor({
       ) : (
         <div className="onboarding-stack">
           <Kyc
-            key={`${customer.id}-${customer.version}`}
+            key={`${customer.id}-${customer.version}-${customer.verifiedMobile ?? ""}`}
             customer={customer}
             action={action}
             run={run}

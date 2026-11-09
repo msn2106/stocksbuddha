@@ -1,3 +1,7 @@
+import { IntegrationSettingsService } from "../integrations/service";
+import { RecoveryEmailLimiter } from "../auth/recovery-limits";
+import { SmsService } from "../sms/service";
+import { horizonTransport } from "../sms/horizon";
 import { reportBackground } from "../background-monitoring";
 import { OnboardingService } from "../onboarding/service";
 import { merchants } from "../onboarding/cashfree";
@@ -84,6 +88,7 @@ export async function createPersistence(
   let authentication: ReturnType<typeof createAuthentication>;
   let mailer: ReturnType<typeof authMailer>;
   let storageConfig: ReturnType<typeof driveConfig>;
+  let sms: SmsService;
   let gatewayConfig: ReturnType<typeof merchants>;
   try {
     if (!env.AUTH_SECRET || !env.AUTH_BASE_URL)
@@ -105,12 +110,34 @@ export async function createPersistence(
     storageConfig = driveConfig(env);
     gatewayConfig = merchants(env);
     mailer = authMailer(env);
+    if (env.SMS_RECOVERY_SETTINGS_JSON && !mailer)
+      throw new Error("SMS recovery requires security notification email");
+    sms = new SmsService(
+      db,
+      env,
+      horizonTransport(env),
+      undefined,
+      async (email) => {
+        if (!mailer)
+          throw new Error("Security notification transport unavailable");
+        await mailer({
+          to: email,
+          kind: "security",
+          url: `${env.AUTH_BASE_URL}/login`,
+        });
+      },
+    );
+    const recoveryEmails = new RecoveryEmailLimiter(db);
     authentication = authenticationFactory(
       databaseConfig(env),
       env.AUTH_SECRET,
       env.AUTH_BASE_URL,
       undefined,
-      { mailer, sharedRateLimit: true },
+      {
+        mailer,
+        sharedRateLimit: true,
+        reserveRecoveryEmail: recoveryEmails.reserve.bind(recoveryEmails),
+      },
     );
   } catch (error) {
     await db.destroy();
@@ -121,16 +148,21 @@ export async function createPersistence(
     storageConfig ? new GoogleDriveStorage(storageConfig) : null,
     env,
   );
+  const integrations = new IntegrationSettingsService(db, env);
   const onboarding = new OnboardingService(db, {
     env,
     documents,
     mailer,
     gateways: gatewayConfig,
+    /** Resolve current private merchant credentials using the operation's existing transaction. */
+    resolveGateway: (slug, manager) =>
+      integrations.gateway(slug, gatewayConfig.get(slug), manager),
   });
   let working: Promise<void> | undefined;
   let ticks = 0;
   /** Serialize bounded queue work; leases permit safe recovery after process failure. */
   const work = async () => {
+    await sms.deliverNotice();
     if (++ticks % 6 === 0) {
       await onboarding.monitorQueues();
       await onboarding.reconcilePending();
@@ -152,6 +184,8 @@ export async function createPersistence(
   return {
     authentication: createAuthRoutes({
       onboarding,
+      sms,
+      integrations,
       documents,
       auth: authentication.auth,
       store: new MariaDbWorkspaceStore(db),

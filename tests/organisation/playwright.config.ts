@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: ".",
-  testMatch: ["flow.ts", "onboarding-flow.ts"],
+  testMatch: ["flow.ts", "onboarding-flow.ts", "settings-flow.ts"],
   workers: 1,
   outputDir: "../../test-results-organisations",
   use: {

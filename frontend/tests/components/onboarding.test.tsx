@@ -33,6 +33,7 @@ function fixture(admin = false) {
     name: "Example Investor",
     email: "investor@example.test",
     status: "not_started" as const,
+    mobileVerified: true,
     version: 0,
     profile: {
       fullName: "Example Investor",

@@ -25,13 +25,16 @@ test("background reporting emits only fixed classifications and IDs, isolated fr
       "delivery_queue_age",
       "payment_queue_age",
       "storage_orphan",
+      "sms_low_balance",
+      "sms_security_notice_failed",
     ] as const)
       reportBackground(
         stage,
         stage === "delivery" ? "internal-order-id" : undefined,
       );
     await Sentry.flush(1000);
-    assert.equal(events.length, 6);
+    assert.equal(events.length, 8);
+    assert.equal(events[6].level, "warning");
     assert.equal(events[0].tags?.order_id, "internal-order-id");
     assert.equal(events[3].level, "warning");
     const json = JSON.stringify(events);

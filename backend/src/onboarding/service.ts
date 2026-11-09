@@ -1,3 +1,5 @@
+import { indianMobile } from "../sms/policy";
+import { requireVerifiedMobile } from "../sms/kyc";
 import { reportBackground } from "../background-monitoring";
 import { researchEligible } from "./eligibility";
 import { randomInt, randomUUID } from "node:crypto";
@@ -118,6 +120,10 @@ export type OnboardingOptions = {
   mailer?: BusinessMailer;
   documents: Pick<DocumentService, "storeOrderEvidence" | "readOrderEvidence">;
   gateways?: Map<string, PaymentGateway>;
+  resolveGateway?: (
+    slug: string,
+    manager?: EntityManager,
+  ) => Promise<PaymentGateway | undefined>;
   now?: () => Date;
   report?: typeof reportBackground;
 };
@@ -266,7 +272,7 @@ export class OnboardingService {
       403,
     );
     const [row] = await manager.query(
-      "SELECT m.id,m.full_name,m.mobile,u.name,u.email,u.signup_phone FROM tenant_memberships m JOIN auth_users u ON u.id=m.user_id WHERE m.tenant_id=? AND m.id=? AND m.role='subscriber' AND m.status='active' FOR UPDATE",
+      "SELECT m.id,m.full_name,m.mobile,m.mobile_verified_at,u.name,u.email,u.signup_phone FROM tenant_memberships m JOIN auth_users u ON u.id=m.user_id WHERE m.tenant_id=? AND m.id=? AND m.role='subscriber' AND m.status='active' FOR UPDATE",
       [actor.tenantId, id],
     );
     requireValue(row, "customer_not_found", 404);
@@ -282,9 +288,12 @@ export class OnboardingService {
       signup_phone?: string;
       full_name?: string;
       mobile?: string;
+      mobile_verified_at?: string;
     },
   ): KycView {
     return {
+      mobileVerified: !!customer.mobile_verified_at,
+      verifiedMobile: customer.mobile_verified_at ? customer.mobile : undefined,
       id: customer.id,
       name: customer.full_name || customer.name,
       email: customer.email,
@@ -399,7 +408,7 @@ export class OnboardingService {
       } else {
         if (before) uuid(before);
         const members = await manager.query(
-          `SELECT m.id,m.full_name,m.mobile,u.name,u.email,u.signup_phone FROM tenant_memberships m JOIN auth_users u ON u.id=m.user_id WHERE m.tenant_id=? AND m.role='subscriber' AND m.status='active'${before ? " AND m.id>?" : ""} ORDER BY m.id LIMIT 51`,
+          `SELECT m.id,m.full_name,m.mobile,m.mobile_verified_at,u.name,u.email,u.signup_phone FROM tenant_memberships m JOIN auth_users u ON u.id=m.user_id WHERE m.tenant_id=? AND m.role='subscriber' AND m.status='active'${before ? " AND m.id>?" : ""} ORDER BY m.id LIMIT 51`,
           [actor.tenantId, ...(before ? [before] : [])],
         );
         for (const member of members) {
@@ -425,7 +434,7 @@ export class OnboardingService {
         admin,
         devSkip: devEnabled(this.options.env),
         signingEnabled: this.signingEnabled(),
-        paymentEnabled: Boolean(this.options.gateways?.has(actor.slug)),
+        paymentEnabled: Boolean(await this.gateway(actor.slug, manager)),
         plans,
         coupons,
         settings: admin ? settings : null,
@@ -588,6 +597,21 @@ export class OnboardingService {
       const actor = await this.actor(manager, context),
         member = await this.customer(manager, actor, input.customerId);
       const profile = kycProfile(input, this.now());
+      if (submit)
+        await requireVerifiedMobile(
+          manager,
+          actor.tenantId,
+          member.id,
+          profile.phone,
+        );
+      if (member.mobile_verified_at && member.mobile) {
+        try {
+          if (indianMobile(profile.phone) === indianMobile(member.mobile))
+            profile.phone = member.mobile;
+        } catch {
+          /* Draft values remain unverified. */
+        }
+      }
       const [document] = await manager.query(
         "SELECT id FROM documents WHERE tenant_id=? AND customer_id=? AND id=? AND kind='kyc'",
         [actor.tenantId, member.id, profile.documentId],
@@ -616,9 +640,22 @@ export class OnboardingService {
           this.secret,
           `pan:${actor.tenantId}:${profile.familyPan}`,
         );
+      let phoneChanged = false;
+      if (row) {
+        const oldPhone = unseal<KycProfile>(
+          this.secret,
+          row.profile_cipher,
+        ).phone;
+        try {
+          phoneChanged = indianMobile(oldPhone) !== indianMobile(profile.phone);
+        } catch {
+          phoneChanged = oldPhone !== profile.phone;
+        }
+      }
       if (
         row &&
-        (row.pan_hash !== panHash ||
+        (phoneChanged ||
+          row.pan_hash !== panHash ||
           row.family_hash !== familyHash ||
           unseal<KycProfile>(this.secret, row.profile_cipher).dob !==
             profile.dob ||
@@ -649,8 +686,14 @@ export class OnboardingService {
         ],
       );
       await manager.query(
-        "UPDATE tenant_memberships SET full_name=?,mobile=?,onboarding_stage='verification_pending',lock_version=lock_version+1 WHERE tenant_id=? AND id=?",
-        [profile.fullName, profile.phone, actor.tenantId, member.id],
+        "UPDATE tenant_memberships SET full_name=?,mobile_verified_at=CASE WHEN mobile=? THEN mobile_verified_at ELSE NULL END,mobile=?,onboarding_stage='verification_pending',lock_version=lock_version+1 WHERE tenant_id=? AND id=?",
+        [
+          profile.fullName,
+          profile.phone,
+          profile.phone,
+          actor.tenantId,
+          member.id,
+        ],
       );
       // Payment-pending orders cannot be cancelled: the provider may already have collected money.
       const [pending] = await manager.query(
@@ -696,6 +739,13 @@ export class OnboardingService {
         1000,
         input.status === "verified" ? 0 : 5,
       );
+      if (input.status === "verified")
+        await requireVerifiedMobile(
+          manager,
+          actor.tenantId,
+          member.id,
+          unseal<KycProfile>(this.secret, row.profile_cipher).phone,
+        );
       let reference = "",
         evidenceId: string | null = null,
         providerStatus = "";
@@ -784,6 +834,13 @@ export class OnboardingService {
         "kyc_required",
         409,
       );
+      if (kyc.status !== "skipped_dev")
+        await requireVerifiedMobile(
+          manager,
+          actor.tenantId,
+          actor.membershipId,
+          unseal<KycProfile>(this.secret, kyc.profile_cipher).phone,
+        );
       const [active] = await manager.query(
         "SELECT id FROM subscription_orders WHERE tenant_id=? AND membership_id=? AND ((status='paid' AND ends_at>?) OR status='payment_pending' OR (status IN ('quoted','signed') AND expires_at>?)) LIMIT 1",
         [actor.tenantId, actor.membershipId, this.now(), this.now()],
@@ -934,6 +991,13 @@ export class OnboardingService {
       [row.tenant_id, row.membership_id],
     );
     const snapshot = unseal<Snapshot>(this.secret, row.snapshot_cipher);
+    if (kyc?.status !== "skipped_dev")
+      await requireVerifiedMobile(
+        manager,
+        row.tenant_id,
+        row.membership_id,
+        snapshot.profile.phone,
+      );
     requireValue(
       kyc &&
         kyc.version === snapshot.kycVersion &&
@@ -1195,7 +1259,7 @@ export class OnboardingService {
         await this.activate(manager, row, "no_charge");
         return { paid: true };
       }
-      const gateway = this.options.gateways?.get(actor.slug);
+      const gateway = await this.gateway(actor.slug, manager);
       requireValue(gateway, "payments_unavailable", 503);
       requireValue(
         !row.dev || gateway.mode === "sandbox",
@@ -1258,9 +1322,15 @@ export class OnboardingService {
       [randomUUID(), row.tenant_id, row.id],
     );
   }
+  /** Resolve tenant credentials using the current transaction when available, preserving replica and pool consistency. */
+  private async gateway(slug: string, manager?: EntityManager) {
+    return this.options.resolveGateway
+      ? this.options.resolveGateway(slug, manager)
+      : this.options.gateways?.get(slug);
+  }
   /** Reconcile a callback/webhook with Cashfree, including payments arriving after quote expiry. */
   async reconcile(slug: string, id: string) {
-    const gateway = this.options.gateways?.get(slug);
+    const gateway = await this.gateway(slug);
     requireValue(gateway, "payments_unavailable", 503);
     return this.db.transaction(async (manager) => {
       const [tenant] = await manager.query(
@@ -1310,7 +1380,7 @@ export class OnboardingService {
     timestamp: string,
     signature: string,
   ) {
-    const gateway = this.options.gateways?.get(slug);
+    const gateway = await this.gateway(slug);
     requireValue(
       gateway?.verify(raw, timestamp, signature),
       "invalid_webhook_signature",

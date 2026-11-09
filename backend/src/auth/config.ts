@@ -6,7 +6,11 @@ import { currentAuthTenant } from "./tenant-context";
 import { databaseRateLimiter } from "./rate-limit";
 import type { AuthMailer } from "./email";
 
-export type AuthServices = { mailer?: AuthMailer; sharedRateLimit?: boolean };
+export type AuthServices = {
+  mailer?: AuthMailer;
+  sharedRateLimit?: boolean;
+  reserveRecoveryEmail?: (userId: string) => Promise<boolean>;
+};
 
 /** Define the pinned core auth mapping; username/OTP transports remain separate feature gates. */
 export function authOptions(
@@ -44,8 +48,14 @@ export function authOptions(
             requireEmailVerification: true,
             autoSignIn: false,
             /** Deliver a tenant-scoped password-reset link through the configured mail service. */
-            sendResetPassword: async ({ user, url }) =>
-              services.mailer!({ to: user.email, url, kind: "reset" }),
+            sendResetPassword: async ({ user, url }) => {
+              if (
+                services.reserveRecoveryEmail &&
+                !(await services.reserveRecoveryEmail(user.id))
+              )
+                return;
+              await services.mailer!({ to: user.email, url, kind: "reset" });
+            },
           }
         : {}),
     },

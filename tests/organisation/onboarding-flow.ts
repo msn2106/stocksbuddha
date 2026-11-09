@@ -35,9 +35,34 @@ test("RA creates plan and discount; investor completes KYC, admin approves; sign
     page.on("pageerror", (error) => browserErrors.push(error.message));
   try {
     await login(admin, "onboarding-admin@example.test", true);
+    await admin.goto(`${base}/workspace/website`);
     await admin
-      .getByRole("link", { name: "Plans and discounts", exact: true })
+      .getByRole("button", { name: "SMS Settings", exact: true })
       .click();
+    await admin.getByLabel("Vendor username", { exact: true }).fill("test-ra");
+    await admin
+      .getByLabel("API key (leave blank to retain saved key)", { exact: true })
+      .fill("fake-test-api-key");
+    await admin.getByLabel("Approved sender ID").fill("HORIZN");
+    await admin
+      .getByLabel("DLT entity ID", { exact: true })
+      .fill("110100000000001");
+    await admin
+      .getByLabel("DLT template ID", { exact: true })
+      .fill("110100000000002");
+    await admin
+      .getByLabel("Approved message", { exact: true })
+      .fill(
+        "Your mobile code is {{otp}}. Valid for {{expiryMinutes}} minutes.",
+      );
+    await admin.getByLabel("Enable SMS verification", { exact: true }).check();
+    await admin
+      .getByRole("button", { name: "Save SMS settings", exact: true })
+      .click();
+    await expect(
+      admin.getByText("SMS settings saved.", { exact: true }),
+    ).toBeVisible();
+    await admin.goto(`${base}/workspace/plans`);
     await admin
       .getByLabel("Plan name", { exact: true })
       .fill("Monthly research");
@@ -132,12 +157,44 @@ test("RA creates plan and discount; investor completes KYC, admin approves; sign
     await investor
       .getByRole("link", { name: "Continue onboarding", exact: true })
       .click();
+    await expect(
+      investor.getByLabel("Full name as on PAN", { exact: true }),
+    ).toBeDisabled();
+    await investor
+      .getByLabel("Mobile number", { exact: true })
+      .fill("9599400141");
+    await investor
+      .getByRole("button", { name: "Send mobile code", exact: true })
+      .click();
+    await expect(investor.getByLabel("Six-digit mobile code")).toBeVisible();
+    const sms = await (await request.get("/__test/sms")).json();
+    await investor
+      .getByLabel("Six-digit mobile code")
+      .fill(sms.at(-1).message.match(/\b\d{6}\b/)[0]);
+    await investor
+      .getByRole("button", { name: "Verify mobile", exact: true })
+      .click();
+    await expect(
+      investor.getByLabel("Full name as on PAN", { exact: true }),
+    ).toBeEnabled();
+    await investor
+      .getByLabel("Current password", { exact: true })
+      .fill("test-password-123");
+    await investor
+      .getByRole("button", { name: "Enable SMS recovery", exact: true })
+      .click();
+    await expect(
+      investor.getByRole("button", {
+        name: "Disable SMS recovery",
+        exact: true,
+      }),
+    ).toBeVisible();
     await investor
       .getByLabel("Full name as on PAN", { exact: true })
       .fill("Example Investor");
-    await investor
-      .getByLabel("Phone number", { exact: true })
-      .fill("9876543210");
+    await expect(
+      investor.getByLabel("Phone number", { exact: true }),
+    ).toHaveValue("+919599400141");
     await investor.getByLabel("PAN number", { exact: true }).fill("ABCPD1234E");
     await investor
       .getByLabel("Date of birth", { exact: true })
@@ -145,9 +202,9 @@ test("RA creates plan and discount; investor completes KYC, admin approves; sign
     await investor
       .getByLabel("PAN document (PDF, JPEG, PNG; maximum 10 MiB)")
       .setInputFiles(pdf);
-    await expect(investor.getByRole("status")).toHaveText(
-      "PAN document uploaded.",
-    );
+    await expect(
+      investor.locator(".onboarding > .workspace-notice[role='status']"),
+    ).toHaveText("PAN document uploaded.");
     await investor
       .getByLabel(
         "I confirm these identity and family details are correct and consent to their use for KYC verification.",
@@ -270,9 +327,9 @@ test("RA creates plan and discount; investor completes KYC, admin approves; sign
     await investor
       .getByRole("button", { name: "Send email confirmation code" })
       .click();
-    await expect(investor.getByRole("status")).toHaveText(
-      "A confirmation code was sent to your verified email.",
-    );
+    await expect(
+      investor.locator(".onboarding > .workspace-notice[role='status']"),
+    ).toHaveText("A confirmation code was sent to your verified email.");
     const messages = await (await request.get("/__test/mail")).json();
     const code = messages.findLast(
       (entry: { to: string; kind: string }) =>
@@ -386,6 +443,52 @@ test("RA creates plan and discount; investor completes KYC, admin approves; sign
     expect(
       (await new AxeBuilder({ page: investor }).analyze()).violations,
     ).toEqual([]);
+    await investor.goto(`${base}/forgot-password`);
+    await investor.getByText("Reset password by SMS", { exact: true }).click();
+    const recovery = investor
+      .locator("details")
+      .filter({ hasText: "Reset password by SMS" });
+    await recovery
+      .getByLabel("Email", { exact: true })
+      .fill("onboarding-investor@example.test");
+    await recovery
+      .getByRole("button", { name: "Request recovery code", exact: true })
+      .click();
+    await expect(recovery.getByLabel("SMS code", { exact: true })).toBeVisible({
+      timeout: 15000,
+    });
+    const recoveryMessages = await (await request.get("/__test/sms")).json();
+    await recovery
+      .getByLabel("SMS code", { exact: true })
+      .fill(recoveryMessages.at(-1).message.match(/\b\d{6}\b/)[0]);
+    await recovery
+      .getByLabel("New password", { exact: true })
+      .fill("new-investor-password-123");
+    await recovery
+      .getByLabel("Confirm new password", { exact: true })
+      .fill("new-investor-password-123");
+    await recovery
+      .getByRole("button", { name: "Reset password with code", exact: true })
+      .click();
+    await expect(
+      recovery.getByText("Password changed. Sign in with your new password.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    expect((await investorContext.request.get("/api/session")).status()).toBe(
+      401,
+    );
+    await investor.goto(`${base}/login`);
+    await investor
+      .getByLabel("Email address", { exact: true })
+      .fill("onboarding-investor@example.test");
+    await investor
+      .getByLabel("Password", { exact: true })
+      .fill("new-investor-password-123");
+    await investor
+      .getByRole("button", { name: "Sign in", exact: true })
+      .click();
+    await expect(investor).toHaveURL(/\/account$/);
     expect(browserErrors).toEqual([]);
   } finally {
     await Promise.all([

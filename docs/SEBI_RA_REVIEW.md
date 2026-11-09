@@ -37,8 +37,8 @@ Review date: **9 November 2026**. Scope: the local investor KYC → plan/discoun
 ## Additional limitations and follow-up controls
 
 - The initial client model supports adults with individual PANs; minors, HUFs, companies, NRIs requiring distinct checks and institutional categories are not fully modeled. Do not assume a valid individual PAN alone establishes eligibility for all these cases.
-- Phone is collected and validated syntactically, not independently OTP-verified. Any procedure requiring verified mobile needs an additional service.
-- PAN/DOB/name/family corrections after a paid record require a separate controlled process. The current API blocks these material changes rather than rewriting signed history or bypassing fee aggregation.
+- Mobile OTP is now required for new KYC submissions and checkout, independently of KRA/consent. Existing clients are prompted without cancelling paid services. See [the mobile-specific RA audit](MOBILE_VERIFICATION_AUDIT.md) for transport isolation, evidence and activation conditions.
+- PAN/DOB/name/mobile/family corrections after a paid record require a separate controlled process. The current API blocks these material changes rather than rewriting signed history or bypassing fee aggregation.
 - Default PDF fonts are not suitable for arbitrary multilingual legal text. English/Latin template review and PDF visual QA are required; add embedded fonts before Hindi legal PDFs.
 - Financial and KYC server endpoints enforce their own state transitions. Recommendation lists/downloads now enforce the shared eligibility guard. Apply the same guard to any additional research-delivery endpoint. Historical agreements/receipts remain available to active members without an active subscription.
 - Existing Support document access is unchanged and distinct from RA Admin approval. Review least-privilege role policy, administrator MFA and operational account access before launch.

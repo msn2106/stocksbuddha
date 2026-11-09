@@ -1,3 +1,4 @@
+import { SmsRecovery } from "./SmsRecovery";
 import { useState, useRef, useEffect, type CSSProperties } from "react";
 import {
   ArrowLeft,
@@ -498,6 +499,18 @@ export function AccountPage({ data }: { data: PageData }) {
                   </a>
                 </p>
               )}
+              {account.mode === "forgot-password" && (
+                <p>
+                  {locale === "hi"
+                    ? "ईमेल रीसेट लिंक: प्रति खाते 24 घंटे में अधिकतम 5। अनुरोधों के बीच कम से कम एक मिनट रुकें। एसएमएस सीमा पूरी होने पर भी ईमेल उपलब्ध है।"
+                    : "Email reset links: up to 5 per account per rolling 24 hours. Wait at least one minute between requests. Email remains available when SMS is limited."}
+                </p>
+              )}
+              {account.mode === "forgot-password" &&
+                !platform &&
+                data.tenant && (
+                  <SmsRecovery slug={data.tenant.slug} hi={locale === "hi"} />
+                )}
               {platform && recovery && (
                 <p>
                   <a href={`${base}/login${suffix}`}>

@@ -18,7 +18,7 @@ export function onboardingFixture() {
     tenants:
       "id TEXT PRIMARY KEY,slug TEXT,status TEXT,legal_name TEXT,registration_number TEXT,display_name TEXT",
     tenant_memberships:
-      "id TEXT PRIMARY KEY,tenant_id TEXT,user_id TEXT,role TEXT,status TEXT,capabilities_json TEXT,full_name TEXT,mobile TEXT,onboarding_stage TEXT,lock_version INTEGER DEFAULT 1",
+      "id TEXT PRIMARY KEY,tenant_id TEXT,user_id TEXT,role TEXT,status TEXT,capabilities_json TEXT,full_name TEXT,mobile TEXT,mobile_verified_at TEXT,onboarding_stage TEXT,lock_version INTEGER DEFAULT 1",
     ra_agreement_settings:
       "tenant_id TEXT PRIMARY KEY,terms TEXT,contact TEXT,address TEXT,gstin TEXT,annual_limit INTEGER,reviewed INTEGER,version INTEGER",
     subscription_plans:
@@ -143,7 +143,7 @@ export function onboardingFixture() {
       .run(randomUUID(), id, token);
     memory
       .prepare(
-        "INSERT INTO tenant_memberships(id,tenant_id,user_id,role,status,capabilities_json) VALUES (?,?,?,?,'active','{}')",
+        "INSERT INTO tenant_memberships(id,tenant_id,user_id,role,status,capabilities_json,mobile,mobile_verified_at) VALUES (?,?,?,?,'active','{}','9876543210','2026-01-01 00:00:00')",
       )
       .run(membership, scope, id, role);
   }

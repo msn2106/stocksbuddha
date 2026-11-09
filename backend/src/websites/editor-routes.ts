@@ -1,3 +1,5 @@
+import type { IntegrationSettingsService } from "../integrations/service";
+import { OnboardingError } from "../onboarding/domain";
 import type { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { ZodError } from "zod";
@@ -21,6 +23,7 @@ export function mountWebsiteEditor(
   router: Router,
   operations: WebsiteOperations,
   origin: string,
+  integrations?: IntegrationSettingsService,
 ) {
   const page = "/ra/:slug/workspace/website";
   const api = "/api/workspaces/:slug/website";
@@ -35,6 +38,31 @@ export function mountWebsiteEditor(
     if (req.method !== "GET" && req.headers.origin !== origin)
       return res.status(403).json({ error: "forbidden_origin" });
     next();
+  });
+  router.all(`${api}/integrations/:kind`, async (req, res) => {
+    if (!integrations)
+      return res.status(503).json({ error: "integration_unavailable" });
+    if (!["GET", "POST"].includes(req.method))
+      return res.status(405).json({ error: "method_not_allowed" });
+    const context = {
+      token: res.locals.identity.session.token,
+      tenantId: res.locals.workspace.tenant.id,
+    };
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      res.json(
+        req.method === "GET"
+          ? await integrations.read(context, req.params.kind)
+          : await integrations.save(context, req.params.kind, req.body),
+      );
+    } catch (error) {
+      res.status(error instanceof OnboardingError ? error.status : 503).json({
+        error:
+          error instanceof OnboardingError
+            ? error.code
+            : "integration_unavailable",
+      });
+    }
   });
   router.get(page, (_req, res, next) => {
     const workspace: Workspace = res.locals.workspace;

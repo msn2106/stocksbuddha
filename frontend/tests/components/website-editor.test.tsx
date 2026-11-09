@@ -18,10 +18,12 @@ import type { WebsiteEditorState } from "@ra/contracts";
 
 const originalFetch = globalThis.fetch;
 const originalConfirm = window.confirm;
+const originalFormData = globalThis.FormData;
 afterEach(() => {
   cleanup();
   globalThis.fetch = originalFetch;
   window.confirm = originalConfirm;
+  globalThis.FormData = originalFormData;
 });
 
 /** Provide a complete draft and controlled HTTP receipts without depending on a browser or database. */
@@ -372,4 +374,43 @@ test("loading failures can be retried and unmounting cancels the pending read", 
   view.unmount();
   assert.equal(signal?.aborted, true);
   await act(async () => reject(new Error("Aborted")));
+});
+
+test("private settings have separate tabs, publication actions stay separate and unsaved integration edits are protected", async () => {
+  const f = fixture();
+  const baseFetch = globalThis.fetch;
+  globalThis.FormData = window.FormData;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes("/api/sms/"))
+      return Response.json({
+        version: 0,
+        configured: false,
+        trial: true,
+        events: [],
+      });
+    if (String(url).includes("/integrations/"))
+      return Response.json({ version: 0, configured: false });
+    return baseFetch(url, init);
+  };
+  await openEditor();
+  assert.equal(screen.queryByRole("heading", { name: "SMS settings" }), null);
+  click("SMS Settings");
+  await screen.findByLabelText("Vendor username");
+  assert.equal(screen.queryByRole("button", { name: "Publish website" }), null);
+  change("Vendor username", "unsaved-ra");
+  const leave = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(leave);
+  assert.equal(leave.defaultPrevented, true);
+  window.confirm = () => false;
+  click("Telegram Settings");
+  assert.ok(screen.getByLabelText("Vendor username"));
+  window.confirm = () => true;
+  click("Telegram Settings");
+  await screen.findByLabelText("Bot token");
+  click("Payment Gateway Settings");
+  await screen.findByLabelText("Client ID");
+  click("Branding");
+  await screen.findByLabelText("Website name");
+  assert.ok(screen.getByRole("button", { name: "Publish website" }));
+  assert.equal(f.data.version, 1);
 });
