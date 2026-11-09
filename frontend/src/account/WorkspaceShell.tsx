@@ -1,3 +1,4 @@
+import { Onboarding } from "./Onboarding";
 import { Documents } from "./Documents";
 import { roleErrorMessage } from "./role-errors";
 import { WorkspaceActionButton } from "./WorkspaceActionButton";
@@ -207,6 +208,37 @@ export function WorkspaceShell({ data }: { data: PageData }) {
                   Edit website
                 </a>
               )}
+            {!platform &&
+              account.onboardingEnabled &&
+              (investor || account.role === "owner") &&
+              (investor ? (
+                <a
+                  href={`${base}/onboarding?lang=${locale}`}
+                  aria-current={section === "onboarding" ? "page" : undefined}
+                >
+                  <FileText size={19} aria-hidden="true" />
+                  {locale === "hi"
+                    ? "केवाईसी और सदस्यता"
+                    : "KYC and subscription"}
+                </a>
+              ) : (
+                <>
+                  <a
+                    href={`${base}/users?lang=${locale}`}
+                    aria-current={section === "users" ? "page" : undefined}
+                  >
+                    <Users size={19} aria-hidden="true" />
+                    {locale === "hi" ? "निवेशक" : "Users"}
+                  </a>
+                  <a
+                    href={`${base}/plans?lang=${locale}`}
+                    aria-current={section === "plans" ? "page" : undefined}
+                  >
+                    <BookOpen size={19} aria-hidden="true" />
+                    {locale === "hi" ? "योजनाएँ और छूट" : "Plans and discounts"}
+                  </a>
+                </>
+              ))}
             <a
               href={`${base}/documents?lang=${locale}`}
               aria-current={section === "documents" ? "page" : undefined}
@@ -249,7 +281,12 @@ export function WorkspaceShell({ data }: { data: PageData }) {
           className="workspace-content"
           tabIndex={-1}
         >
-          {section === "documents" ? (
+          {!platform &&
+          account.onboardingEnabled &&
+          (["plans", "users", "onboarding"].includes(section) ||
+            (investor && section === "overview")) ? (
+            <Onboarding data={data} overview={section === "overview"} />
+          ) : section === "documents" ? (
             <Documents data={data} />
           ) : section === "website" &&
             !platform &&

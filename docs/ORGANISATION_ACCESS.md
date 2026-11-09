@@ -77,3 +77,7 @@ npm run test:e2e:organisations
 ```
 
 The organisation Playwright suite needs local dev administrative database credentials (`DB_ROOT_PASSWORD` in ignored `backend/.env`) to create and remove only disposable `sb_test_*` databases. It captures verification/invitation emails in memory and never sends real messages. Its test-only server creates verified fixture accounts and a fixture platform owner; those grants do not touch the configured application database. It checks real owner/admin/team navigation, profile dialogs, role denials, responsive screenshots, hydration and axe accessibility. The fixture disables Better Auth credential rate limits to avoid shared test traffic buckets; dedicated auth integration tests continue to verify the production limiter.
+
+## RA investor administration
+
+Active RA Admins now have **Users** and **Plans and discounts** alongside Team and Website. These business APIs accept only tenant `owner` or the investor themselves where appropriate; Analyst, Support and platform ownership alone do not grant approval/offer management. This is distinct from the existing document-upload policy. See [onboarding administration](INVESTOR_ONBOARDING.md#ra-administration).

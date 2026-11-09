@@ -918,6 +918,10 @@ test("anonymous duplicate signup does not disclose roles or overwrite an existin
   await page
     .getByLabel("Password", { exact: true })
     .fill("Different-password-123");
+  await page.getByLabel("Phone number", { exact: true }).fill("9876543210");
+  await page
+    .getByLabel("Confirm password", { exact: true })
+    .fill("Different-password-123");
   await page
     .getByRole("button", { name: "Create account", exact: true })
     .click();

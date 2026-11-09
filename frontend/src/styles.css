@@ -3561,3 +3561,192 @@ footer[data-footer="compact"] .footer-top {
     gap: 16px;
   }
 }
+
+/* Investor onboarding extends the existing restrained workspace typography and controls. */
+.onboarding {
+  max-width: 1050px;
+  margin-inline: auto;
+}
+.onboarding-heading {
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--line, #ddd);
+  padding-bottom: 1.5rem;
+}
+.onboarding-heading h1 {
+  margin: 0.25rem 0 0.75rem;
+}
+.onboarding-stack {
+  display: grid;
+  gap: 2.5rem;
+}
+.onboarding-stack > section {
+  min-width: 0;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid var(--line, #ddd);
+}
+.onboarding-form {
+  max-width: 800px;
+  margin-block: 1.5rem;
+}
+.onboarding-form input:not([type="checkbox"]):not([type="radio"]),
+.onboarding-form textarea,
+.onboarding-form select {
+  width: 100%;
+  min-width: 0;
+}
+.onboarding-form textarea {
+  min-height: 100px;
+  padding: 0.75rem;
+  font: inherit;
+}
+.onboarding-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.onboarding-fields label {
+  min-width: 0;
+}
+.onboarding-terms-editor {
+  min-height: 340px !important;
+}
+.onboarding-help {
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+.onboarding-records {
+  list-style: none;
+  padding: 0;
+}
+.onboarding-records li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 1rem;
+  border-bottom: 1px solid var(--line, #ddd);
+}
+.onboarding-records p {
+  margin: 0.3rem 0 0;
+}
+.onboarding-progress {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-block: 1px solid var(--line, #ddd);
+  margin-block: 1.5rem 2rem;
+}
+.onboarding-progress li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1.2rem 0.75rem;
+}
+.onboarding-progress li[data-complete="true"] {
+  color: #175f42;
+}
+.onboarding-progress li span {
+  flex: 1;
+}
+.onboarding-state {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.onboarding-plan {
+  display: flex !important;
+  align-items: start;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--line, #ddd);
+}
+.onboarding-plan > span {
+  display: grid;
+  gap: 0.5rem;
+}
+.onboarding-plan:has(input:checked) {
+  border-color: currentColor;
+  background: #f3f5f2;
+}
+.onboarding-agreement {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  line-height: 1.65;
+  background: #f7f7f4;
+  color: #202b29;
+  padding: 1.5rem;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.onboarding-totals {
+  max-width: 480px;
+}
+.onboarding-totals > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+.onboarding-totals > div:last-child {
+  border-top: 1px solid var(--line, #ddd);
+  padding-top: 0.75rem;
+  font-weight: 700;
+}
+.onboarding-totals dd {
+  margin: 0;
+}
+.onboarding-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-block: 1rem;
+}
+.onboarding-refresh {
+  margin-top: 2rem;
+}
+@media (max-width: 680px) {
+  .onboarding-fields,
+  .onboarding-progress {
+    grid-template-columns: 1fr;
+  }
+  .onboarding-progress li {
+    padding: 0.8rem 0.25rem;
+  }
+  .onboarding-records li {
+    align-items: start;
+    flex-direction: column;
+  }
+  .onboarding-agreement {
+    padding: 0.8rem;
+  }
+}
+.onboarding-form label:has(> input[type="checkbox"]) {
+  display: flex;
+  align-items: start;
+  gap: 0.75rem;
+  font-size: 1rem;
+}
+.onboarding-form input[type="checkbox"],
+.onboarding-plan input[type="radio"] {
+  flex: 0 0 auto;
+  width: 1.3rem;
+  height: 1.3rem;
+  min-height: 1.3rem;
+  padding: 0;
+  margin-top: 0.2rem;
+}
+.onboarding-form input[type="checkbox"] {
+  order: -1;
+}
+
+.onboarding-form label {
+  font-size: 1rem;
+}
+.onboarding-form textarea {
+  border: 1px solid #b8beb2;
+  border-radius: 4px;
+  background: #fffefa;
+  color: inherit;
+}

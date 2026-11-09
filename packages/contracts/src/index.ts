@@ -49,7 +49,17 @@ export type AccountView = {
     | "invitation";
   audience?: "investor" | "organisation" | "platform";
   area?: "investor" | "organisation" | "platform";
-  section?: "overview" | "organisations" | "team" | "website" | "documents";
+  section?:
+    | "overview"
+    | "organisations"
+    | "team"
+    | "website"
+    | "documents"
+    | "plans"
+    | "users"
+    | "onboarding";
+  onboardingEnabled?: boolean;
+  customerId?: string;
   profile?: { name: string; email: string; emailVerified: boolean };
   organisations?: {
     id: string;
@@ -120,3 +130,15 @@ export {
   type Snapshot,
   type WebsiteEditorState,
 } from "./editor";
+
+export type {
+  Plan,
+  Coupon,
+  KycProfile,
+  KycView,
+  AgreementSettings,
+  OrderView,
+  OnboardingView,
+} from "./onboarding";
+
+export { sampleResearchAgreement } from "./agreement-sample";

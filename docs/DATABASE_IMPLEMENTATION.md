@@ -5,7 +5,7 @@
 ## Implemented
 
 - Local Docker Compose for MariaDB and the DbGate Community browser client; the application continues directly in Node. DbGate is bound to loopback, preconfigured only for the local dev database and excluded from hosted deployment.
-- Thirteen constrained InnoDB tables, fourteen TypeORM application migrations and verified metadata bootstrap.
+- Twenty constrained InnoDB tables, fifteen TypeORM application migrations and verified metadata bootstrap.
 - Separate `stocksbuddha_dev` / `stocksbuddha_prod` targets, including optional Hostinger account prefix. No persistent third environment. SQL timestamp defaults explicitly use UTC expressions; the driver timezone setting controls value conversion and is not assumed to set server timezone.
 - Source-checksum manifest, applied ledger, attempt outcomes, one release lock, drift rejection and refusal to retry failed/unfinished migrations automatically.
 - Repeatable dev preview seeds preserving UUIDs, localized websites, owner edits and explicit unpublication.
@@ -66,7 +66,7 @@ Migration `1793491200010` adds shared expiring counters with row-locked atomic c
 
 ## Organisation access extension
 
-Migration `1793491200011` adds durable invitations. Migration `1793491200012` adds nullable invitation recipient names for personalised greetings; new invitations require a name. That invitation foundation had 13 application migrations and 12 tables including metadata; the document extension below brings the current totals to 14 migrations and 13 tables. Platform-owner bootstrap is an explicit verified-account operator command, not startup behavior. The platform creates draft organisations and invites RA Admins; acceptance creates membership and activates draft organisations atomically, without fabricating a website. Hostinger SMTP delivery is outside the transaction and failures are retried by issuing a replacement invitation. See [organisation access](ORGANISATION_ACCESS.md) for routes, role naming, activation, test commands and remaining MFA/business-screen scope.
+Migration `1793491200011` adds durable invitations. Migration `1793491200012` adds nullable invitation recipient names for personalised greetings; new invitations require a name. That invitation foundation had 13 application migrations and 12 tables including metadata; the document extension below brought the document-stage totals to 14 migrations and 13 tables. Platform-owner bootstrap is an explicit verified-account operator command, not startup behavior. The platform creates draft organisations and invites RA Admins; acceptance creates membership and activates draft organisations atomically, without fabricating a website. Hostinger SMTP delivery is outside the transaction and failures are retried by issuing a replacement invitation. See [organisation access](ORGANISATION_ACCESS.md) for routes, role naming, activation, test commands and remaining MFA/business-screen scope.
 
 ## Exclusive subscriber and staff roles
 
@@ -75,3 +75,7 @@ The existing unique identity/membership keys enforce one row per email identity 
 ## Private document storage extension (7 November 2026)
 
 The schema now includes migration `CreateDocuments1794009600000`, adding the `documents` table (14 application migrations, 13 total tables including migration metadata). It stores scoped metadata and integrity hashes; file bytes remain in Google Drive. This extends the historical foundation inventory above. Run the explicit migration before startup. Runtime OAuth activation and the Drive/SQL reconciliation boundary are documented in [GOOGLE_DRIVE.md](GOOGLE_DRIVE.md).
+
+## Investor onboarding extension — 8 November 2026
+
+Migration `1794096000000-InvestorOnboarding` adds `ra_agreement_settings`, `subscription_plans`, `discount_codes`, `investor_kyc`, `kyc_history`, `subscription_orders`, `onboarding_deliveries` and `auth_users.signup_phone`. Current totals are fifteen application migrations and twenty tables including metadata. Identity/agreement snapshots are encrypted; per-tenant row locks serialize reservations and transitions. Payment activation and durable delivery jobs commit together. Apply this migration explicitly before startup. See [schema, operating rules and encryption-key recovery](INVESTOR_ONBOARDING.md).

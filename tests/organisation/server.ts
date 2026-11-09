@@ -1,3 +1,7 @@
+import { OnboardingService } from "../../backend/src/onboarding/service";
+import { DocumentService } from "../../backend/src/documents/service";
+import type { GoogleDriveStorage } from "../../backend/src/documents/drive";
+import type { PaymentGateway } from "../../backend/src/onboarding/cashfree";
 import "reflect-metadata";
 import express from "express";
 import { randomUUID } from "node:crypto";
@@ -20,7 +24,7 @@ import {
 import { createPublicSiteResolver } from "../../backend/src/tenancy/resolve-public-site";
 import { TenantOperations } from "../../backend/src/database/operations";
 import { OrganisationService } from "../../backend/src/organisations/service";
-import type { AuthEmail } from "../../backend/src/auth/email";
+import type { ApplicationEmail } from "../../backend/src/auth/email";
 
 // This test-only entry creates disposable fixtures and captures email; it is never bundled into the application.
 if (process.env.DB_ENV !== "dev" || !process.env.DB_ROOT_PASSWORD)
@@ -40,8 +44,8 @@ const db = createDatabase({ ...config, database: name }, 10, 0);
 await db.initialize();
 await runMigrations(db, await loadManifest(), true);
 await seedDemo(db, "dev");
-const messages: AuthEmail[] = [];
-const mailer = async (message: AuthEmail) => {
+const messages: ApplicationEmail[] = [];
+const mailer = async (message: ApplicationEmail) => {
   messages.push(message);
 };
 const origin = "http://127.0.0.1:3111";
@@ -64,6 +68,9 @@ const identity = createAuthentication(
   { mailer },
 );
 for (const email of [
+  "onboarding-admin@example.test",
+  "onboarding-investor@example.test",
+  "onboarding-other@example.test",
   "owner@example.test",
   "admin@example.test",
   "analyst@example.test",
@@ -95,11 +102,61 @@ await db.query(
   "INSERT INTO tenant_memberships(id,tenant_id,user_id,role,status,profile_json,capabilities_json) SELECT ?,t.id,u.id,'subscriber','active','{\"schemaVersion\":1}','{}' FROM tenants t CROSS JOIN auth_users u WHERE t.slug='beta' AND u.email='logout@example.test'",
   [randomUUID()],
 );
+for (const [email, role] of [
+  ["onboarding-admin@example.test", "owner"],
+  ["onboarding-investor@example.test", "subscriber"],
+  ["onboarding-other@example.test", "subscriber"],
+]) {
+  await db.query(
+    "INSERT INTO tenant_memberships(id,tenant_id,user_id,role,status,profile_json,capabilities_json) SELECT ?,t.id,u.id,?,'active','{\"schemaVersion\":1}','{}' FROM tenants t CROSS JOIN auth_users u WHERE t.slug='stocksbuddha' AND u.email=?",
+    [randomUUID(), role, email],
+  );
+}
+const objects = new Map<string, Buffer>();
+const storage = {
+  config: { mainId: "main" },
+  verify: async () => {},
+  tenantFolder: async (id: string) => `ra_${id}`,
+  folder: async (parent: string, child: string) => `${parent}_${child}`,
+  upload: async (
+    _parent: string,
+    _name: string,
+    _mime: string,
+    bytes: Buffer,
+  ) => {
+    const id = randomUUID();
+    objects.set(id, Buffer.from(bytes));
+    return id;
+  },
+  download: async (id: string) => objects.get(id)!,
+} as unknown as GoogleDriveStorage;
+const documents = new DocumentService(db, storage);
+const payments = new Set<string>();
+const gateway: PaymentGateway = {
+  mode: "sandbox",
+  create: async (order) => `fixture-${order.id}`,
+  paid: async (id) => (payments.has(id) ? `payment-${id}` : null),
+  closed: async () => false,
+  verify: (_raw, _timestamp, signature) => signature === "test-only-signature",
+};
+const onboarding = new OnboardingService(db, {
+  env: {
+    AUTH_SECRET: "test-onboarding-secret-at-least-32-characters",
+    AUTH_BASE_URL: origin,
+    DB_ENV: "dev",
+    ONBOARDING_DEV_SKIP: "true",
+  },
+  documents,
+  mailer,
+  gateways: new Map([["stocksbuddha", gateway]]),
+});
 messages.length = 0;
 const service = new OrganisationService(db),
   store = new MariaDbWorkspaceStore(db);
 const app = createPublicApp({
   authentication: createAuthRoutes({
+    onboarding,
+    documents,
     auth: identity.auth,
     store,
     organisations: service,
@@ -115,6 +172,14 @@ const app = createPublicApp({
   ),
   assets: express
     .Router()
+    .post("/__test/settle", express.json(), async (req, res) => {
+      if (req.headers.origin !== origin || typeof req.body?.id !== "string")
+        return res.sendStatus(403);
+      payments.add(req.body.id);
+      await onboarding.reconcile("stocksbuddha", req.body.id);
+      await onboarding.deliverOne();
+      return res.sendStatus(204);
+    })
     .get("/__test/mail", (_req, res) => res.json(messages))
     .post("/__test/suspend-beta", async (req, res) => {
       if (req.headers.origin !== origin) return res.sendStatus(403);

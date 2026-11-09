@@ -228,3 +228,31 @@ test("throttled sign-in shows a localized wait message and permits retry without
     view.unmount();
   }
 });
+
+test("investor signup collects a phone and matching password confirmation while invitation setup stays concise", () => {
+  const data = page({ mode: "signup", onboardingEnabled: true });
+  const root = render(<App data={data} />);
+  assert.ok(screen.getByLabelText("Phone number", { exact: true }));
+  const password = screen.getByLabelText("Password", {
+    exact: true,
+  }) as HTMLInputElement;
+  const confirm = screen.getByLabelText("Confirm password", {
+    exact: true,
+  }) as HTMLInputElement;
+  fireEvent.change(password, { target: { value: "password-123" } });
+  fireEvent.change(confirm, { target: { value: "different" } });
+  fireEvent.submit(confirm.closest("form")!);
+  assert.equal(confirm.validationMessage, "Passwords do not match.");
+  fireEvent.input(confirm, { target: { value: "password-123" } });
+  assert.equal(confirm.validationMessage, "");
+  fireEvent.submit(confirm.closest("form")!);
+  assert.ok(
+    screen
+      .getByRole("button", { name: "Please wait…" })
+      .hasAttribute("disabled"),
+  );
+  root.unmount();
+  data.locale = "hi";
+  render(<App data={data} />);
+  assert.ok(screen.getByLabelText("फ़ोन नंबर", { exact: true }));
+});

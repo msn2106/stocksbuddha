@@ -1,0 +1,369 @@
+import { test, expect, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+const base = "/ra/stocksbuddha";
+/** Sign into isolated disposable onboarding fixtures through the real login form. */
+async function login(page: Page, email: string, admin = false) {
+  await page.goto(`${base}/login`);
+  if (admin)
+    await page
+      .getByRole("radio", { name: "Organisation", exact: true })
+      .check();
+  await page.getByLabel("Email address", { exact: true }).fill(email);
+  await page.getByLabel("Password", { exact: true }).fill("test-password-123");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(admin ? "/workspace$" : "/account$"));
+}
+const pdf = {
+  name: "test-pan.pdf",
+  mimeType: "application/pdf",
+  buffer: Buffer.from("%PDF-1.4\nFixture evidence\n%%EOF"),
+};
+
+test("RA creates plan and discount; investor completes KYC, admin approves; signed checkout freezes discount before payment and emails canonical documents", async ({
+  browser,
+  request,
+}) => {
+  test.setTimeout(60000);
+  const adminContext = await browser.newContext(),
+    investorContext = await browser.newContext(),
+    otherContext = await browser.newContext();
+  const admin = await adminContext.newPage(),
+    investor = await investorContext.newPage(),
+    other = await otherContext.newPage();
+  const browserErrors: string[] = [];
+  for (const page of [admin, investor])
+    page.on("pageerror", (error) => browserErrors.push(error.message));
+  try {
+    await login(admin, "onboarding-admin@example.test", true);
+    await admin
+      .getByRole("link", { name: "Plans and discounts", exact: true })
+      .click();
+    await admin
+      .getByLabel("Plan name", { exact: true })
+      .fill("Monthly research");
+    await admin
+      .getByLabel("Services and offerings")
+      .fill("Monthly research reports and market updates. No assured returns.");
+    await admin.getByLabel("Base fee (INR)", { exact: true }).fill("2000");
+    await admin.getByRole("button", { name: "Save plan", exact: true }).click();
+    await expect(
+      admin.locator("strong").filter({ hasText: /^Monthly research$/ }),
+    ).toBeVisible();
+    await admin.getByLabel("Discount code", { exact: true }).fill("WELCOME");
+    await admin.getByLabel("Discount value", { exact: true }).fill("10");
+    await admin.getByLabel("Starts (UTC date)").fill("2026-01-01");
+    await admin.getByLabel("Ends (UTC date)").fill("2027-12-31");
+    const couponCodeInput = admin.getByLabel("Discount code", { exact: true });
+    await couponCodeInput.fill("Diwali Offer");
+    expect(
+      await couponCodeInput.evaluate(
+        (input: HTMLInputElement) => input.validity.patternMismatch,
+      ),
+    ).toBeTruthy();
+    await couponCodeInput.fill("WELCOME");
+    expect(
+      await couponCodeInput.evaluate((input: HTMLInputElement) =>
+        input.checkValidity(),
+      ),
+    ).toBeTruthy();
+    await admin
+      .getByRole("button", { name: "Save discount", exact: true })
+      .click();
+    await expect(admin.getByText("WELCOME", { exact: true })).toBeVisible();
+    const starterTerms = admin.getByLabel("Approved terms and MITC", {
+      exact: true,
+    });
+    await expect(starterTerms).toHaveValue(/{{clientName}}/);
+    await expect(
+      admin.getByLabel(
+        "These research-service terms and MITC have been reviewed and approved.",
+      ),
+    ).not.toBeChecked();
+    await admin.getByRole("button", { name: "Load sample agreement" }).click();
+    await expect(starterTerms).toHaveValue(/STARTER DRAFT/);
+    const terms =
+      "Research services only. No trade execution or assured returns. Market risks apply. Contact the RA for complaints, then SCORES and ODR. Fees and refunds follow applicable SEBI rules. Never share trading or bank passwords or OTPs. ".repeat(
+        4,
+      );
+    await admin
+      .getByLabel("Approved terms and MITC", { exact: true })
+      .fill(terms);
+    await admin
+      .getByLabel("Contact details", { exact: true })
+      .fill("RA Support: ra@example.test");
+    await admin
+      .getByLabel("RA address", { exact: true })
+      .fill("Example RA office, Mumbai, India");
+    await admin
+      .getByLabel(
+        "These research-service terms and MITC have been reviewed and approved.",
+      )
+      .check();
+    await admin.getByRole("button", { name: "Save agreement details" }).click();
+    await expect(admin.getByRole("status")).toContainText("Changes saved");
+    await admin.screenshot({
+      path: "/tmp/stocksbuddha-onboarding-plans-desktop.png",
+      fullPage: true,
+    });
+
+    await admin.setViewportSize({ width: 768, height: 1024 });
+    await admin.screenshot({
+      path: "/tmp/stocksbuddha-onboarding-plans-tablet.png",
+      fullPage: true,
+    });
+    await admin.setViewportSize({ width: 390, height: 844 });
+    await admin.screenshot({
+      path: "/tmp/stocksbuddha-onboarding-plans-mobile.png",
+      fullPage: true,
+    });
+    expect(
+      await admin.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBeTruthy();
+    expect(
+      (await new AxeBuilder({ page: admin }).analyze()).violations,
+    ).toEqual([]);
+    await admin.setViewportSize({ width: 1280, height: 720 });
+    await login(investor, "onboarding-investor@example.test");
+    await expect(
+      investor.getByRole("heading", { name: "Your investor journey" }),
+    ).toBeVisible();
+    await investor
+      .getByRole("link", { name: "Continue onboarding", exact: true })
+      .click();
+    await investor
+      .getByLabel("Full name as on PAN", { exact: true })
+      .fill("Example Investor");
+    await investor
+      .getByLabel("Phone number", { exact: true })
+      .fill("9876543210");
+    await investor.getByLabel("PAN number", { exact: true }).fill("ABCPD1234E");
+    await investor
+      .getByLabel("Date of birth", { exact: true })
+      .fill("1990-01-01");
+    await investor
+      .getByLabel("PAN document (PDF, JPEG, PNG; maximum 10 MiB)")
+      .setInputFiles(pdf);
+    await expect(investor.getByRole("status")).toHaveText(
+      "PAN document uploaded.",
+    );
+    await investor
+      .getByLabel(
+        "I confirm these identity and family details are correct and consent to their use for KYC verification.",
+      )
+      .check();
+    await investor
+      .getByRole("button", { name: "Submit for verification", exact: true })
+      .click();
+    await expect(
+      investor.getByText("Under review", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      investor.getByRole("heading", { name: "Choose your plan" }),
+    ).toHaveCount(0);
+
+    await admin.getByRole("link", { name: "Users", exact: true }).click();
+    const row = admin
+      .getByRole("row")
+      .filter({ hasText: "onboarding-investor@example.test" });
+    await row.getByRole("link", { name: "Edit user" }).click();
+    await admin
+      .getByRole("combobox", { name: "Decision", exact: true })
+      .selectOption("changes");
+    await admin
+      .getByLabel("Reason / message to investor")
+      .fill("Please confirm your legal name is correct.");
+    await admin.getByRole("button", { name: "Save review decision" }).click();
+    await expect(
+      admin.getByText("Changes requested", { exact: true }),
+    ).toBeVisible();
+    await investor
+      .getByRole("button", { name: "Refresh status", exact: true })
+      .click();
+    await expect(
+      investor.getByText("Please confirm your legal name is correct.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await investor
+      .getByRole("button", { name: "Submit for verification", exact: true })
+      .click();
+    await expect(
+      investor.getByText("Under review", { exact: true }),
+    ).toBeVisible();
+    await admin
+      .getByRole("button", { name: "Refresh status", exact: true })
+      .click();
+    await admin
+      .getByRole("combobox", { name: "Decision", exact: true })
+      .selectOption("verified");
+    await admin
+      .getByRole("combobox", { name: "KFIN result", exact: true })
+      .selectOption("KYC VALIDATED");
+    await admin
+      .getByLabel("Verification reference", { exact: true })
+      .fill("KFIN-FIXTURE-001");
+    await expect(
+      admin.getByRole("link", { name: "Open KFIN KRA" }),
+    ).toHaveClass(/button secondary/);
+    const proofInput = admin.getByLabel("Separate KFIN verification evidence", {
+      exact: true,
+    });
+    await expect(proofInput).toHaveAttribute("required", "");
+    await admin.getByRole("button", { name: "Save review decision" }).click();
+    expect(
+      await proofInput.evaluate(
+        (input: HTMLInputElement) => input.validity.valueMissing,
+      ),
+    ).toBeTruthy();
+    await expect(
+      admin.getByText("Under review", { exact: true }),
+    ).toBeVisible();
+    await admin
+      .getByLabel("Separate KFIN verification evidence", { exact: true })
+      .setInputFiles({ ...pdf, name: "kfin-result.pdf" });
+    await expect(admin.getByRole("status")).toHaveText(
+      "Verification evidence uploaded.",
+    );
+    await admin.getByRole("button", { name: "Save review decision" }).click();
+    await expect(admin.getByText("Verified", { exact: true })).toBeVisible();
+    await investor
+      .getByRole("button", { name: "Refresh status", exact: true })
+      .click();
+    await investor.getByRole("radio").check();
+    await investor.getByLabel("Discount code (optional)").fill("WELCOME");
+    await investor
+      .getByRole("button", { name: "Review final price and agreement" })
+      .click();
+    await expect(
+      investor.getByText("₹1,800.00", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      investor.getByRole("button", { name: "Pay with Cashfree" }),
+    ).toHaveCount(0);
+    const state = await investor.evaluate(async () =>
+      (await fetch("/api/workspaces/stocksbuddha/onboarding")).json(),
+    );
+    const orderId = state.orders[0].id;
+    const forged = await investor.evaluate(
+      async (id) =>
+        (
+          await fetch("/api/workspaces/stocksbuddha/onboarding/payment", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ orderId: id }),
+          })
+        ).status,
+      orderId,
+    );
+    expect(forged).toBe(409);
+
+    await investor
+      .getByLabel(
+        "I have read and agree to the service terms, MITC and final payable amount.",
+      )
+      .check();
+    await investor
+      .getByLabel("Full name for signature", { exact: true })
+      .fill("Example Investor");
+    await investor
+      .getByRole("button", { name: "Send email confirmation code" })
+      .click();
+    await expect(investor.getByRole("status")).toHaveText(
+      "A confirmation code was sent to your verified email.",
+    );
+    const messages = await (await request.get("/__test/mail")).json();
+    const code = messages.findLast(
+      (entry: { to: string; kind: string }) =>
+        entry.to === "onboarding-investor@example.test" &&
+        entry.kind === "signing",
+    ).code;
+    await investor
+      .getByLabel("Email confirmation code", { exact: true })
+      .fill(code);
+    await investor
+      .getByRole("button", { name: "Sign and continue", exact: true })
+      .click();
+    await expect(
+      investor.getByRole("link", { name: "Download signed agreement" }),
+    ).toBeVisible();
+    await investor.screenshot({
+      path: "/tmp/stocksbuddha-onboarding-signed-desktop.png",
+      fullPage: true,
+    });
+    const downloadable = investor.getByRole("link", {
+      name: "Download signed agreement",
+    });
+    const link = await downloadable.getAttribute("href");
+    const archived = await investorContext.request.get(link!);
+    expect(archived.ok()).toBeTruthy();
+    const originalBytes = await archived.body();
+    expect(originalBytes.subarray(0, 5).toString()).toBe("%PDF-");
+    await login(other, "onboarding-other@example.test");
+    expect((await otherContext.request.get(link!)).status()).toBe(404);
+    expect(
+      (
+        await otherContext.request.get(
+          `/api/workspaces/stocksbuddha/onboarding?customer=${state.customer.id}`,
+        )
+      ).status(),
+    ).toBe(403);
+    await investor.evaluate(() => {
+      (window as typeof window & { Cashfree: unknown }).Cashfree = () => ({
+        checkout: async ({
+          paymentSessionId,
+        }: {
+          paymentSessionId: string;
+        }) => {
+          await fetch("/__test/settle", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: paymentSessionId.slice("fixture-".length),
+            }),
+          });
+        },
+      });
+    });
+    await investor
+      .getByRole("button", { name: "Pay with Cashfree", exact: true })
+      .click();
+    await expect(
+      investor.getByText("Confirmed", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      investor.getByRole("link", { name: "Download invoice" }),
+    ).toBeVisible();
+    const sent = await (await request.get("/__test/mail")).json();
+    const receipt = sent.findLast(
+      (entry: { to: string; kind: string }) =>
+        entry.to === "onboarding-investor@example.test" &&
+        entry.kind === "receipt",
+    );
+    expect(receipt.attachments).toHaveLength(2);
+    expect(Buffer.from(receipt.attachments[0].content.data)).toEqual(
+      originalBytes,
+    );
+    await investor.setViewportSize({ width: 390, height: 844 });
+    await investor.screenshot({
+      path: "/tmp/stocksbuddha-onboarding-investor-mobile.png",
+      fullPage: true,
+    });
+    expect(
+      await investor.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBeTruthy();
+    expect(
+      (await new AxeBuilder({ page: investor }).analyze()).violations,
+    ).toEqual([]);
+    expect(browserErrors).toEqual([]);
+  } finally {
+    await Promise.all([
+      adminContext.close(),
+      investorContext.close(),
+      otherContext.close(),
+    ]);
+  }
+});

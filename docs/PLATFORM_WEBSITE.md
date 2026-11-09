@@ -20,7 +20,7 @@ The root `/` renders the platform brand website, independently of tenant resolut
 
 The website-name form uses the shared slug rules (2–48 characters, starting with a lowercase letter, then lowercase letters, numbers or hyphens; reserved names are rejected). Invalid input returns to a localized error in the access section. The destination login checks tenant availability; entering a slug never proves membership or grants access. Unknown tenants continue to return 404.
 
-Demo requests open the visitor's email client. There is no submission backend, automatic onboarding, public platform-owner signup, pricing or payment flow. The platform owner still creates organisations and invites the initial RA Admin. Subsequent staff access follows the existing invitation and authorization rules. See [organisation access](ORGANISATION_ACCESS.md).
+Demo requests open the visitor's email client. The platform homepage has no demo-submission backend, automatic organisation onboarding, public platform-owner signup or platform pricing/payment checkout. Tenant investor KYC, plans and payments now have a separate [onboarding flow](INVESTOR_ONBOARDING.md). The platform owner still creates organisations and invites the initial RA Admin. Subsequent staff access follows the existing invitation and authorization rules. See [organisation access](ORGANISATION_ACCESS.md).
 
 Platform brand links, generic not-found home links and the platform workspace's website link return to `/`. RA links continue to return to their own website. Global logout returns to platform access; tenant logout returns to that RA's login. Shared identity/session semantics do not change.
 

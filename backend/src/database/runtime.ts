@@ -1,3 +1,5 @@
+import { OnboardingService } from "../onboarding/service";
+import { merchants } from "../onboarding/cashfree";
 import { driveConfig, GoogleDriveStorage } from "../documents/drive";
 import { DocumentService } from "../documents/service";
 import { createDatabase, databaseConfig } from "../../../database/config";
@@ -81,6 +83,7 @@ export async function createPersistence(
   let authentication: ReturnType<typeof createAuthentication>;
   let mailer: ReturnType<typeof authMailer>;
   let storageConfig: ReturnType<typeof driveConfig>;
+  let gatewayConfig: ReturnType<typeof merchants>;
   try {
     if (!env.AUTH_SECRET || !env.AUTH_BASE_URL)
       throw new Error(
@@ -93,7 +96,13 @@ export async function createPersistence(
       throw new Error(
         "Production authentication requires an HTTPS AUTH_BASE_URL",
       );
+    if (
+      env.NODE_ENV === "production" &&
+      !/^[0-9a-f]{64}$/.test(env.ONBOARDING_DATA_KEY ?? "")
+    )
+      throw new Error("Production requires a retained onboarding data key");
     storageConfig = driveConfig(env);
+    gatewayConfig = merchants(env);
     mailer = authMailer(env);
     authentication = authenticationFactory(
       databaseConfig(env),
@@ -106,12 +115,37 @@ export async function createPersistence(
     await db.destroy();
     throw error;
   }
+  const documents = new DocumentService(
+    db,
+    storageConfig ? new GoogleDriveStorage(storageConfig) : null,
+  );
+  const onboarding = new OnboardingService(db, {
+    env,
+    documents,
+    mailer,
+    gateways: gatewayConfig,
+  });
+  let working: Promise<void> | undefined;
+  let ticks = 0;
+  /** Serialize bounded queue work; leases permit safe recovery after process failure. */
+  const work = async () => {
+    if (++ticks % 6 === 0) await onboarding.reconcilePending();
+    for (let index = 0; index < 5; index++)
+      if (!(await onboarding.deliverOne())) break;
+  };
+  const timer = setInterval(() => {
+    if (!working)
+      working = work()
+        .catch(() => {})
+        .finally(() => {
+          working = undefined;
+        });
+  }, 10000);
+  timer.unref();
   return {
     authentication: createAuthRoutes({
-      documents: new DocumentService(
-        db,
-        storageConfig ? new GoogleDriveStorage(storageConfig) : null,
-      ),
+      onboarding,
+      documents,
       auth: authentication.auth,
       store: new MariaDbWorkspaceStore(db),
       operations: new TenantOperations(db),
@@ -128,6 +162,8 @@ export async function createPersistence(
     ),
     /** Release the runtime-owned TypeORM pool during application shutdown. */
     close: async () => {
+      clearInterval(timer);
+      await working;
       await Promise.all([authentication.close(), db.destroy()]);
     },
     /** Probe the live database without changing schema or exposing connection details. */

@@ -350,4 +350,96 @@ export class DocumentService {
       return { bytes, name: row.original_name, mime: row.mime_type };
     });
   }
+  /** Store only server-generated order evidence; the order is authoritative and no HTTP caller can select these bytes or targets. */
+  async storeOrderEvidence(
+    orderId: string,
+    type: "agreement" | "invoice",
+    bytes: Buffer,
+  ): Promise<string> {
+    return this.db.transaction(async (manager) => {
+      const [scope] = await manager.query(
+        "SELECT tenant_id FROM subscription_orders WHERE id=?",
+        [orderId],
+      );
+      if (!scope) throw new DocumentError("document_not_found", 404);
+      const [tenant] = await manager.query(
+        "SELECT id,display_name FROM tenants WHERE id=? AND status='active' FOR UPDATE",
+        [scope.tenant_id],
+      );
+      const [order] = await manager.query(
+        "SELECT o.*,m.user_id FROM subscription_orders o JOIN tenant_memberships m ON m.id=o.membership_id AND m.tenant_id=o.tenant_id WHERE o.id=? FOR UPDATE",
+        [orderId],
+      );
+      if (
+        !tenant ||
+        !order ||
+        !["signed", "payment_pending", "paid"].includes(order.status) ||
+        (type === "invoice" && order.status !== "paid")
+      )
+        throw new DocumentError("forbidden", 403);
+      const existing =
+        type === "agreement" ? order.agreement_id : order.invoice_id;
+      if (existing) return existing as string;
+      const name = `${type === "agreement" ? "Signed-Agreement" : "Invoice"}-${orderId}.pdf`;
+      validateDocument(name, "application/pdf", bytes);
+      const drive = this.storage();
+      await drive.verify();
+      const ra = await drive.tenantFolder(tenant.id, tenant.display_name);
+      const customers = await drive.folder(ra, "Customer");
+      const folder = await drive.folder(customers, order.membership_id);
+      const id = randomUUID();
+      const fileId = await drive.upload(
+        folder,
+        name,
+        "application/pdf",
+        bytes,
+        id,
+      );
+      await manager.query(
+        "INSERT INTO documents(id,tenant_id,customer_id,kind,original_name,mime_type,byte_size,sha256,drive_file_id,drive_folder_id,uploaded_by) VALUES (?,?,?,'mitc',?,'application/pdf',?,?,?,?,?)",
+        [
+          id,
+          tenant.id,
+          order.membership_id,
+          name,
+          bytes.length,
+          sha256(bytes),
+          fileId,
+          folder,
+          order.user_id,
+        ],
+      );
+      await manager.query(
+        type === "agreement"
+          ? "UPDATE subscription_orders SET agreement_id=? WHERE id=?"
+          : "UPDATE subscription_orders SET invoice_id=? WHERE id=?",
+        [id, orderId],
+      );
+      await manager.query(
+        "INSERT INTO audit_events(id,scope,tenant_id,actor_type,action,entity_type,entity_id,metadata_json) VALUES (?,'tenant',?,'system','order.evidence_stored','document',?,'{\"schemaVersion\":1}')",
+        [randomUUID(), tenant.id, id],
+      );
+      return id;
+    });
+  }
+
+  /** Read canonical archived order bytes for delivery, checking their stored integrity before attaching them to email. */
+  async readOrderEvidence(
+    orderId: string,
+    type: "agreement" | "invoice",
+  ): Promise<Buffer> {
+    const [row] = await this.db.query(
+      type === "agreement"
+        ? "SELECT d.* FROM documents d JOIN subscription_orders o ON o.agreement_id=d.id AND o.tenant_id=d.tenant_id AND o.membership_id=d.customer_id WHERE o.id=?"
+        : "SELECT d.* FROM documents d JOIN subscription_orders o ON o.invoice_id=d.id AND o.tenant_id=d.tenant_id AND o.membership_id=d.customer_id WHERE o.id=?",
+      [orderId],
+    );
+    if (!row) throw new DocumentError("document_not_found", 404);
+    const drive = this.storage();
+    await drive.verify();
+    const bytes = await drive.download(row.drive_file_id, row.drive_folder_id);
+    if (bytes.length !== row.byte_size || sha256(bytes) !== row.sha256)
+      throw new DocumentError("document_integrity_failed", 502);
+    return bytes;
+  }
 }

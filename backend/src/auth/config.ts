@@ -103,6 +103,13 @@ export function authOptions(
         updatedAt: "updated_at",
       },
       additionalFields: {
+        signupPhone: {
+          type: "string",
+          fieldName: "signup_phone",
+          required: false,
+          input: true,
+          returned: false,
+        },
         signupTenantId: {
           type: "string",
           fieldName: "signup_tenant_id",

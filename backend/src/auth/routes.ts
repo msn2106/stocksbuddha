@@ -1,3 +1,6 @@
+import { mountOnboarding } from "../onboarding/routes";
+import type { OnboardingService } from "../onboarding/service";
+import { phone as signupPhone } from "../onboarding/domain";
 import { mountDocuments } from "../documents/routes";
 import type { DocumentService } from "../documents/service";
 import {
@@ -44,6 +47,7 @@ export type AuthRoutesDependencies = {
   organisations?: OrganisationService;
   mailer?: AuthMailer;
   documents?: DocumentService;
+  onboarding?: OnboardingService;
 };
 
 /** Pass a safe account projection to the shared React SSR pipeline, excluding session tokens. */
@@ -60,7 +64,9 @@ function accountPage(
     website: null,
     page: "account",
     locale: "en",
-    account,
+    account: res.locals.onboardingEnabled
+      ? { ...account, onboardingEnabled: true }
+      : account,
   };
   next();
 }
@@ -88,10 +94,15 @@ export function createAuthRoutes({
   emailEnabled = false,
   organisations,
   documents,
+  onboarding,
   mailer,
 }: AuthRoutesDependencies) {
   const router = express.Router();
   const origin = new URL(baseURL).origin;
+  router.use((_req, res, next) => {
+    res.locals.onboardingEnabled = Boolean(onboarding);
+    next();
+  });
   const trusted = trustedProxies(trustedProxyAddresses);
   router.use(
     [
@@ -134,6 +145,14 @@ export function createAuthRoutes({
       auth,
       store,
       service: documents,
+      origin,
+      page: accountPage,
+    });
+  if (onboarding)
+    mountOnboarding(router, {
+      auth,
+      store,
+      service: onboarding,
       origin,
       page: accountPage,
     });
@@ -315,6 +334,15 @@ export function createAuthRoutes({
       let registered = false;
       let signedCookie = "";
       try {
+        if (signup && !invitationSignup && onboarding) {
+          try {
+            signupPhone(req.body?.phone);
+          } catch {
+            throw new DatabaseConflict("invalid_password");
+          }
+          if (req.body?.password !== req.body?.confirmPassword)
+            throw new DatabaseConflict("invalid_password");
+        }
         if (
           invited &&
           (typeof req.body?.email !== "string" ||
@@ -354,7 +382,12 @@ export function createAuthRoutes({
                   email: invited?.email ?? req.body?.email,
                   password: req.body?.password,
                   ...(signup && !invitationSignup
-                    ? { name: req.body?.name }
+                    ? {
+                        name: req.body?.name,
+                        ...(onboarding
+                          ? { signupPhone: signupPhone(req.body?.phone) }
+                          : {}),
+                      }
                     : {}),
                   ...(emailEnabled
                     ? {

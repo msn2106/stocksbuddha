@@ -1,6 +1,6 @@
 # MariaDB persistence
 
-The current thirteen-table schema uses TypeORM and mysql2. Fourteen ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
+The current twenty-table schema uses TypeORM and mysql2. Fifteen ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
 
 ## Local setup
 
@@ -83,3 +83,7 @@ The current access policy is **one email, one role per RA**. Existing `auth_user
 ## Private documents
 
 Migration `CreateDocuments1794009600000` adds retained document metadata, tenant/customer foreign keys and private Drive object references (14 application migrations; 13 total tables including migration metadata). File bytes stay in Google Drive. Apply the normal explicit migration before startup; configure backend OAuth separately. See [Drive activation, document roles and recovery](../docs/GOOGLE_DRIVE.md).
+
+## Investor onboarding extension
+
+Migration `1794096000000` adds seven tenant-owned onboarding/billing/history/delivery tables and the collected signup phone field. Apply it explicitly before restarting the application. Production also requires a separate retained encryption key. See [investor onboarding](../docs/INVESTOR_ONBOARDING.md) and [production review](../docs/SEBI_RA_REVIEW.md).

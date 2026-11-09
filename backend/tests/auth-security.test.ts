@@ -380,3 +380,48 @@ test("SMTP total deadline releases the transport without retaining timers or sec
   await rejected;
   assert.equal(closed, 1);
 });
+
+test("business mail sends an order-bound confirmation code and PDF buffers without filesystem or URL attachments", async () => {
+  const sent: Record<string, unknown>[] = [];
+  const mail = authMailer(
+    {
+      SMTP_HOST: "smtp.hostinger.com",
+      SMTP_PORT: "465",
+      SMTP_USER: "support@example.test",
+      SMTP_PASSWORD: "private-password",
+      AUTH_EMAIL_FROM: "support@example.test",
+      AUTH_BASE_URL: "https://example.test",
+    },
+    () => ({
+      sendMail: async (message) => {
+        sent.push(message as Record<string, unknown>);
+        return { accepted: ["investor@example.test"], rejected: [] };
+      },
+      close: () => {},
+    }),
+  )!;
+  await mail({
+    to: "investor@example.test",
+    url: "https://example.test/agreement",
+    kind: "signing",
+    code: "123456",
+  });
+  assert.match(String(sent[0].text), /123456/);
+  assert.match(String(sent[0].subject), /agreement/);
+  const attachments = [
+    {
+      filename: "Agreement.pdf",
+      content: Buffer.from("%PDF-1.4"),
+      contentType: "application/pdf",
+    },
+  ];
+  await mail({
+    to: "investor@example.test",
+    url: "https://example.test/documents",
+    kind: "receipt",
+    attachments,
+  });
+  assert.deepEqual(sent[1].attachments, attachments);
+  assert.match(String(sent[1].subject), /documents/);
+  assert.match(String(sent[1].text), /attached/);
+});

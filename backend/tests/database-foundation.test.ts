@@ -274,6 +274,23 @@ test("runtime selection is explicit, rejects unavailable schema and closes the o
   ]) {
     await assert.rejects(createPersistence({ ...env, ...invalid }, factory));
   }
+  const productionEnv = {
+    ...env,
+    NODE_ENV: "production",
+    AUTH_BASE_URL: "https://example.test",
+    ONBOARDING_DATA_KEY: "a".repeat(64),
+    SMTP_HOST: "smtp.hostinger.com",
+    SMTP_PORT: "465",
+    SMTP_USER: "support@example.test",
+    SMTP_PASSWORD: "fixture-secret",
+    AUTH_EMAIL_FROM: "support@example.test",
+  };
+  await assert.rejects(
+    createPersistence({ ...productionEnv, ONBOARDING_DATA_KEY: "" }, factory),
+    /data key/,
+  );
+  const configuredProduction = await createPersistence(productionEnv, factory);
+  await configuredProduction.close();
   closed = 1;
   fail = true;
   await assert.rejects(runtime.ready());

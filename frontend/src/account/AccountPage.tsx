@@ -291,7 +291,27 @@ export function AccountPage({ data }: { data: PageData }) {
                 className="account-form"
                 action={`${base}/${account.mode}${suffix}`}
                 method="post"
-                onSubmit={() => setPending(true)}
+                onSubmit={(event) => {
+                  const form = event.currentTarget;
+                  const password = form.elements.namedItem(
+                    "password",
+                  ) as HTMLInputElement | null;
+                  const confirm = form.elements.namedItem(
+                    "confirmPassword",
+                  ) as HTMLInputElement | null;
+                  if (confirm && confirm.value !== password?.value) {
+                    event.preventDefault();
+                    confirm.setCustomValidity(
+                      locale === "hi"
+                        ? "पासवर्ड मेल नहीं खाते।"
+                        : "Passwords do not match.",
+                    );
+                    confirm.reportValidity();
+                    confirm.oninput = () => confirm.setCustomValidity("");
+                    return;
+                  }
+                  setPending(true);
+                }}
                 aria-describedby={account.error ? "account-error" : undefined}
                 aria-busy={pending}
               >
@@ -347,6 +367,24 @@ export function AccountPage({ data }: { data: PageData }) {
                     />
                   </div>
                 )}
+                {signup &&
+                  !account.invitedEmail &&
+                  account.onboardingEnabled && (
+                    <div className="account-field">
+                      <label htmlFor="account-phone">
+                        {locale === "hi" ? "फ़ोन नंबर" : "Phone number"}
+                      </label>
+                      <input
+                        id="account-phone"
+                        name="phone"
+                        type="tel"
+                        autoComplete="tel"
+                        required
+                        maxLength={16}
+                        pattern="[+]?[1-9][0-9 ()-]{9,18}"
+                      />
+                    </div>
+                  )}
                 {(credentials ||
                   account.mode === "forgot-password" ||
                   account.mode === "verify-email") && (
@@ -408,6 +446,26 @@ export function AccountPage({ data }: { data: PageData }) {
                     )}
                   </div>
                 )}
+                {signup &&
+                  !account.invitedEmail &&
+                  account.onboardingEnabled && (
+                    <div className="account-field">
+                      <label htmlFor="account-confirm">
+                        {locale === "hi"
+                          ? "पासवर्ड की पुष्टि करें"
+                          : "Confirm password"}
+                      </label>
+                      <input
+                        id="account-confirm"
+                        name="confirmPassword"
+                        type="password"
+                        autoComplete="new-password"
+                        required
+                        minLength={8}
+                        maxLength={128}
+                      />
+                    </div>
+                  )}
                 <button
                   className="button primary account-submit"
                   disabled={pending || account.error === "service"}
