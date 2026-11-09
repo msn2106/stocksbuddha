@@ -1,3 +1,5 @@
+import { storageLease } from "./lease";
+import { researchEligible } from "../onboarding/eligibility";
 import { createHash, randomUUID } from "node:crypto";
 import type { DataSource, EntityManager } from "typeorm";
 import {
@@ -56,6 +58,7 @@ export class DocumentService {
   constructor(
     private readonly db: DataSource,
     private readonly drive: GoogleDriveStorage | null,
+    private readonly env: NodeJS.ProcessEnv = process.env,
   ) {}
   /** Check session revocation, verification, tenant status, membership and unsupported overrides afresh. */
   private async actor(
@@ -146,6 +149,15 @@ export class DocumentService {
       throw new DocumentError("invalid_cursor", 400);
     return this.db.transaction(async (manager) => {
       const actor = await this.actor(manager, context);
+      const research =
+        actor.role !== "subscriber" ||
+        (await researchEligible(
+          manager,
+          context.tenantId!,
+          actor.membershipId!,
+          this.env,
+          new Date(),
+        ));
       if (before) {
         const [cursor]: RecordRow[] = await manager.query(
           "SELECT * FROM documents WHERE tenant_id <=> ? AND id=?",
@@ -153,6 +165,7 @@ export class DocumentService {
         );
         if (
           !cursor ||
+          (!research && cursor.kind === "recommendation") ||
           !documentAllowed(
             actor,
             {
@@ -174,7 +187,7 @@ export class DocumentService {
             : actor.role === "support"
               ? "kind IN ('general','kyc','mitc')"
               : actor.role === "subscriber"
-                ? "kind IN ('kyc','mitc','recommendation') AND customer_id=?"
+                ? `kind IN (${research ? "'kyc','mitc','recommendation'" : "'kyc','mitc'"}) AND customer_id=?`
                 : "1=0";
       const parameters = [
         context.tenantId,
@@ -187,16 +200,18 @@ export class DocumentService {
         `SELECT * FROM documents WHERE tenant_id <=> ? AND (? IS NULL OR (created_at,id) < (SELECT created_at,id FROM documents WHERE tenant_id <=> ? AND id=?)) AND (${visibility}) ORDER BY created_at DESC,id DESC LIMIT 101`,
         parameters,
       );
-      const visible = rows.filter((row) =>
-        documentAllowed(
-          actor,
-          {
-            tenantId: row.tenant_id,
-            kind: row.kind,
-            customerId: row.customer_id,
-          },
-          false,
-        ),
+      const visible = rows.filter(
+        (row) =>
+          (research || row.kind !== "recommendation") &&
+          documentAllowed(
+            actor,
+            {
+              tenantId: row.tenant_id,
+              kind: row.kind,
+              customerId: row.customer_id,
+            },
+            false,
+          ),
       );
       return {
         configured: !!this.drive,
@@ -239,188 +254,265 @@ export class DocumentService {
     } catch {
       throw new DocumentError("invalid_document", 400);
     }
-    return this.db.transaction(async (manager) => {
-      const actor = await this.actor(manager, context);
-      const personal = ["kyc", "mitc", "recommendation"].includes(kind);
-      const customerId = personal
-        ? actor.role === "subscriber"
-          ? actor.membershipId
-          : (input.customerId ?? null)
-        : null;
-      if (
-        (!context.tenantId && !["contract", "owner"].includes(kind)) ||
-        (context.tenantId && ["contract", "owner"].includes(kind)) ||
-        (personal && (!customerId || !uuidPattern.test(customerId)))
-      )
-        throw new DocumentError("invalid_document_target", 400);
-      if (
-        !documentAllowed(
-          actor,
-          { tenantId: context.tenantId, kind, customerId },
-          true,
+    return storageLease(
+      this.db,
+      context.tenantId ?? "platform",
+      async (manager) => {
+        const actor = await this.actor(manager, context);
+        const personal = ["kyc", "mitc", "recommendation"].includes(kind);
+        const customerId = personal
+          ? actor.role === "subscriber"
+            ? actor.membershipId
+            : (input.customerId ?? null)
+          : null;
+        if (
+          (!context.tenantId && !["contract", "owner"].includes(kind)) ||
+          (context.tenantId && ["contract", "owner"].includes(kind)) ||
+          (personal && (!customerId || !uuidPattern.test(customerId)))
         )
-      )
-        throw new DocumentError("forbidden", 403);
-      if (customerId) {
-        const [customer] = await manager.query(
-          "SELECT id FROM tenant_memberships WHERE tenant_id=? AND id=? AND role='subscriber' AND status='active'",
-          [context.tenantId, customerId],
-        );
-        if (!customer) throw new DocumentError("customer_not_found", 404);
-      }
-      const drive = this.storage();
-      await drive.verify();
-      let folder = drive.config.mainId;
-      if (context.tenantId) {
-        const ra = await drive.tenantFolder(
-          context.tenantId,
-          actor.tenantName!,
-        );
-        if (kind === "general") folder = await drive.folder(ra, "General");
-        else {
-          const customers = await drive.folder(ra, "Customer");
-          const customer = await drive.folder(customers, customerId!);
-          folder =
-            kind === "recommendation"
-              ? await drive.folder(customer, "ForYouByRA")
-              : customer;
+          throw new DocumentError("invalid_document_target", 400);
+        if (
+          !documentAllowed(
+            actor,
+            { tenantId: context.tenantId, kind, customerId },
+            true,
+          )
+        )
+          throw new DocumentError("forbidden", 403);
+        if (customerId) {
+          const [customer] = await manager.query(
+            "SELECT id FROM tenant_memberships WHERE tenant_id=? AND id=? AND role='subscriber' AND status='active'",
+            [context.tenantId, customerId],
+          );
+          if (!customer) throw new DocumentError("customer_not_found", 404);
         }
-      }
-      const id = randomUUID();
-      // Provider success followed by DB failure can leave an unindexed object. Retain it for reconciliation, never silently delete evidence.
-      const fileId = await drive.upload(
-        folder,
-        input.name,
-        input.mime,
-        input.bytes,
-        id,
-      );
-      await manager.query(
-        "INSERT INTO documents(id,tenant_id,customer_id,kind,original_name,mime_type,byte_size,sha256,drive_file_id,drive_folder_id,uploaded_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        [
-          id,
-          context.tenantId,
-          customerId,
-          kind,
+        this.storage();
+        return { actor, customerId };
+      },
+      async ({ actor, customerId }) => {
+        const drive = this.storage();
+        await drive.verify();
+        let folder = drive.config.mainId;
+        if (context.tenantId) {
+          const ra = await drive.tenantFolder(
+            context.tenantId,
+            actor.tenantName!,
+          );
+          if (kind === "general") folder = await drive.folder(ra, "General");
+          else {
+            const customers = await drive.folder(ra, "Customer");
+            const customer = await drive.folder(customers, customerId!);
+            folder =
+              kind === "recommendation"
+                ? await drive.folder(customer, "ForYouByRA")
+                : customer;
+          }
+        }
+        const id = randomUUID();
+        // Provider success followed by DB failure can leave an unindexed object. Retain it for reconciliation, never silently delete evidence.
+        const fileId = await drive.upload(
+          folder,
           input.name,
           input.mime,
-          input.bytes.length,
-          sha256(input.bytes),
-          fileId,
-          folder,
-          actor.id,
-        ],
-      );
-      await this.audit(manager, context, actor, id, "document.uploaded");
-      return { id };
-    });
+          input.bytes,
+          id,
+        );
+        return { id, fileId, folder };
+      },
+      async (manager, { customerId }, { id, fileId, folder }) => {
+        const actor = await this.actor(manager, context);
+        if (
+          !documentAllowed(
+            actor,
+            { tenantId: context.tenantId, kind, customerId },
+            true,
+          )
+        )
+          throw new DocumentError("forbidden", 403);
+        if (customerId) {
+          const [customer] = await manager.query(
+            "SELECT id FROM tenant_memberships WHERE tenant_id=? AND id=? AND role='subscriber' AND status='active'",
+            [context.tenantId, customerId],
+          );
+          if (!customer) throw new DocumentError("customer_not_found", 404);
+        }
+        await manager.query(
+          "INSERT INTO documents(id,tenant_id,customer_id,kind,original_name,mime_type,byte_size,sha256,drive_file_id,drive_folder_id,uploaded_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+          [
+            id,
+            context.tenantId,
+            customerId,
+            kind,
+            input.name,
+            input.mime,
+            input.bytes.length,
+            sha256(input.bytes),
+            fileId,
+            folder,
+            actor.id,
+          ],
+        );
+        await this.audit(manager, context, actor, id, "document.uploaded");
+        return { id };
+      },
+    );
   }
   /** Check exact tenant/object authorization and byte integrity before releasing a download. */
   async download(context: Context, id: string) {
     if (!uuidPattern.test(id))
       throw new DocumentError("document_not_found", 404);
-    return this.db.transaction(async (manager) => {
-      const actor = await this.actor(manager, context);
-      const [row]: RecordRow[] = await manager.query(
-        "SELECT * FROM documents WHERE tenant_id <=> ? AND id=?",
-        [context.tenantId, id],
-      );
-      if (
-        !row ||
-        !documentAllowed(
-          actor,
-          {
-            tenantId: row.tenant_id,
-            kind: row.kind,
-            customerId: row.customer_id,
-          },
-          false,
+    /** Recheck access both before storage access and before releasing bytes after network waits. */
+    const authorize = () =>
+      this.db.transaction(async (manager) => {
+        const actor = await this.actor(manager, context);
+        const [row]: RecordRow[] = await manager.query(
+          "SELECT * FROM documents WHERE tenant_id <=> ? AND id=?",
+          [context.tenantId, id],
+        );
+        if (
+          !row ||
+          !documentAllowed(
+            actor,
+            {
+              tenantId: row.tenant_id,
+              kind: row.kind,
+              customerId: row.customer_id,
+            },
+            false,
+          )
         )
-      )
-        throw new DocumentError("document_not_found", 404);
-      const drive = this.storage();
-      await drive.verify();
-      const bytes = await drive.download(
-        row.drive_file_id,
-        row.drive_folder_id,
-      );
-      if (bytes.length !== row.byte_size || sha256(bytes) !== row.sha256)
-        throw new DocumentError("document_integrity_failed", 502);
-      await this.audit(manager, context, actor, id, "document.downloaded");
-      return { bytes, name: row.original_name, mime: row.mime_type };
-    });
+          throw new DocumentError("document_not_found", 404);
+        if (
+          row.kind === "recommendation" &&
+          actor.role === "subscriber" &&
+          !(await researchEligible(
+            manager,
+            context.tenantId!,
+            actor.membershipId!,
+            this.env,
+            new Date(),
+          ))
+        )
+          throw new DocumentError("research_eligibility_required", 403);
+        return { actor, row };
+      });
+    const { row } = await authorize();
+    const drive = this.storage();
+    await drive.verify();
+    const bytes = await drive.download(row.drive_file_id, row.drive_folder_id);
+    if (bytes.length !== row.byte_size || sha256(bytes) !== row.sha256)
+      throw new DocumentError("document_integrity_failed", 502);
+    const { actor } = await authorize();
+    await this.db.transaction((manager) =>
+      this.audit(manager, context, actor, id, "document.downloaded"),
+    );
+    return { bytes, name: row.original_name, mime: row.mime_type };
   }
+
   /** Store only server-generated order evidence; the order is authoritative and no HTTP caller can select these bytes or targets. */
   async storeOrderEvidence(
     orderId: string,
     type: "agreement" | "invoice",
     bytes: Buffer,
   ): Promise<string> {
-    return this.db.transaction(async (manager) => {
-      const [scope] = await manager.query(
-        "SELECT tenant_id FROM subscription_orders WHERE id=?",
-        [orderId],
-      );
-      if (!scope) throw new DocumentError("document_not_found", 404);
-      const [tenant] = await manager.query(
-        "SELECT id,display_name FROM tenants WHERE id=? AND status='active' FOR UPDATE",
-        [scope.tenant_id],
-      );
-      const [order] = await manager.query(
-        "SELECT o.*,m.user_id FROM subscription_orders o JOIN tenant_memberships m ON m.id=o.membership_id AND m.tenant_id=o.tenant_id WHERE o.id=? FOR UPDATE",
-        [orderId],
-      );
-      if (
-        !tenant ||
-        !order ||
-        !["signed", "payment_pending", "paid"].includes(order.status) ||
-        (type === "invoice" && order.status !== "paid")
-      )
-        throw new DocumentError("forbidden", 403);
-      const existing =
-        type === "agreement" ? order.agreement_id : order.invoice_id;
-      if (existing) return existing as string;
-      const name = `${type === "agreement" ? "Signed-Agreement" : "Invoice"}-${orderId}.pdf`;
-      validateDocument(name, "application/pdf", bytes);
-      const drive = this.storage();
-      await drive.verify();
-      const ra = await drive.tenantFolder(tenant.id, tenant.display_name);
-      const customers = await drive.folder(ra, "Customer");
-      const folder = await drive.folder(customers, order.membership_id);
-      const id = randomUUID();
-      const fileId = await drive.upload(
-        folder,
-        name,
-        "application/pdf",
-        bytes,
-        id,
-      );
-      await manager.query(
-        "INSERT INTO documents(id,tenant_id,customer_id,kind,original_name,mime_type,byte_size,sha256,drive_file_id,drive_folder_id,uploaded_by) VALUES (?,?,?,'mitc',?,'application/pdf',?,?,?,?,?)",
-        [
-          id,
-          tenant.id,
-          order.membership_id,
-          name,
-          bytes.length,
-          sha256(bytes),
-          fileId,
+    const [scope] = await this.db.query(
+      "SELECT tenant_id FROM subscription_orders WHERE id=?",
+      [orderId],
+    );
+    if (!scope) throw new DocumentError("document_not_found", 404);
+    const result = await storageLease(
+      this.db,
+      scope.tenant_id,
+      async (manager) => {
+        const [tenant] = await manager.query(
+          "SELECT id,display_name FROM tenants WHERE id=? AND status='active' FOR UPDATE",
+          [scope.tenant_id],
+        );
+        const [order] = await manager.query(
+          "SELECT o.*,m.user_id FROM subscription_orders o JOIN tenant_memberships m ON m.id=o.membership_id AND m.tenant_id=o.tenant_id WHERE o.id=? FOR UPDATE",
+          [orderId],
+        );
+        if (
+          !tenant ||
+          !order ||
+          !["signed", "payment_pending", "paid"].includes(order.status) ||
+          (type === "invoice" && order.status !== "paid")
+        )
+          throw new DocumentError("forbidden", 403);
+        const existing =
+          type === "agreement" ? order.agreement_id : order.invoice_id;
+        if (existing) return { tenant, order, existing: existing as string };
+        return { tenant, order, existing: null };
+      },
+      async ({ tenant, order, existing }) => {
+        if (existing)
+          return { existing, id: existing, name: "", folder: "", fileId: "" };
+        const name = `${type === "agreement" ? "Signed-Agreement" : "Invoice"}-${orderId}.pdf`;
+        validateDocument(name, "application/pdf", bytes);
+        const drive = this.storage();
+        await drive.verify();
+        const ra = await drive.tenantFolder(tenant.id, tenant.display_name);
+        const customers = await drive.folder(ra, "Customer");
+        const folder = await drive.folder(customers, order.membership_id);
+        const id = randomUUID();
+        const fileId = await drive.upload(
           folder,
-          order.user_id,
-        ],
-      );
-      await manager.query(
-        type === "agreement"
-          ? "UPDATE subscription_orders SET agreement_id=? WHERE id=?"
-          : "UPDATE subscription_orders SET invoice_id=? WHERE id=?",
-        [id, orderId],
-      );
-      await manager.query(
-        "INSERT INTO audit_events(id,scope,tenant_id,actor_type,action,entity_type,entity_id,metadata_json) VALUES (?,'tenant',?,'system','order.evidence_stored','document',?,'{\"schemaVersion\":1}')",
-        [randomUUID(), tenant.id, id],
-      );
-      return id;
-    });
+          name,
+          "application/pdf",
+          bytes,
+          id,
+        );
+        return { existing: null, id, name, folder, fileId };
+      },
+      async (manager, { tenant, order }, uploaded) => {
+        if (uploaded.existing) return uploaded.existing;
+        const [active] = await manager.query(
+          "SELECT id FROM tenants WHERE id=? AND status='active' FOR UPDATE",
+          [tenant.id],
+        );
+        if (!active) throw new DocumentError("forbidden", 403);
+        const [current] = await manager.query(
+          "SELECT * FROM subscription_orders WHERE id=? FOR UPDATE",
+          [orderId],
+        );
+        if (
+          !current ||
+          !["signed", "payment_pending", "paid"].includes(current.status) ||
+          (type === "invoice" && current.status !== "paid")
+        )
+          throw new DocumentError("forbidden", 403);
+        const existing =
+          type === "agreement" ? current.agreement_id : current.invoice_id;
+        if (existing) return existing as string;
+        const { id, name, fileId, folder } = uploaded;
+        await manager.query(
+          "INSERT INTO documents(id,tenant_id,customer_id,kind,original_name,mime_type,byte_size,sha256,drive_file_id,drive_folder_id,uploaded_by) VALUES (?,?,?,'mitc',?,'application/pdf',?,?,?,?,?)",
+          [
+            id,
+            tenant.id,
+            order.membership_id,
+            name,
+            bytes.length,
+            sha256(bytes),
+            fileId,
+            folder,
+            order.user_id,
+          ],
+        );
+        await manager.query(
+          type === "agreement"
+            ? "UPDATE subscription_orders SET agreement_id=? WHERE id=?"
+            : "UPDATE subscription_orders SET invoice_id=? WHERE id=?",
+          [id, orderId],
+        );
+        await manager.query(
+          "INSERT INTO audit_events(id,scope,tenant_id,actor_type,action,entity_type,entity_id,metadata_json) VALUES (?,'tenant',?,'system','order.evidence_stored','document',?,'{\"schemaVersion\":1}')",
+          [randomUUID(), tenant.id, id],
+        );
+        return id;
+      },
+    );
+    return result;
   }
 
   /** Read canonical archived order bytes for delivery, checking their stored integrity before attaching them to email. */

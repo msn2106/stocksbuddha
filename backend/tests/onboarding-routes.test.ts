@@ -275,3 +275,22 @@ test("onboarding pages scope investor/admin navigation and redirect unauthentica
   state.signedIn = false;
   assert.equal((await request(`${base}/workspace/users`)).status, 303);
 });
+
+test("queue status and retry routes derive their context from the authenticated workspace", async () => {
+  const { request, state } = harness();
+  const base = `/api/workspaces/${tenants[0].slug}/onboarding`;
+  assert.equal((await request(`${base}/jobs`)).status, 200);
+  assert.equal(state.calls.at(-1)?.operation, "queueStatus");
+  assert.equal(
+    (
+      await request(
+        `${base}/retry-job`,
+        "POST",
+        Buffer.from(JSON.stringify({ orderId: "order" })),
+        { origin: "http://localhost:3000" },
+      )
+    ).status,
+    200,
+  );
+  assert.equal(state.calls.at(-1)?.operation, "retryJob");
+});

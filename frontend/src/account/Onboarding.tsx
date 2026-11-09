@@ -1,3 +1,4 @@
+import { DeliveryStatus } from "./DeliveryStatus";
 import { sampleResearchAgreement } from "@ra/contracts";
 import {
   useEffect,
@@ -291,6 +292,7 @@ export function Onboarding({
           {message}
         </p>
       )}
+      {view?.admin && <DeliveryStatus key={api} api={api} hi={hi} />}
       {!view ? (
         <p role="status">{hi ? "लोड हो रहा है…" : "Loading your workspace…"}</p>
       ) : view.admin ? (

@@ -55,12 +55,17 @@ export function mountOnboarding(
       ),
     );
   });
+  api.get("/jobs", async (_req, res) => {
+    res.json(await service.queueStatus(res.locals.onboardingContext));
+  });
   api.post("/:action", async (req, res) => {
     const context = res.locals.onboardingContext,
       body = req.body;
     if (!body || typeof body !== "object" || Array.isArray(body))
       return res.status(400).json({ error: "invalid_fields" });
     switch (req.params.action) {
+      case "retry-job":
+        return res.json(await service.retryJob(context, body));
       case "plan":
       case "coupon":
       case "settings":

@@ -54,6 +54,9 @@ function row(
 /** Model current database facts, with strict SQL-envelope assertions and an optional faulty row projection. */
 function harness(role = "owner", platform = false) {
   const state = {
+    eligible: true,
+    inTransaction: false,
+    leaseToken: "",
     session: true,
     currentSession: true,
     verified: true,
@@ -81,6 +84,21 @@ function harness(role = "owner", platform = false) {
   };
   const query = async (sql: string, parameters: unknown[] = []) => {
     state.queries.push({ sql, parameters });
+    if (sql.startsWith("INSERT IGNORE INTO document_storage_leases")) return [];
+    if (sql.startsWith("SELECT token,lease_until"))
+      return [{ token: state.leaseToken, expired: state.leaseToken ? 0 : 1 }];
+    if (sql.startsWith("UPDATE document_storage_leases")) {
+      state.leaseToken = String(parameters[0]);
+      return [];
+    }
+    if (sql.startsWith("DELETE FROM document_storage_leases")) {
+      state.leaseToken = "";
+      return [];
+    }
+    if (sql.startsWith("SELECT status FROM investor_kyc"))
+      return [{ status: state.eligible ? "verified" : "pending" }];
+    if (sql.startsWith("SELECT dev FROM subscription_orders"))
+      return [{ dev: 0 }];
     if (sql.startsWith("SELECT u.id,u.platform_role FROM auth_sessions"))
       return state.session &&
         state.verified &&
@@ -180,21 +198,43 @@ function harness(role = "owner", platform = false) {
     throw new Error(`Unexpected document access query: ${sql}`);
   };
   const db = {
-    transaction: async (run: (manager: EntityManager) => Promise<unknown>) =>
-      run({ query } as unknown as EntityManager),
+    query,
+    transaction: async (run: (manager: EntityManager) => Promise<unknown>) => {
+      state.inTransaction = true;
+      try {
+        return await run({ query } as unknown as EntityManager);
+      } finally {
+        state.inTransaction = false;
+      }
+    },
   } as unknown as DataSource;
   const drive = {
     config: { rootId: "root", mainId: "main" },
     verify: async () => {
+      assert.equal(
+        state.inTransaction,
+        false,
+        "Drive must not hold database transactions",
+      );
       state.providerCalls++;
     },
     tenantFolder: async () => "ra",
     folder: async (_parent: string, name: string) => name,
     upload: async () => {
+      assert.equal(
+        state.inTransaction,
+        false,
+        "Drive must not hold database transactions",
+      );
       state.providerCalls++;
       return randomUUID();
     },
     download: async (id: string) => {
+      assert.equal(
+        state.inTransaction,
+        false,
+        "Drive must not hold database transactions",
+      );
       state.providerCalls++;
       state.downloads.push(id);
       return bytes;
@@ -237,7 +277,7 @@ test("document policy rejects cross-RA access for every role, kind and read/writ
       }
 });
 
-test("customers can read only their own KYC, MITC and RA-provided evidence; guessed IDs cannot change ownership", async () => {
+test("eligible customers can read only their own KYC, MITC and RA-provided evidence; guessed IDs cannot change ownership", async () => {
   const { service, state, context } = harness("subscriber");
   for (const kind of ["kyc", "mitc", "recommendation"] as const) {
     const own = row(tenantA, customerA, kind),
@@ -558,5 +598,32 @@ test("service list policy covers staff roles and rejects invalid upload kinds, t
   await denied(
     member.service.list({ ...member.context, tenantId: null }),
     "forbidden",
+  );
+});
+
+test("ineligible subscribers cannot list or download research but retain historical agreements and receipts", async () => {
+  const { service, state, context } = harness("subscriber");
+  state.eligible = false;
+  const recommendation = row(tenantA, customerA, "recommendation"),
+    agreement = row(tenantA, customerA, "mitc");
+  state.rows.push(recommendation, agreement);
+  await denied(
+    service.download(context, recommendation.id),
+    "research_eligibility_required",
+  );
+  assert.equal(state.providerCalls, 0);
+  assert.deepEqual(
+    (await service.list(context)).documents.map((d) => d.id),
+    [agreement.id],
+  );
+  await denied(service.list(context, recommendation.id), "invalid_cursor");
+  assert.deepEqual(
+    (await service.download(context, agreement.id)).bytes,
+    bytes,
+  );
+  state.leakRows = true;
+  assert.deepEqual(
+    (await service.list(context)).documents.map((d) => d.id),
+    [agreement.id],
   );
 });

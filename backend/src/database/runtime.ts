@@ -1,3 +1,4 @@
+import { reportBackground } from "../background-monitoring";
 import { OnboardingService } from "../onboarding/service";
 import { merchants } from "../onboarding/cashfree";
 import { driveConfig, GoogleDriveStorage } from "../documents/drive";
@@ -118,6 +119,7 @@ export async function createPersistence(
   const documents = new DocumentService(
     db,
     storageConfig ? new GoogleDriveStorage(storageConfig) : null,
+    env,
   );
   const onboarding = new OnboardingService(db, {
     env,
@@ -129,14 +131,19 @@ export async function createPersistence(
   let ticks = 0;
   /** Serialize bounded queue work; leases permit safe recovery after process failure. */
   const work = async () => {
-    if (++ticks % 6 === 0) await onboarding.reconcilePending();
+    if (++ticks % 6 === 0) {
+      await onboarding.monitorQueues();
+      await onboarding.reconcilePending();
+    }
     for (let index = 0; index < 5; index++)
       if (!(await onboarding.deliverOne())) break;
   };
   const timer = setInterval(() => {
     if (!working)
       working = work()
-        .catch(() => {})
+        .catch(() => {
+          reportBackground("worker");
+        })
         .finally(() => {
           working = undefined;
         });

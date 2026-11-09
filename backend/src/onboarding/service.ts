@@ -1,3 +1,5 @@
+import { reportBackground } from "../background-monitoring";
+import { researchEligible } from "./eligibility";
 import { randomInt, randomUUID } from "node:crypto";
 import type { DataSource, EntityManager } from "typeorm";
 import type {
@@ -117,6 +119,7 @@ export type OnboardingOptions = {
   documents: Pick<DocumentService, "storeOrderEvidence" | "readOrderEvidence">;
   gateways?: Map<string, PaymentGateway>;
   now?: () => Date;
+  report?: typeof reportBackground;
 };
 /** Normalize MariaDB UTC values for browser transport and absolute expiry checks. */
 export function iso(value: string | Date): string {
@@ -433,26 +436,17 @@ export class OnboardingService {
       };
     });
   }
-  /** Authoritative guard for future research-delivery endpoints; sessions, KYC, paid periods and evidence must all remain valid. */
+  /** Authoritative guard shared with recommendation delivery; sessions, KYC, paid periods and evidence must all remain valid. */
   async canUseResearch(context: OnboardingContext): Promise<boolean> {
     return this.db.transaction(async (manager) => {
       const actor = await this.actor(manager, context);
       if (actor.role !== "subscriber") return false;
-      const [kyc]: KycRow[] = await manager.query(
-        "SELECT * FROM investor_kyc WHERE tenant_id=? AND membership_id=?",
-        [actor.tenantId, actor.membershipId],
-      );
-      if (!(
-        kyc?.status === "verified" ||
-        (devEnabled(this.options.env) && kyc?.status === "skipped_dev")
-      ))
-        return false;
-      const rows: OrderRow[] = await manager.query(
-        "SELECT * FROM subscription_orders WHERE tenant_id=? AND membership_id=? AND status='paid' AND starts_at<=? AND ends_at>? AND agreement_id IS NOT NULL",
-        [actor.tenantId, actor.membershipId, this.now(), this.now()],
-      );
-      return rows.some(
-        (row) => this.options.env.NODE_ENV !== "production" || !row.dev,
+      return researchEligible(
+        manager,
+        actor.tenantId,
+        actor.membershipId,
+        this.options.env,
+        this.now(),
       );
     });
   }
@@ -1392,12 +1386,99 @@ export class OnboardingService {
       );
       return true;
     } catch {
+      (this.options.report ?? reportBackground)("delivery", job);
       await this.db.query(
         "UPDATE onboarding_deliveries SET status='pending',lease_until=NULL,available_at=DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 15 MINUTE) WHERE order_id=?",
         [job],
       );
       return false;
     }
+  }
+  private lastQueueAlert = 0;
+  /** Report backlogs older than one hour at most once per fifteen minutes per worker process. */
+  async monitorQueues(): Promise<void> {
+    const now = this.now().getTime();
+    if (now - this.lastQueueAlert < 15 * 60 * 1000) return;
+    const [row] = await this.db.query(
+      "SELECT MIN(CASE WHEN d.status<>'sent' THEN o.paid_at END) AS delivery_since,MIN(CASE WHEN o.status='payment_pending' THEN o.created_at END) AS payment_since FROM subscription_orders o LEFT JOIN onboarding_deliveries d ON d.order_id=o.id",
+    );
+    for (const [field, stage] of [
+      ["delivery_since", "delivery_queue_age"],
+      ["payment_since", "payment_queue_age"],
+    ] as const)
+      if (
+        row?.[field] &&
+        now - new Date(iso(row[field])).getTime() >= 60 * 60 * 1000
+      )
+        (this.options.report ?? reportBackground)(stage);
+    this.lastQueueAlert = now;
+  }
+  /** Project bounded operational status only to the current tenant's RA administrator. */
+  async queueStatus(context: OnboardingContext) {
+    return this.db.transaction(async (manager) => {
+      const actor = await this.actor(manager, context);
+      requireValue(actor.role === "owner", "forbidden", 403);
+      const rows = await manager.query(
+        "SELECT o.id,o.status AS payment_status,o.created_at,o.last_reconciled_at,d.status AS delivery_status,d.attempts,d.available_at,d.lease_until,d.sent_at,o.paid_at FROM subscription_orders o LEFT JOIN onboarding_deliveries d ON d.order_id=o.id WHERE o.tenant_id=? AND (o.status='payment_pending' OR d.order_id IS NOT NULL) ORDER BY (o.status='payment_pending' OR d.status<>'sent') DESC,CASE WHEN o.status='payment_pending' OR d.status<>'sent' THEN o.created_at END,o.created_at DESC,o.id LIMIT 100",
+        [actor.tenantId],
+      );
+      return rows.map((row: Record<string, string | number | Date | null>) => ({
+        id: String(row.id),
+        paymentStatus: String(row.payment_status),
+        deliveryStatus: row.delivery_status
+          ? String(row.delivery_status)
+          : null,
+        attempts: Number(row.attempts ?? 0),
+        queuedAt: iso((row.paid_at ?? row.created_at) as string | Date),
+        availableAt: row.available_at
+          ? iso(row.available_at as string | Date)
+          : null,
+        leaseUntil: row.lease_until
+          ? iso(row.lease_until as string | Date)
+          : null,
+        sentAt: row.sent_at ? iso(row.sent_at as string | Date) : null,
+        lastReconciledAt: row.last_reconciled_at
+          ? iso(row.last_reconciled_at as string | Date)
+          : null,
+      }));
+    });
+  }
+  /** Requeue an unsent, unleased delivery or reconcile pending funds after fresh tenant-admin authorization. */
+  async retryJob(context: OnboardingContext, input: Record<string, unknown>) {
+    const id = uuid(input.orderId);
+    const target = await this.db.transaction(async (manager) => {
+      const actor = await this.actor(manager, context);
+      requireValue(actor.role === "owner", "forbidden", 403);
+      const [row]: OrderRow[] = await manager.query(
+        "SELECT * FROM subscription_orders WHERE id=? AND tenant_id=? FOR UPDATE",
+        [id, actor.tenantId],
+      );
+      requireValue(row, "order_not_found", 404);
+      requireValue(
+        ["paid", "payment_pending"].includes(row.status),
+        "invalid_order_status",
+        409,
+      );
+      if (row.status === "paid") {
+        const [job] = await manager.query(
+          "SELECT *,lease_until>UTC_TIMESTAMP(3) AS leased FROM onboarding_deliveries WHERE order_id=? FOR UPDATE",
+          [id],
+        );
+        requireValue(
+          job && job.status !== "sent" && !job.leased,
+          "delivery_not_retryable",
+          409,
+        );
+        await manager.query(
+          "UPDATE onboarding_deliveries SET status='pending',available_at=UTC_TIMESTAMP(3),lease_until=NULL WHERE order_id=?",
+          [id],
+        );
+      }
+      await this.audit(manager, actor, "onboarding.retry_requested", id);
+      return { slug: actor.slug, pending: row.status === "payment_pending" };
+    });
+    if (target.pending) await this.reconcile(target.slug, id);
+    return { ok: true };
   }
   /** Recheck bounded pending payments to recover missed webhook notifications. */
   async reconcilePending(): Promise<void> {
@@ -1408,7 +1489,7 @@ export class OnboardingService {
       try {
         await this.reconcile(row.slug, row.id);
       } catch {
-        /* Retain pending funds for the next reconciliation attempt. */
+        (this.options.report ?? reportBackground)("reconciliation", row.id);
       }
       await this.db.query(
         "UPDATE subscription_orders SET last_reconciled_at=UTC_TIMESTAMP(3) WHERE id=?",

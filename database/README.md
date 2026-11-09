@@ -1,6 +1,6 @@
 # MariaDB persistence
 
-The current twenty-table schema uses TypeORM and mysql2. Fifteen ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
+The current twenty-one-table schema uses TypeORM and mysql2. Sixteen ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
 
 ## Local setup
 
@@ -87,3 +87,7 @@ Migration `CreateDocuments1794009600000` adds retained document metadata, tenant
 ## Investor onboarding extension
 
 Migration `1794096000000` adds seven tenant-owned onboarding/billing/history/delivery tables and the collected signup phone field. Apply it explicitly before restarting the application. Production also requires a separate retained encryption key. See [investor onboarding](../docs/INVESTOR_ONBOARDING.md) and [production review](../docs/SEBI_RA_REVIEW.md).
+
+## External document transfer leases
+
+Apply migration `1794182400000-DocumentStorageLeases` before this application release. `document_storage_leases` stores one recoverable lease per tenant UUID or the platform key. It is operational coordination, not document authorization. Provider requests run outside database transactions; authorization and fenced publication use short transactions. A fifteen-minute lease expires after a crashed holder, and token-checked cleanup cannot remove a newer holder's lease. Deploy only after stopping older app instances that still serialize Drive calls on tenant rows. See [Drive concurrency and recovery](../docs/GOOGLE_DRIVE.md).

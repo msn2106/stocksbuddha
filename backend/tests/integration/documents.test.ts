@@ -165,9 +165,14 @@ test(
         ...input,
         kind: "recommendation",
       });
-      assert.deepEqual(
-        (await service.download(subscriber, proof.id)).bytes,
-        pdf,
+      await assert.rejects(
+        service.download(subscriber, proof.id),
+        /research_eligibility_required/,
+      );
+      assert.ok(
+        !(await service.list(subscriber)).documents.some(
+          (d) => d.id === proof.id,
+        ),
       );
       await assert.rejects(
         service.upload(subscriber, { ...input, kind: "recommendation" }),
@@ -239,8 +244,46 @@ test(
         "UPDATE documents SET drive_folder_id='legacy-evidence-folder' WHERE id=?",
         [proof.id],
       );
-      await service.download(subscriber, proof.id);
+      await service.download(owner, proof.id);
       assert.equal(downloadParents.at(-1), "legacy-evidence-folder");
+      // Pause a provider response: tenant-row writes and other scopes must still progress.
+      const originalUpload = fakeDrive.upload;
+      let resume!: () => void;
+      let entered!: () => void;
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const held = new Promise<void>((resolve) => {
+        resume = resolve;
+      });
+      fakeDrive.upload = async (...args) => {
+        entered();
+        await held;
+        return originalUpload(...args);
+      };
+      const slow = service.upload(owner, { ...input, kind: "general" });
+      await started;
+      try {
+        await assert.rejects(
+          service.upload(owner, { ...input, kind: "general" }),
+          /document_storage_busy/,
+        );
+        await db.transaction(async (manager) => {
+          await manager.query("SET innodb_lock_wait_timeout=1");
+          await manager.query("SELECT id FROM tenants WHERE id=? FOR UPDATE", [
+            tenantId,
+          ]);
+        });
+        assert.equal((await service.list(owner)).configured, true);
+      } finally {
+        resume();
+        fakeDrive.upload = originalUpload;
+      }
+      await slow;
+      assert.equal(
+        (await db.query("SELECT * FROM document_storage_leases")).length,
+        0,
+      );
       const otherFile = await service.upload(other, { ...input, kind: "mitc" });
       assert.equal(
         uploadParents.at(-1),
@@ -281,7 +324,11 @@ test(
           /invalid_cursor/,
         );
       }
-      const ownPage = await service.list(subscriber, proof.id);
+      await assert.rejects(
+        service.list(subscriber, proof.id),
+        /invalid_cursor/,
+      );
+      const ownPage = await service.list(subscriber, uploaded.id);
       assert.ok(
         ownPage.documents.every(
           (document) =>
@@ -384,7 +431,7 @@ test(
         assert.equal(
           ((await metadata.json()) as { documents: unknown[] }).documents
             .length,
-          3,
+          2,
         );
         assert.equal(
           (

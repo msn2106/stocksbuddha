@@ -54,7 +54,7 @@ The signature mechanism records typed name, explicit consent, email-code proof, 
 
 ## Storage and data protection
 
-Migration `1794096000000-InvestorOnboarding` adds seven business tables and `auth_users.signup_phone`. There are now fifteen application migrations and twenty total tables including migration metadata:
+Migration `1794096000000-InvestorOnboarding` adds seven business tables and `auth_users.signup_phone`. Migration `1794182400000-DocumentStorageLeases` adds `document_storage_leases` for external transfer coordination. There are now sixteen application migrations and twenty-one total tables including migration metadata:
 
 | Table                   | Responsibility                                                                           |
 | ----------------------- | ---------------------------------------------------------------------------------------- |
@@ -106,7 +106,7 @@ Every ten seconds the runtime leases up to five delivery jobs; every sixth tick 
 - An expired quote cannot initiate payment. A gateway-pending order is cancelled locally only after the gateway confirms terminal unpaid state. Provider failures retain the reservation for reconciliation.
 - Payment success and the delivery queue commit together. Invoice/SMTP failure leaves payment successful and retries delivery after fifteen minutes, with a five-minute worker lease for crash recovery.
 - Email is at-least-once: SMTP acceptance followed by a lost DB acknowledgment can produce a repeated email. Attachments remain identical. Monitor retrying deliveries and unresolved payment records before launch.
-- Drive upload and MariaDB commit are not atomic; existing orphan-object reconciliation rules still apply. Evidence writes serialize on the tenant and reuse an existing order evidence reference on retries.
+- Drive upload and MariaDB commit are not atomic; existing orphan-object reconciliation rules still apply. Evidence writes serialize with the tenant storage lease, recheck the tenant/order before committing, and reuse an existing order evidence reference on retries.
 - Refund/cancellation requests after payment require an operational RA process. This slice has no Cashfree refund API, credit-note ledger or self-service paid cancellation; do not launch without completing that workflow.
 
 The generated invoice is a commercial invoice/payment receipt, not a verified GST tax-invoice implementation. Tax registration, place of supply, tax component split, legally required numbering/fields and credit notes need review and implementation before taxable production billing. Do not relabel the receipt as a compliant tax invoice.
@@ -129,3 +129,11 @@ npm run test:e2e:organisations
 ```
 
 `onboarding-domain`, `onboarding-service` and `onboarding-routes` tests cover validation, encrypted evidence, controlled in-memory workflow adapters, authoritative roles, HTTP bodies/origins, pricing, consent, signing-code limits, canonical PDFs, payment replay, late callbacks, terminal-state recovery and mail retries. The in-memory SQL test adapter is not MariaDB proof. `tests/organisation/onboarding-flow.ts` runs real migrations, MariaDB, real authentication, browser forms and an in-memory Drive/payment/mail boundary, including corrections, KFIN approval, discount-before-signature, payment-before-consent denial, invoice delivery, tenant/customer isolation, mobile screenshots and axe. The separate disposable MariaDB suites retain constraint and authentication regression coverage. No live money, external email, KFIN request or Drive customer upload is used in automated tests.
+
+## Recommendation eligibility and administrator recovery
+
+Subscriber recommendation metadata and downloads share the same eligibility query as `canUseResearch`: current verified KYC (or explicitly permitted development KYC), an active paid date range, an archived agreement reference and no development order in production. Staff document permissions remain role-scoped. Historical KYC and `mitc` agreements/receipts remain accessible to the owning active member after subscription expiry. Downloads reauthorize after external I/O; expired eligibility or revoked authorization prevents releasing bytes.
+
+RA Admin onboarding pages show up to 100 payment/delivery jobs, with payment status, delivery status, attempts, queue date and next attempt. `GET /api/workspaces/:slug/onboarding/jobs` returns status only after fresh tenant-admin authorization. `POST /api/workspaces/:slug/onboarding/retry-job` takes `{"orderId":"<uuid>"}` and the same Origin/session protection as other writes. A paid, unsent delivery without a live lease is requeued for the worker; a pending payment is reconciled with the provider. Sent jobs cannot be resent through this action. Retry requests are audited. A retry does not mean the provider recovered or that email reached an inbox.
+
+Background delivery, reconciliation, worker and post-upload metadata failures emit sanitized fixed Sentry classifications. Queue-age warnings begin after one hour (delivery age from payment, pending payment age from order creation), checked every sixth worker tick and throttled to once per fifteen minutes per process. Configure Sentry routing and an independent process/worker monitor before deployment; an offline worker cannot report its own queue. See [Sentry operations](SENTRY.md) and the [ordered rollout plan](ROLLOUT_PLAN.md).

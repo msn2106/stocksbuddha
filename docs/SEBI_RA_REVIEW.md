@@ -1,6 +1,6 @@
 # SEBI Research Analyst implementation review
 
-Review date: **8 November 2026**. Scope: the local investor KYC → plan/discount → terms/MITC consent → Cashfree → documents implementation. This is an engineering review against cited requirements, not legal certification. Production activation remains disabled by default.
+Review date: **9 November 2026**. Scope: the local investor KYC → plan/discount → terms/MITC consent → Cashfree → documents implementation. This is an engineering review against cited requirements, not legal certification. Production activation remains disabled by default.
 
 ## Sources and timing
 
@@ -11,17 +11,17 @@ Review date: **8 November 2026**. Scope: the local investor KYC → plan/discoun
 
 ## Controls implemented
 
-| Requirement / risk                              | Implementation evidence                                                                                                                                  |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Consent before research fees                    | Payment endpoint requires signed consent and archived agreement; browser/direct-request regression tests reject pre-signature payment                    |
-| Accurate discounted price                       | Integer-paise quote freezes offering, base fee, discount, tax, total and duration before consent; gateway amount/currency must match                     |
-| Manual KYC has an attributable decision         | RA Admin-only current-version review; separate KFIN evidence, provider result/reference, time and encrypted review history                               |
-| Tenant/client confidentiality                   | Current verified sessions and memberships, role checks, tenant-scoped queries, encrypted identity snapshots, masked roster PAN and download denial tests |
-| Consent evidence survives later edits           | Exact rendered text/hash, typed name, email-code proof, identity, timestamp and immutable private PDF; emailed attachment equals archived bytes          |
-| Development shortcuts cannot collect live funds | Explicit dev-only configuration, server rejection in production, development provenance/watermarks and live-gateway rejection                            |
-| Fee/advance controls                            | 1–365-day plans, configurable conservative family fee ceiling, family declaration and serialized reservation checks                                      |
-| Payment evidence and recovery                   | Merchant-specific HMAC, authenticated reconciliation, amount checks, idempotent activation, durable document/email queue                                 |
-| Active research eligibility                     | Reusable `canUseResearch` checks current KYC, active paid period, archived agreement and development provenance; future research endpoints must call it  |
+| Requirement / risk                              | Implementation evidence                                                                                                                                     |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Consent before research fees                    | Payment endpoint requires signed consent and archived agreement; browser/direct-request regression tests reject pre-signature payment                       |
+| Accurate discounted price                       | Integer-paise quote freezes offering, base fee, discount, tax, total and duration before consent; gateway amount/currency must match                        |
+| Manual KYC has an attributable decision         | RA Admin-only current-version review; separate KFIN evidence, provider result/reference, time and encrypted review history                                  |
+| Tenant/client confidentiality                   | Current verified sessions and memberships, role checks, tenant-scoped queries, encrypted identity snapshots, masked roster PAN and download denial tests    |
+| Consent evidence survives later edits           | Exact rendered text/hash, typed name, email-code proof, identity, timestamp and immutable private PDF; emailed attachment equals archived bytes             |
+| Development shortcuts cannot collect live funds | Explicit dev-only configuration, server rejection in production, development provenance/watermarks and live-gateway rejection                               |
+| Fee/advance controls                            | 1–365-day plans, configurable conservative family fee ceiling, family declaration and serialized reservation checks                                         |
+| Payment evidence and recovery                   | Merchant-specific HMAC, authenticated reconciliation, amount checks, idempotent activation, durable document/email queue                                    |
+| Active research eligibility                     | Shared eligibility query enforces current KYC, active paid period, archived agreement and provenance on recommendation lists/downloads and `canUseResearch` |
 
 ## Findings that block production activation
 
@@ -40,7 +40,7 @@ Review date: **8 November 2026**. Scope: the local investor KYC → plan/discoun
 - Phone is collected and validated syntactically, not independently OTP-verified. Any procedure requiring verified mobile needs an additional service.
 - PAN/DOB/name/family corrections after a paid record require a separate controlled process. The current API blocks these material changes rather than rewriting signed history or bypassing fee aggregation.
 - Default PDF fonts are not suitable for arbitrary multilingual legal text. English/Latin template review and PDF visual QA are required; add embedded fonts before Hindi legal PDFs.
-- Financial and KYC server endpoints enforce their own state transitions. Subscriber membership alone must not unlock future research endpoints; integrate the entitlement guard when those endpoints are built.
+- Financial and KYC server endpoints enforce their own state transitions. Recommendation lists/downloads now enforce the shared eligibility guard. Apply the same guard to any additional research-delivery endpoint. Historical agreements/receipts remain available to active members without an active subscription.
 - Existing Support document access is unchanged and distinct from RA Admin approval. Review least-privilege role policy, administrator MFA and operational account access before launch.
 - Email delivery is at-least-once and should be monitored; do not equate an SMTP request with guaranteed inbox receipt. Repeated emails can occur after a lost acknowledgment.
 - Uploads are not malware-scanned. Files download as attachments. Add quarantine/scanning before introducing document parsing or inline previews.
@@ -49,3 +49,18 @@ Review date: **8 November 2026**. Scope: the local investor KYC → plan/discoun
 ## Activation decision
 
 Keep `ONBOARDING_PRODUCTION_APPROVED=false` while the blocking findings remain unresolved. Development/sandbox use can proceed with synthetic evidence. Resolving these findings is a prerequisite to a live RA rollout; passing software tests alone is insufficient.
+
+## Four-finding remediation, 9 November 2026
+
+1. Recommendation delivery now enforces eligibility, including a second check after Drive I/O before returning bytes. Staff access and historical agreement/receipt access retain their existing role and tenant boundaries.
+2. Background failures now emit fixed sanitized Sentry events; one-hour queue-age warnings and tenant-admin status/retry APIs/UI provide recovery evidence. Production alert routing, worker liveness and provider ingestion still require deployment verification.
+3. Uploads and generated evidence now use durable fifteen-minute storage leases and short prepare/publish transactions; Drive requests hold no database locks/connections. Metadata publication rechecks authorization and the lease token. Crashes, expired leases and provider/DB partial success still require the documented orphan-reconciliation procedure; this is not an atomic Drive/database transaction.
+4. Exact `glob@14.0.3` and `minimatch@11.0.3` overrides clear the 16 moderate findings without changing the seven-day policy. Audit results are time-specific and must be rerun before release.
+
+These fixes do not resolve the production blockers above. Follow [the ordered rollout plan](ROLLOUT_PLAN.md) for the wider work.
+
+## Verification evidence for this remediation
+
+On 9 November 2026: 242 unit tests passed; the precommit gate passed lint, formatting, types, JSDoc and strictly greater than 90% coverage in every changed executable file. `npm run verify` passed the full security/format/lint/whole-repository coverage/integration/build/public-browser pipeline. The full audit reported zero vulnerabilities with the release-age policy unchanged. Separately, all 19 disposable MariaDB assertions/subtests and all 13 organisation/onboarding Playwright tests passed, including admin queue visibility, subscriber queue denial, mobile reflow and accessibility. The public browser suite passed 19 tests. MariaDB tests use in-memory Drive bytes; onboarding browser tests simulate payment, Drive and mail providers.
+
+A synthetic failed-delivery event was confirmed in the real development Sentry project: [verification issue](https://stocks-buddha.sentry.io/issues/STOCKSBUDDHA-BACKEND-7). This proves that sanitized background reporting reaches that project; it does not prove notification routing, real Drive round trips, email delivery or payment settlement. Production activation remains disabled.

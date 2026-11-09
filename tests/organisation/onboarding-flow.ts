@@ -345,6 +345,34 @@ test("RA creates plan and discount; investor completes KYC, admin approves; sign
     expect(Buffer.from(receipt.attachments[0].content.data)).toEqual(
       originalBytes,
     );
+    await admin.goto("/ra/stocksbuddha/workspace/users");
+    const jobs = admin.getByRole("region", {
+      name: "Payments and document delivery",
+    });
+    await expect(jobs.getByText(/paid \/ sent/)).toBeVisible();
+    await expect(
+      jobs.getByRole("button", { name: "Retry", exact: true }),
+    ).toHaveCount(0);
+    expect(
+      (
+        await investorContext.request.get(
+          "/api/workspaces/stocksbuddha/onboarding/jobs",
+        )
+      ).status(),
+    ).toBe(403);
+    await admin.setViewportSize({ width: 390, height: 844 });
+    await admin.screenshot({
+      path: "/tmp/stocksbuddha-delivery-status-mobile.png",
+      fullPage: true,
+    });
+    expect(
+      await admin.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBeTruthy();
+    expect(
+      (await new AxeBuilder({ page: admin }).analyze()).violations,
+    ).toEqual([]);
     await investor.setViewportSize({ width: 390, height: 844 });
     await investor.screenshot({
       path: "/tmp/stocksbuddha-onboarding-investor-mobile.png",

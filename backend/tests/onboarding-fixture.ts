@@ -33,6 +33,8 @@ export function onboardingFixture() {
       "id TEXT PRIMARY KEY,tenant_id TEXT,membership_id TEXT,plan_id TEXT,coupon_id TEXT,request_key TEXT,snapshot_cipher TEXT,signature_cipher TEXT,agreement_hash TEXT,family_hash TEXT,subtotal INTEGER,discount INTEGER,tax INTEGER,total INTEGER,days INTEGER,status TEXT DEFAULT 'quoted',dev INTEGER,expires_at TEXT,signed_at TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,paid_at TEXT,last_reconciled_at TEXT,starts_at TEXT,ends_at TEXT,payment_id TEXT,payment_session TEXT,agreement_id TEXT,invoice_id TEXT,otp_hash TEXT,otp_attempts INTEGER DEFAULT 0,otp_sent_at TEXT,otp_expires_at TEXT",
     onboarding_deliveries:
       "order_id TEXT PRIMARY KEY,status TEXT DEFAULT 'pending',attempts INTEGER DEFAULT 0,available_at TEXT DEFAULT CURRENT_TIMESTAMP,lease_until TEXT,sent_at TEXT",
+    document_storage_leases:
+      "scope_id TEXT PRIMARY KEY,token TEXT,lease_until TEXT",
     documents:
       "id TEXT PRIMARY KEY,tenant_id TEXT,customer_id TEXT,kind TEXT,original_name TEXT,mime_type TEXT,byte_size INTEGER,sha256 TEXT,drive_file_id TEXT,drive_folder_id TEXT,uploaded_by TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP",
     audit_events:
@@ -49,6 +51,7 @@ export function onboardingFixture() {
         /DATE_ADD\(UTC_TIMESTAMP\(3\),INTERVAL (\d+) MINUTE\)/g,
         "datetime('now','+$1 minutes')",
       )
+      .replaceAll(" <=> ", " IS ")
       .replaceAll("UTC_TIMESTAMP(3)", "strftime('%Y-%m-%d %H:%M:%f','now')");
     sql = sql
       .replace(" ON DUPLICATE KEY UPDATE ", " ON CONFLICT DO UPDATE SET ")
@@ -162,8 +165,7 @@ export function onboardingFixture() {
     },
     download: async (id: string) => files.get(id)!,
   } as unknown as GoogleDriveStorage;
-  const documents = new DocumentService(db, drive),
-    messages: ApplicationEmail[] = [],
+  const messages: ApplicationEmail[] = [],
     paid = new Set<string>();
   let mailFail = false,
     terminal = false;
@@ -181,6 +183,7 @@ export function onboardingFixture() {
     DB_ENV: "dev",
     ONBOARDING_DEV_SKIP: "true",
   };
+  const documents = new DocumentService(db, drive, env);
   const options = {
     env,
     documents,
@@ -273,6 +276,7 @@ export function onboardingFixture() {
     evidence,
     setup,
     files,
+    drive,
     setMailFail: (value: boolean) => {
       mailFail = value;
     },

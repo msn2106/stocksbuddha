@@ -748,3 +748,188 @@ test("research entitlement needs current KYC, active paid dates, evidence and a 
     f.close();
   }
 });
+
+test("recommendations enforce live KYC and payment dates while archived evidence stays readable", async () => {
+  const f = onboardingFixture();
+  try {
+    const { planId } = await f.setup();
+    const recommendation = await f.documents.upload(f.admin, {
+      kind: "recommendation",
+      customerId: f.memberId,
+      name: "research.pdf",
+      mime: "application/pdf",
+      bytes: Buffer.from("%PDF-1.4 research"),
+    });
+    await assert.rejects(
+      f.documents.download(f.investor, recommendation.id),
+      /research_eligibility_required/,
+    );
+    const id = await signed(f, planId);
+    await f.service.payment(f.investor, id);
+    f.paid.add(id);
+    await f.service.confirm(f.investor, id);
+    assert.ok(
+      (await f.documents.download(f.investor, recommendation.id)).bytes.length,
+    );
+    await f.query("UPDATE investor_kyc SET status='pending'");
+    await assert.rejects(
+      f.documents.download(f.investor, recommendation.id),
+      /research_eligibility_required/,
+    );
+    await f.query("UPDATE investor_kyc SET status='verified'");
+    await f.query("UPDATE subscription_orders SET starts_at='2099-01-01'");
+    await assert.rejects(
+      f.documents.download(f.investor, recommendation.id),
+      /research_eligibility_required/,
+    );
+    await f.query(
+      "UPDATE subscription_orders SET starts_at='2000-01-01',ends_at='2001-01-01'",
+    );
+    await assert.rejects(
+      f.documents.download(f.investor, recommendation.id),
+      /research_eligibility_required/,
+    );
+    const order = (await f.service.read(f.investor)).orders[0];
+    assert.ok(
+      (await f.documents.download(f.investor, order.agreementId!)).bytes.length,
+    );
+    await f.query(
+      "UPDATE subscription_orders SET ends_at='2099-01-01',agreement_id=NULL",
+    );
+    await assert.rejects(
+      f.documents.download(f.investor, recommendation.id),
+      /research_eligibility_required/,
+    );
+    await assert.rejects(
+      f.documents.download(f.other, recommendation.id),
+      /document_not_found/,
+    );
+  } finally {
+    f.close();
+  }
+});
+
+test("queue failures are classified, aged backlogs alert and tenant-admin retries preserve leases and sent evidence", async () => {
+  const f = onboardingFixture();
+  const reports: unknown[][] = [];
+  const service = new OnboardingService(f.db, {
+    ...f.options,
+    report: (...args) => reports.push(args),
+  });
+  try {
+    assert.deepEqual(await service.queueStatus(f.admin), []);
+    await assert.rejects(service.queueStatus(f.investor), /forbidden/);
+    await service.monitorQueues(); // empty queues do not alert
+    const { planId } = await f.setup(),
+      id = await signed(f, planId);
+    await f.service.payment(f.investor, id);
+    f.gateway.paid = async () => {
+      throw new Error("secret provider body");
+    };
+    await service.reconcilePending();
+    assert.deepEqual([...reports], [["reconciliation", id]]);
+    await f.query("UPDATE subscription_orders SET created_at='2000-01-01'");
+    const monitor = new OnboardingService(f.db, {
+      ...f.options,
+      report: (...args) => reports.push(args),
+    });
+    await monitor.monitorQueues();
+    await monitor.monitorQueues();
+    assert.deepEqual(reports.at(-1), ["payment_queue_age"]);
+    assert.equal(reports.length, 2);
+    await assert.rejects(
+      service.retryJob(f.investor, { orderId: id }),
+      /forbidden/,
+    );
+    await assert.rejects(
+      service.retryJob(
+        { token: "foreign-token", tenantId: f.otherTenantId },
+        { orderId: id },
+      ),
+      /order_not_found/,
+    );
+    await assert.rejects(
+      service.retryJob(f.admin, { orderId: "invalid" }),
+      /invalid_id/,
+    );
+    f.gateway.paid = async () => `payment-${id}`;
+    assert.ok((await service.retryJob(f.admin, { orderId: id })).ok);
+    const status = await service.queueStatus(f.admin);
+    assert.equal(status[0].deliveryStatus, "pending");
+    assert.equal(status[0].lastReconciledAt !== null, true);
+    f.setMailFail(true);
+    assert.equal(await service.deliverOne(), false);
+    assert.deepEqual(reports.at(-1), ["delivery", id]);
+    await f.query("UPDATE subscription_orders SET paid_at='2000-01-01'");
+    await new OnboardingService(f.db, {
+      ...f.options,
+      report: (...args) => reports.push(args),
+    }).monitorQueues();
+    assert.deepEqual(reports.at(-1), ["delivery_queue_age"]);
+    assert.ok((await service.retryJob(f.admin, { orderId: id })).ok);
+    await f.query(
+      "UPDATE onboarding_deliveries SET status='sending',lease_until='2099-01-01'",
+    );
+    await assert.rejects(
+      service.retryJob(f.admin, { orderId: id }),
+      /delivery_not_retryable/,
+    );
+    await f.query("UPDATE onboarding_deliveries SET lease_until='2000-01-01'");
+    assert.ok((await service.retryJob(f.admin, { orderId: id })).ok);
+    f.setMailFail(false);
+    assert.equal(await service.deliverOne(), true);
+    assert.equal((await service.queueStatus(f.admin))[0].sentAt !== null, true);
+    await assert.rejects(
+      service.retryJob(f.admin, { orderId: id }),
+      /delivery_not_retryable/,
+    );
+    await f.query("UPDATE subscription_orders SET status='cancelled'");
+    await assert.rejects(
+      service.retryJob(f.admin, { orderId: id }),
+      /invalid_order_status/,
+    );
+    assert.equal(JSON.stringify(reports).includes("secret"), false);
+  } finally {
+    f.close();
+  }
+});
+
+test("document authorization is rechecked after slow provider uploads and downloads", async () => {
+  const f = onboardingFixture();
+  try {
+    const document = await f.evidence();
+    const download = f.drive.download;
+    f.drive.download = async (...args) => {
+      const bytes = await download(...args);
+      await f.query(
+        "UPDATE tenant_memberships SET status='revoked' WHERE id=?",
+        [f.memberId],
+      );
+      return bytes;
+    };
+    await assert.rejects(
+      f.documents.download(f.investor, document.id),
+      /forbidden/,
+    );
+    await f.query("UPDATE tenant_memberships SET status='active' WHERE id=?", [
+      f.memberId,
+    ]);
+    const upload = f.drive.upload;
+    f.drive.upload = async (...args) => {
+      const id = await upload(...args);
+      await f.query(
+        "UPDATE tenant_memberships SET status='revoked' WHERE id=?",
+        [f.memberId],
+      );
+      return id;
+    };
+    await assert.rejects(f.evidence(), /forbidden/);
+    assert.equal((await f.query("SELECT * FROM documents")).length, 1);
+    assert.equal(
+      (await f.query("SELECT * FROM document_storage_leases")).length,
+      0,
+    );
+  } finally {
+    f.close();
+  }
+});

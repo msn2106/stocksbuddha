@@ -5,7 +5,7 @@
 ## Implemented
 
 - Local Docker Compose for MariaDB and the DbGate Community browser client; the application continues directly in Node. DbGate is bound to loopback, preconfigured only for the local dev database and excluded from hosted deployment.
-- Twenty constrained InnoDB tables, fifteen TypeORM application migrations and verified metadata bootstrap.
+- Twenty-one constrained InnoDB tables, sixteen TypeORM application migrations and verified metadata bootstrap.
 - Separate `stocksbuddha_dev` / `stocksbuddha_prod` targets, including optional Hostinger account prefix. No persistent third environment. SQL timestamp defaults explicitly use UTC expressions; the driver timezone setting controls value conversion and is not assumed to set server timezone.
 - Source-checksum manifest, applied ledger, attempt outcomes, one release lock, drift rejection and refusal to retry failed/unfinished migrations automatically.
 - Repeatable dev preview seeds preserving UUIDs, localized websites, owner edits and explicit unpublication.
@@ -78,4 +78,8 @@ The schema now includes migration `CreateDocuments1794009600000`, adding the `do
 
 ## Investor onboarding extension — 8 November 2026
 
-Migration `1794096000000-InvestorOnboarding` adds `ra_agreement_settings`, `subscription_plans`, `discount_codes`, `investor_kyc`, `kyc_history`, `subscription_orders`, `onboarding_deliveries` and `auth_users.signup_phone`. Current totals are fifteen application migrations and twenty tables including metadata. Identity/agreement snapshots are encrypted; per-tenant row locks serialize reservations and transitions. Payment activation and durable delivery jobs commit together. Apply this migration explicitly before startup. See [schema, operating rules and encryption-key recovery](INVESTOR_ONBOARDING.md).
+Migration `1794096000000-InvestorOnboarding` adds `ra_agreement_settings`, `subscription_plans`, `discount_codes`, `investor_kyc`, `kyc_history`, `subscription_orders`, `onboarding_deliveries` and `auth_users.signup_phone`. Current totals are sixteen application migrations and twenty-one tables including metadata. Identity/agreement snapshots are encrypted; per-tenant row locks serialize reservations and transitions. Payment activation and durable delivery jobs commit together. Apply this migration explicitly before startup. See [schema, operating rules and encryption-key recovery](INVESTOR_ONBOARDING.md).
+
+## Document transfer concurrency extension
+
+Migration `1794182400000-DocumentStorageLeases` adds a twenty-first table and is the sixteenth application migration. Its scope key, token and UTC expiry coordinate Drive uploads without holding tenant/authentication row locks across network requests. Rollout requires stopping older binaries before enabling new writers. Apply the additive migration explicitly, verify status, then start the new release. See [Drive operations](GOOGLE_DRIVE.md) for busy/expiry/orphan handling and [the rollout sequence](ROLLOUT_PLAN.md).
