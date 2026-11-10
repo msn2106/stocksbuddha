@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import type { PageData } from "@ra/contracts";
 import { Brand } from "../websites/PublicWebsite";
+import { BrandLogo } from "../components/BrandLogo";
 import { useLanguage } from "../i18n";
 import type { UiMessageKey } from "../locales/messages";
 
@@ -78,10 +79,7 @@ export function WorkspaceShell({ data }: { data: PageData }) {
             />
           ) : (
             <a className="brand" href="/workspace">
-              <span className="monogram" aria-hidden="true">
-                sb
-                <span />
-              </span>
+              <BrandLogo stocksBuddha />
               <span>
                 Stocks Buddha<small>{t("org.platformWorkspace")}</small>
               </span>

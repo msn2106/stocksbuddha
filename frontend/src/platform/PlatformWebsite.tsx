@@ -3,6 +3,7 @@ import type { PageData } from "@ra/contracts";
 import { AccessibilityControls } from "../components/AccessibilityControls";
 import { useLanguage } from "../i18n";
 import { platformContent } from "./content";
+import { BrandLogo } from "../components/BrandLogo";
 
 /** Render the tenant-independent platform website, with explicit audience-specific entry points. */
 export function PlatformWebsite({ data }: { data: PageData }) {
@@ -17,9 +18,7 @@ export function PlatformWebsite({ data }: { data: PageData }) {
       <AccessibilityControls />
       <header className="platform-header platform-container">
         <a className="platform-brand" href={`/${suffix}`}>
-          <span aria-hidden="true" className="platform-mark">
-            sb
-          </span>
+          <BrandLogo stocksBuddha />
           StocksBuddha
         </a>
         <nav
@@ -187,6 +186,7 @@ export function PlatformWebsite({ data }: { data: PageData }) {
       </main>
       <footer className="platform-footer platform-container">
         <a className="platform-brand" href={`/${suffix}`}>
+          <BrandLogo stocksBuddha />
           StocksBuddha
         </a>
         <p>{copy.footer}</p>

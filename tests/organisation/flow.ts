@@ -219,12 +219,33 @@ test("owner creates an organisation and admin invitation; admin accepts and invi
   await admin
     .getByLabel("Website name", { exact: true })
     .fill("New RA Published");
+  await admin
+    .getByLabel("Logo for light backgrounds", { exact: true })
+    .setInputFiles("docs/StocksBuddhaLogo1.png");
+  await expect(
+    admin.getByRole("status", { name: "Processing logo…" }),
+  ).toHaveCount(0);
+  await expect(
+    admin.locator(".logo-preview-light img").first(),
+  ).toHaveAttribute("src", /^data:image\/png;base64,/);
+  await admin
+    .getByLabel("Logo for dark backgrounds (optional)", { exact: true })
+    .setInputFiles("docs/StocksBuddhaLogo2.png");
+  await expect(
+    admin.locator(".logo-preview-dark img.brand-artwork-dark"),
+  ).toHaveAttribute("src", /^data:image\/png;base64,/);
+  await admin.screenshot({
+    path: "/tmp/stocksbuddha-logo-editor-desktop.png",
+    fullPage: true,
+  });
   await admin.getByRole("button", { name: "Save draft", exact: true }).click();
   await expect(admin.getByRole("status")).toContainText("Draft saved");
   const draftResponse = await admin.request.get(
     "/api/workspaces/new-ra/website",
   );
   const draft = await draftResponse.json();
+  expect(draft.snapshot.branding.logoLight).toMatch(/^data:image\/png;base64,/);
+  expect(draft.snapshot.branding.logoDark).toMatch(/^data:image\/png;base64,/);
   expect(draft.id).toBeTruthy();
   expect((await request.get("/ra/new-ra")).status()).toBe(404);
   const completed = await admin.request.post("/api/workspaces/new-ra/website", {

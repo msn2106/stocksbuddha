@@ -1,6 +1,11 @@
+import { SignatureInput } from "./SignatureInput";
+import type { SignatureMark } from "@ra/contracts";
 import { PaymentChooser, QrReviewQueue } from "./Payments";
 import { MobileVerification } from "./MobileVerification";
 import { DeliveryStatus } from "./DeliveryStatus";
+import { AgreementSamples } from "./AgreementSamples";
+import { LetterheadSettings } from "./LetterheadSettings";
+import { AgreementPdfPreview } from "./AgreementPdfPreview";
 import { sampleResearchAgreement } from "@ra/contracts";
 import {
   useEffect,
@@ -123,6 +128,14 @@ const errors: Record<string, [string, string]> = {
   code_attempts_exhausted: [
     "Too many attempts. Cancel this checkout and start again.",
     "बहुत अधिक प्रयास। यह चेकआउट रद्द करके फिर शुरू करें।",
+  ],
+  invalid_signature: [
+    "Choose a clear, nonempty signature image or draw your signature again.",
+    "स्पष्ट हस्ताक्षर चुनें या फिर से बनाएं।",
+  ],
+  signature_checkout_required: [
+    "Start a fresh checkout to add a visible signature.",
+    "दिखने वाले हस्ताक्षर के लिए नया चेकआउट शुरू करें।",
   ],
   signing_unavailable: [
     "Agreement signing is awaiting activation. Contact your RA.",
@@ -854,6 +867,8 @@ function Settings({
       <h2 id="agreement-title">
         {hi ? "अनुबंध और बिलिंग विवरण" : "Agreement and billing details"}
       </h2>
+      <AgreementSamples />
+      <LetterheadSettings />
       <p>
         {hi
           ? "अनुमोदित सेवा शर्तें और MITC दर्ज करें। यह कानूनी समीक्षा का विकल्प नहीं है।"
@@ -1578,6 +1593,16 @@ function Checkout({
   base: string;
 }) {
   const expired = Date.parse(order.expiresAt) <= Date.now();
+  const [previewOpen, setPreviewOpen] = useState(order.status === "quoted");
+  const [mark, setMark] = useState<SignatureMark | null>({
+    mode: "typed",
+    font: "allura",
+  });
+  const [signatureName, setSignatureName] = useState("");
+  const [signatureBusy, setSignatureBusy] = useState(false);
+  const agreementUrl = order.agreementId
+    ? `/api/workspaces/${base.split("/").at(-1)}/documents/${order.agreementId}/download`
+    : `/api/workspaces/${base.split("/").at(-1)}/onboarding/agreement/${order.id}`;
   return (
     <section aria-labelledby={`order-${order.id}`}>
       <h2 id={`order-${order.id}`}>{order.planName}</h2>
@@ -1604,11 +1629,38 @@ function Checkout({
           {new Date(order.expiresAt).toLocaleString(hi ? "hi-IN" : "en-IN")}
         </p>
       )}
-      <details open={order.status === "quoted"}>
+      <details
+        open={previewOpen}
+        onToggle={(event) => setPreviewOpen(event.currentTarget.open)}
+      >
         <summary>
           {hi ? "अनुबंध और MITC पढ़ें" : "Read agreement and MITC"}
         </summary>
-        <pre className="onboarding-agreement">{order.text}</pre>
+        {previewOpen && (
+          <AgreementPdfPreview
+            hi={hi}
+            signature={
+              order.status === "quoted" &&
+              mark &&
+              signatureName &&
+              order.signatureBox
+                ? { mark, name: signatureName, box: order.signatureBox }
+                : undefined
+            }
+            url={agreementUrl}
+          />
+        )}
+        <a href={agreementUrl} target="_blank" rel="noreferrer">
+          {hi
+            ? "अनुबंध PDF नई विंडो में खोलें"
+            : "Open agreement PDF in a new tab"}
+        </a>
+        <details>
+          <summary>
+            {hi ? "अनुबंध का पाठ संस्करण पढ़ें" : "Read text version"}
+          </summary>
+          <pre className="onboarding-agreement">{order.text}</pre>
+        </details>
       </details>
       {order.status === "quoted" && !expired && (
         <form
@@ -1623,6 +1675,7 @@ function Checkout({
                 code: form.get("code"),
                 consent: form.get("consent") === "on",
                 hash: order.hash,
+                ...(order.signatureBox ? { mark } : {}),
               }),
             );
           }}
@@ -1641,14 +1694,32 @@ function Checkout({
           >
             <input
               name="signature"
+              value={signatureName}
+              onChange={(event) => setSignatureName(event.target.value)}
               required
               maxLength={160}
               autoComplete="name"
             />
           </Field>
+          {order.signatureBox ? (
+            <SignatureInput
+              value={mark}
+              onChange={setMark}
+              onBusy={setSignatureBusy}
+              name={signatureName}
+              hi={hi}
+              disabled={pending || signatureBusy}
+            />
+          ) : (
+            <p>
+              {hi
+                ? "यह पुराना चेकआउट ईमेल पुष्टि का उपयोग करता है। हर पृष्ठ पर हस्ताक्षर जोड़ने के लिए नया चेकआउट शुरू करें।"
+                : "This older checkout uses email confirmation. Start a fresh checkout to add a visible signature to every page."}
+            </p>
+          )}
           <button
             type="button"
-            disabled={pending || !view.signingEnabled}
+            disabled={pending || signatureBusy || !view.signingEnabled}
             className="button secondary"
             onClick={() =>
               void run(
@@ -1672,7 +1743,12 @@ function Checkout({
             />
           </Field>
           <button
-            disabled={pending || !view.signingEnabled}
+            disabled={
+              pending ||
+              signatureBusy ||
+              !view.signingEnabled ||
+              Boolean(order.signatureBox && !mark)
+            }
             className="button primary"
           >
             {hi ? "हस्ताक्षर करें और आगे बढ़ें" : "Sign and continue"}

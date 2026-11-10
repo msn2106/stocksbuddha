@@ -103,6 +103,7 @@ test("branding and language edits remain local until save and preserve the sourc
   window.dispatchEvent(clean);
   assert.equal(clean.defaultPrevented, false);
   change("Website name", "My Research");
+  click("Remove logos and use initials");
   change("Legal name", "My Legal Name");
   change("Brand initials", "mr");
   change("Registration number", "INH-123");
@@ -125,6 +126,8 @@ test("branding and language edits remain local until save and preserve the sourc
   assert.equal(snapshot.content.hi, undefined);
   assert.equal(snapshot.publicProfile.name, "My Research");
   assert.equal(snapshot.branding.accent, "#112233");
+  assert.equal(snapshot.branding.logoLight, null);
+  assert.equal(snapshot.branding.logoDark, null);
   assert.equal(snapshot.layout.template, "editorial");
   assert.equal(h.data.snapshot.publicProfile.name, "Example Research");
   fireEvent.click(screen.getByLabelText("Enable Hindi content"));

@@ -1,6 +1,7 @@
 import { PaymentSettings } from "./PaymentSettings";
 import { IntegrationSettings } from "./IntegrationSettings";
 import { SmsSettings } from "./SmsSettings";
+import { LogoSettings } from "./LogoSettings";
 import { useEffect, useState, useRef } from "react";
 import { translator } from "../locales/messages";
 import { ArrowDown, ArrowUp, ExternalLink, Plus, Trash2 } from "lucide-react";
@@ -77,11 +78,11 @@ export function WebsiteEditor({ tenant }: { tenant: Tenant }) {
   useEffect(() => {
     /** Protect unsaved local edits when the browser leaves this page. */
     const guard = (event: BeforeUnloadEvent) => {
-      if (dirty || privateDirty || privateBusy) event.preventDefault();
+      if (dirty || privateDirty || privateBusy || busy) event.preventDefault();
     };
     window.addEventListener("beforeunload", guard);
     return () => window.removeEventListener("beforeunload", guard);
-  }, [dirty, privateDirty, privateBusy]);
+  }, [dirty, privateDirty, privateBusy, busy]);
   if (!state)
     return (
       <section className="website-editor">
@@ -347,8 +348,8 @@ export function WebsiteEditor({ tenant }: { tenant: Tenant }) {
           {missing
             ? `${missing} content fields need completing across enabled languages.`
             : "All enabled language fields are complete."}{" "}
-          Save changes before previewing or publishing. Images use hosted HTTPS
-          URLs.
+          Save changes before previewing or publishing. Section images use
+          hosted HTTPS URLs.
         </p>
       )}
       {!integrationTab && preview && (
@@ -378,7 +379,7 @@ export function WebsiteEditor({ tenant }: { tenant: Tenant }) {
         {tabs.map((item) => (
           <button
             key={item}
-            disabled={privateBusy}
+            disabled={privateBusy || busy}
             aria-current={tab === item ? "page" : undefined}
             onClick={() => {
               if (
@@ -405,6 +406,17 @@ export function WebsiteEditor({ tenant }: { tenant: Tenant }) {
                 Website identity is published with the draft. Your organisation
                 account details stay separate.
               </p>
+              <LogoSettings
+                logos={snapshot.branding}
+                stocksBuddha={tenant.slug === "stocksbuddha"}
+                onBusy={setBusy}
+                onChange={(logos) =>
+                  update((next) => {
+                    next.branding.logoLight = logos.logoLight;
+                    next.branding.logoDark = logos.logoDark;
+                  })
+                }
+              />
               <div className="editor-fields">
                 {(
                   [

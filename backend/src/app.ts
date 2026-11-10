@@ -1,4 +1,5 @@
 import { accountTenant } from "./auth/account-tenant";
+import { letterhead, sampleAgreement } from "./agreement-pdf";
 import express, { type Request, type RequestHandler } from "express";
 import { slugSchema, type PageData } from "@ra/contracts";
 import { requestMonitoring, monitorTenant } from "./monitoring";
@@ -208,6 +209,22 @@ export function createPublicApp({
   });
 
   if (assets) server.use(assets);
+  server.get("/ra/stocksbuddha/sample-agreement.pdf", async (_req, res) => {
+    const identity = await letterhead(
+      {
+        name: "Stocks Buddha - sample",
+        registration: "SAMPLE - verify registered RA details before live use",
+        address: "SAMPLE - registered address",
+        contact: "SAMPLE - RA contact details",
+      },
+      "stocksbuddha",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      'inline; filename="stocksbuddha-sample-agreement.pdf"',
+    );
+    res.type("pdf").send(await sampleAgreement(identity));
+  });
   server.use(async (req, res, next) => {
     const account: PageData | undefined = res.locals.accountPage;
     if (!account && req.method !== "GET" && req.method !== "HEAD")

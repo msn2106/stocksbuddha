@@ -15,6 +15,7 @@ import type { PageData, Tenant } from "@ra/contracts";
 import { useLanguage } from "../i18n";
 import { LandingSections } from "./LandingSections";
 import { AccessibilityControls } from "../components/AccessibilityControls";
+import { BrandLogo } from "../components/BrandLogo";
 
 type Modal =
   | "subscription"
@@ -41,16 +42,18 @@ export function Brand({
   footer?: boolean;
   tagline?: string;
 }) {
-  const { t, locale } = useLanguage();
+  const { t, locale, logos } = useLanguage();
   return (
     <a
       className={`brand ${footer ? "brand-footer" : ""}`}
       href={`/ra/${tenant.slug}?lang=${locale}`}
     >
-      <span className="monogram" aria-hidden="true">
-        {tenant.profile.monogram}
-        <span />
-      </span>
+      <BrandLogo
+        logos={logos}
+        stocksBuddha={tenant.slug === "stocksbuddha"}
+        initials={tenant.profile.monogram}
+        tone={footer ? "dark" : "auto"}
+      />
       <span>
         {tenant.profile.name}
         <small>{tagline ?? t("brand.tagline")} </small>
@@ -344,6 +347,17 @@ export function PublicWebsite({ data }: { data: PageData }) {
           <div className="footer-top">
             <div>
               <Brand tenant={tenant} footer />
+              {tenant.slug === "stocksbuddha" && (
+                <a
+                  href="/ra/stocksbuddha/sample-agreement.pdf"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {locale === "hi"
+                    ? "लेटरहेड पर अनुबंध का नमूना"
+                    : "Sample agreement on letterhead"}
+                </a>
+              )}
               <p>
                 {t("footer.thinking")} <br />
                 {t("footer.perspective")}{" "}

@@ -1,6 +1,6 @@
 # MariaDB persistence
 
-The current thirty-one-table schema uses TypeORM and mysql2. Twenty ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
+The current thirty-two-table schema uses TypeORM and mysql2. Twenty-one ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
 
 ## Local setup
 
@@ -102,7 +102,7 @@ Apply additive migration `1794355200000-RecoveryEmailLimits` explicitly before s
 
 ## Private integrations and template libraries
 
-Apply `1794441600000-TenantIntegrations` (migration 19) explicitly before startup. It creates `tenant_integrations` for separately versioned encrypted Telegram/payment credentials and expands `sms_settings.config_cipher` to `MEDIUMTEXT` for up to 100 SMS templates. That migration brought the total to 29 tables including metadata; the current QR migration below brings it to 31. Preserve the existing encryption key; no public website revision contains these credentials. See [configuration and merchant editing restrictions](../docs/WEBSITE_EDITOR.md#private-service-settings).
+Apply `1794441600000-TenantIntegrations` (migration 19) explicitly before startup. It creates `tenant_integrations` for separately versioned encrypted Telegram/payment credentials and expands `sms_settings.config_cipher` to `MEDIUMTEXT` for up to 100 SMS templates. That migration brought the total to 29 tables including metadata; the QR migration below brought it to 31. Preserve the existing encryption key; no public website revision contains these credentials. See [configuration and merchant editing restrictions](../docs/WEBSITE_EDITOR.md#private-service-settings).
 
 ## Legacy development onboarding encryption
 
@@ -132,4 +132,8 @@ For a reviewed apply, pass `true` and a callback that writes the supplied origin
 
 ## QR payment configuration and evidence
 
-Apply `1794528000000-QrPayments` (migration 20) before startup. It adds `ra_qr_settings`, `qr_payment_attempts` and `subscription_orders.payment_method`, backfilling existing Cashfree sessions. Current totals are 31 tables including metadata. QR images/snapshots and payment proofs are bounded encrypted base64 JSON in MariaDB `MEDIUMTEXT`, separately from Google Drive documents; review notes are encrypted and normalized references use tenant-bound keyed hashes with a uniqueness constraint. Preserve the retained `ONBOARDING_DATA_KEY` and include these tables in backups, regulated retention, capacity planning and restore verification. Replacing current settings cannot rewrite an existing attempt. There is no destructive rollback. See [payment states, expiry, manual verification and API limits](../docs/QR_PAYMENTS.md).
+Apply `1794528000000-QrPayments` (migration 20) before startup. It adds `ra_qr_settings`, `qr_payment_attempts` and `subscription_orders.payment_method`, backfilling existing Cashfree sessions. That migration brought the total to 31 tables including metadata. QR images/snapshots and payment proofs are bounded encrypted base64 JSON in MariaDB `MEDIUMTEXT`, separately from Google Drive documents; review notes are encrypted and normalized references use tenant-bound keyed hashes with a uniqueness constraint. Preserve the retained `ONBOARDING_DATA_KEY` and include these tables in backups, regulated retention, capacity planning and restore verification. Replacing current settings cannot rewrite an existing attempt. There is no destructive rollback. See [payment states, expiry, manual verification and API limits](../docs/QR_PAYMENTS.md).
+
+## Per-RA letterhead configuration
+
+Apply migration 21, `1794614400000-LetterheadSettings`, before startup. It adds `ra_letterhead_settings` with the owning tenant key, encrypted LONGTEXT PDF/margin configuration and a positive optimistic version. Current totals are 21 application migrations and 32 tables including metadata. Current settings are private; order snapshots retain exact historical stationery and unsigned PDFs. Keep the retained data key and include the table in backups. Defaults require no seeded row: Stocks Buddha uses the supplied PDF; other RAs use standard stationery. See [upload/preview/reset behavior](../docs/BRANDING_AND_AGREEMENTS.md).

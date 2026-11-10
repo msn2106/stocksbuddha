@@ -143,6 +143,8 @@ test("onboarding APIs derive identity and tenant, enforce origin, parse bounded 
     200,
   );
   for (const action of [
+    "letterhead",
+    "letterhead-preview",
     "plan",
     "coupon",
     "settings",
@@ -173,6 +175,13 @@ test("onboarding APIs derive identity and tenant, enforce origin, parse bounded 
       200,
       action,
     );
+  }
+  for (const endpoint of [
+    "letterhead",
+    "sample-agreement",
+    "agreement/00000000-0000-4000-8000-000000000001",
+  ]) {
+    assert.equal((await request(`${path}/${endpoint}`)).status, 200);
   }
   assert.equal(
     (await request(`${path}/unknown`, "POST", Buffer.from("{}"), origin))
@@ -328,4 +337,24 @@ test("QR read and evidence APIs retain workspace auth, no-store, attachment head
   );
   state.signedIn = false;
   assert.equal((await request(`${path}/qr-payment/order/proof`)).status, 401);
+});
+
+test("private agreement previews permit only same-origin embedding and retain authentication requirements", async () => {
+  const { state, request } = harness();
+  const preview = await request(
+    `${path}/agreement/00000000-0000-4000-8000-000000000001`,
+  );
+  assert.equal(preview.status, 200);
+  assert.match(
+    String(preview.headers["content-security-policy"]),
+    /frame-ancestors 'self'/,
+  );
+  assert.match(String(preview.headers["content-type"]), /application\/pdf/);
+  assert.equal(preview.headers["cache-control"], "no-store");
+  state.signedIn = false;
+  assert.equal(
+    (await request(`${path}/agreement/00000000-0000-4000-8000-000000000001`))
+      .status,
+    401,
+  );
 });

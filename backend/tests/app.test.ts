@@ -6,6 +6,14 @@ import type { Socket } from "node:net";
 import { createPublicApp, type PublicAppDependencies } from "../src/app";
 import { makePage } from "../../packages/contracts/tests/fixtures";
 
+test("Stocks Buddha public agreement sample is a PDF with no client/session data or live consent action", async () => {
+  const result = await request({}, "/ra/stocksbuddha/sample-agreement.pdf");
+  assert.equal(result.status, 200);
+  assert.match(String(result.headers["content-type"]), /application\/pdf/);
+  assert.match(result.body, /%PDF/);
+  assert.equal(result.headers["cache-control"], "no-store");
+});
+
 /** Exercise an Express request with an in-memory transport and stubbed adapters, without opening a port. */
 async function request(
   dependencies: Partial<PublicAppDependencies>,

@@ -142,3 +142,7 @@ export type {
 } from "./onboarding";
 
 export { sampleResearchAgreement } from "./agreement-sample";
+export { logoSchema, type BrandLogos } from "./branding";
+export type { LetterheadSettings, LetterheadMargins } from "./letterhead";
+
+export type { SignatureMark, SignatureBox } from "./signature";

@@ -1,3 +1,4 @@
+import type { SignatureBox } from "./signature";
 /** Public onboarding projections contain application IDs only, never provider credentials. */
 export type Plan = {
   id: string;
@@ -72,6 +73,8 @@ export type OrderView = {
   days: number;
   text: string;
   hash: string;
+  pdfHash?: string;
+  signatureBox?: SignatureBox;
   expiresAt: string;
   signedAt: string | null;
   startsAt: string | null;

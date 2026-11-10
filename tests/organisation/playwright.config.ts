@@ -5,6 +5,7 @@ export default defineConfig({
     "flow.ts",
     "onboarding-flow.ts",
     "settings-flow.ts",
+    "letterhead-flow.ts",
     "qr-payments-flow.ts",
   ],
   workers: 1,

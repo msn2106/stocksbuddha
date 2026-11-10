@@ -78,6 +78,14 @@ function fixture(admin = false) {
     result: Record<string, unknown> = { id: "new-id" };
   globalThis.FormData = window.FormData;
   globalThis.fetch = async (url, init) => {
+    if (String(url).endsWith("/letterhead"))
+      return Response.json({
+        version: 0,
+        name: "",
+        pdf: null,
+        sha256: null,
+        margins: { top: 56, bottom: 20, left: 21, right: 21 },
+      });
     if (String(url).endsWith("/jobs") || String(url).endsWith("/qr-payments"))
       return Response.json([]);
     if (init?.method === "POST") {
@@ -762,4 +770,54 @@ test("agreement editor prefills an unreviewed sample, preserves custom saved wor
     ).checked,
     true,
   );
+});
+
+test("investors read the letterhead PDF inline before consent, with an optional text fallback in both languages", async () => {
+  for (const hi of [false, true]) {
+    const f = fixture();
+    f.data.locale = hi ? "hi" : "en";
+    f.view.orders = [order()];
+    render(<App data={f.data} />);
+    const frame = await screen.findByRole("region", {
+      name: hi ? "अनुबंध और MITC के पृष्ठ" : "Agreement and MITC pages",
+    });
+    assert.ok(frame.closest("details")?.hasAttribute("open"));
+    const fallback = screen
+      .getByText("Research service terms and MITC for Example Investor")
+      .closest("details");
+    assert.equal(fallback?.hasAttribute("open"), false);
+    assert.ok(
+      screen.getByRole("link", {
+        name: hi
+          ? "अनुबंध PDF नई विंडो में खोलें"
+          : "Open agreement PDF in a new tab",
+      }),
+    );
+    cleanup();
+  }
+});
+
+test("new checkouts submit the selected visual signature with the unchanged email verification fields", async () => {
+  const f = fixture();
+  f.view.orders = [
+    order({ signatureBox: { x: 355, y: 686, width: 180, height: 54 } }),
+  ];
+  render(<App data={f.data} />);
+  const name = await screen.findByLabelText("Full name for signature");
+  fireEvent.change(name, { target: { value: "Example Investor" } });
+  fireEvent.change(screen.getByLabelText("Signature font"), {
+    target: { value: "caveat" },
+  });
+  fireEvent.click(
+    screen.getByRole("checkbox", { name: /I have read and agree/ }),
+  );
+  fireEvent.change(screen.getByLabelText("Email confirmation code"), {
+    target: { value: "123456" },
+  });
+  submit("Sign and continue");
+  await waitFor(() => assert.ok(f.calls.some((call) => call.name === "sign")));
+  assert.deepEqual(f.calls.find((call) => call.name === "sign")!.body.mark, {
+    mode: "typed",
+    font: "caveat",
+  });
 });

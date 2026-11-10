@@ -3680,6 +3680,53 @@ footer[data-footer="compact"] .footer-top {
   max-height: 60vh;
   overflow-y: auto;
 }
+.onboarding-agreement-preview {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+  height: min(80vh, 900px);
+  min-height: 520px;
+  margin-block: 16px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+}
+.agreement-pdf-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.agreement-pdf-toolbar button {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 1.25rem;
+}
+.agreement-pdf-pages {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  background: #e8e8e8;
+}
+.agreement-pdf-page {
+  width: max-content;
+  margin: 0 auto 12px;
+}
+.agreement-pdf-page figcaption {
+  margin-bottom: 8px;
+  color: #333;
+}
+.agreement-pdf-page canvas {
+  display: block;
+  background: #fff;
+  box-shadow: 0 1px 4px #0002;
+}
 .onboarding-totals {
   max-width: 480px;
 }
@@ -4361,4 +4408,204 @@ footer[data-footer="compact"] .footer-top {
 .payment-panel h2 {
   font-size: clamp(1.75rem, 2.4vw, 2rem);
   margin-bottom: 0.75rem;
+}
+
+/* Logo artwork follows the surface, while the adjacent text supplies its accessible name. */
+.brand-artwork {
+  display: inline-flex;
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex: 0 0 56px;
+  overflow: hidden;
+  align-items: center;
+  justify-content: center;
+}
+.brand-artwork img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.brand-artwork .brand-artwork-dark {
+  display: none;
+}
+.brand-artwork-original img {
+  transform: scale(2) translateY(6%);
+}
+.brand-artwork-dark .brand-artwork-light {
+  display: none;
+}
+.brand-artwork-dark .brand-artwork-dark {
+  display: block;
+}
+html[data-contrast="high"] .brand-artwork-auto .brand-artwork-light {
+  display: none;
+}
+html[data-contrast="high"] .brand-artwork-auto .brand-artwork-dark {
+  display: block;
+}
+.account-platform {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.logo-settings {
+  border-block: 1px solid var(--border);
+  padding-block: 16px;
+  margin-block: 16px;
+}
+.logo-settings p {
+  max-width: 65ch;
+}
+.logo-previews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-block: 16px;
+}
+.logo-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  min-width: 180px;
+  border: 1px solid #777;
+}
+.logo-preview-light {
+  background: #fff;
+  color: #222;
+}
+.logo-preview-dark {
+  background: #292929;
+  color: #fff;
+}
+.logo-settings input {
+  max-width: 100%;
+}
+.logo-settings button {
+  margin: 8px 8px 8px 0;
+}
+
+.letterhead-settings {
+  min-width: 0;
+  margin-block: 24px;
+}
+.letterhead-settings h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+.letterhead-settings fieldset {
+  min-inline-size: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+}
+.letterhead-settings legend {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.letterhead-settings label {
+  display: block;
+  min-width: 0;
+  margin-block: 12px;
+}
+.letterhead-settings input {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  color: inherit;
+}
+.letterhead-settings button {
+  max-width: 100%;
+  white-space: normal;
+  margin: 8px 8px 8px 0;
+}
+.letterhead-settings button:not(.button) {
+  min-height: 44px;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+@font-face {
+  font-family: SignatureAllura;
+  src: url("/assets/fonts/signature-allura.ttf") format("truetype");
+  font-display: swap;
+}
+@font-face {
+  font-family: SignatureCaveat;
+  src: url("/assets/fonts/signature-caveat.ttf") format("truetype");
+  font-display: swap;
+}
+@font-face {
+  font-family: SignatureNoto;
+  src: url("/assets/fonts/NotoSansDevanagari.ttf") format("truetype");
+  font-display: swap;
+}
+.signature-font-allura {
+  font-family: SignatureAllura, SignatureNoto, cursive;
+}
+.signature-font-caveat {
+  font-family: SignatureCaveat, SignatureNoto, cursive;
+}
+.signature-font-formal {
+  font-family: SignatureNoto, sans-serif;
+}
+.signature-input {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+}
+.signature-input label {
+  display: grid;
+  gap: 8px;
+  margin-block: 12px;
+}
+.signature-pad {
+  display: block;
+  width: 100%;
+  max-width: 512px;
+  height: auto;
+  background: white;
+  border: 1px solid var(--border);
+  touch-action: none;
+}
+.signature-selection {
+  width: 240px;
+  max-width: 100%;
+  height: 72px;
+  margin-block: 16px;
+  background: white;
+}
+.signature-appearance {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  color: #222;
+}
+.signature-appearance svg,
+.signature-appearance img {
+  display: block;
+  width: 100%;
+  height: 78%;
+  object-fit: contain;
+  object-position: right center;
+}
+.signature-appearance span {
+  font:
+    7px SignatureNoto,
+    sans-serif;
+  text-align: right;
+}
+.agreement-pdf-sheet {
+  position: relative;
+}
+.agreement-signature-overlay {
+  position: absolute;
+  pointer-events: none;
 }

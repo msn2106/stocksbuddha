@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
-import type { Locale, PublicWebsite, Tenant } from "@ra/contracts";
+import type { BrandLogos, Locale, PublicWebsite, Tenant } from "@ra/contracts";
 import { translator } from "./locales/messages";
 
 const LanguageContext = createContext({
@@ -8,6 +8,7 @@ const LanguageContext = createContext({
   tenantId: null as string | null,
   tenantPath: "/" as string,
   t: translator("en"),
+  logos: {} as BrandLogos,
 });
 /**
  * Provide the selected locale, tenant paths, enabled languages and scoped translator.
@@ -34,6 +35,7 @@ export function LanguageProvider({
         tenantId: tenant?.id ?? null,
         tenantPath: tenant ? `/ra/${tenant.slug}` : "/",
         t: translator(locale, website?.content),
+        logos: website?.branding ?? {},
       }}
     >
       {children}

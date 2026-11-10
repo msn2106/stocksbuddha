@@ -1,4 +1,5 @@
 import { QrPayments1794528000000 } from "./migrations/1794528000000-QrPayments";
+import { LetterheadSettings1794614400000 } from "./migrations/1794614400000-LetterheadSettings";
 import { TenantIntegrations1794441600000 } from "./migrations/1794441600000-TenantIntegrations";
 import { RecoveryEmailLimits1794355200000 } from "./migrations/1794355200000-RecoveryEmailLimits";
 import { MobileVerification1794268800000 } from "./migrations/1794268800000-MobileVerification";
@@ -43,4 +44,5 @@ export const migrationClasses = [
   RecoveryEmailLimits1794355200000,
   TenantIntegrations1794441600000,
   QrPayments1794528000000,
+  LetterheadSettings1794614400000,
 ];

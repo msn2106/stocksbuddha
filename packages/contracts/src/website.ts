@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { logoSchema } from "./branding";
 import { supportedLocales } from "./locales";
 import {
   websiteContentKeys,
@@ -54,6 +55,8 @@ export const websiteRevisionSchema = z
         accent: z.string().regex(/^#[0-9a-fA-F]{6}$/),
         surface: z.string().regex(/^#[0-9a-fA-F]{6}$/),
         font: z.enum(["classic", "sans"]),
+        logoLight: logoSchema.nullable().optional(),
+        logoDark: logoSchema.nullable().optional(),
       })
       .strict(),
     languages: z

@@ -33,6 +33,8 @@ export function onboardingFixture() {
       "id TEXT PRIMARY KEY,tenant_id TEXT,membership_id TEXT,plan_id TEXT,coupon_id TEXT,request_key TEXT,snapshot_cipher TEXT,signature_cipher TEXT,agreement_hash TEXT,family_hash TEXT,subtotal INTEGER,discount INTEGER,tax INTEGER,total INTEGER,days INTEGER,status TEXT DEFAULT 'quoted',dev INTEGER,expires_at TEXT,signed_at TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,paid_at TEXT,last_reconciled_at TEXT,starts_at TEXT,ends_at TEXT,payment_id TEXT,payment_session TEXT,payment_method TEXT,agreement_id TEXT,invoice_id TEXT,otp_hash TEXT,otp_attempts INTEGER DEFAULT 0,otp_sent_at TEXT,otp_expires_at TEXT",
     ra_qr_settings:
       "tenant_id TEXT PRIMARY KEY,config_cipher TEXT,version INTEGER",
+    ra_letterhead_settings:
+      "tenant_id TEXT PRIMARY KEY,config_cipher TEXT,version INTEGER",
     qr_payment_attempts:
       "order_id TEXT PRIMARY KEY,tenant_id TEXT,config_cipher TEXT,proof_cipher TEXT,reference_hash TEXT,status TEXT,version INTEGER DEFAULT 1,created_at TEXT DEFAULT CURRENT_TIMESTAMP,submitted_at TEXT,reviewed_at TEXT,reviewed_by TEXT,reason_cipher TEXT,UNIQUE(tenant_id,reference_hash)",
     onboarding_deliveries:
@@ -46,6 +48,12 @@ export function onboardingFixture() {
   };
   for (const [table, fields] of Object.entries(definitions))
     memory.exec(`CREATE TABLE ${table} (${fields})`);
+  memory.exec(
+    "ALTER TABLE tenants ADD COLUMN published_revision INTEGER DEFAULT 0",
+  );
+  memory.exec(
+    "CREATE TABLE website_revisions (tenant_id TEXT,revision INTEGER,status TEXT,snapshot_json TEXT,snapshot_sha256 TEXT)",
+  );
   /** Translate only the dialect features exercised by the controlled unit adapter. */
   const query = async (original: string, parameters: unknown[] = []) => {
     let sql = original
@@ -96,10 +104,14 @@ export function onboardingFixture() {
     userId = randomUUID(),
     adminId = randomUUID();
   memory
-    .prepare("INSERT INTO tenants VALUES (?,?,?,?,?,?)")
+    .prepare(
+      "INSERT INTO tenants(id,slug,status,legal_name,registration_number,display_name) VALUES (?,?,?,?,?,?)",
+    )
     .run(tenantId, "alpha", "active", "Alpha Legal", "INH-FIXTURE", "Alpha");
   memory
-    .prepare("INSERT INTO tenants VALUES (?,?,?,?,?,?)")
+    .prepare(
+      "INSERT INTO tenants(id,slug,status,legal_name,registration_number,display_name) VALUES (?,?,?,?,?,?)",
+    )
     .run(otherTenantId, "beta", "active", "Beta Legal", "INH-FIXTURE", "Beta");
   for (const [id, name, email, role, token, membership, scope] of [
     [

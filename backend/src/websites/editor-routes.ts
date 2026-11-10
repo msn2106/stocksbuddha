@@ -152,6 +152,7 @@ export function mountWebsiteEditor(
           "Default language must be enabled",
           "HTML is not supported in website snapshots",
           "Snapshot exceeds 512 KiB",
+          "Invalid logo image",
         ].includes(error.message)
       )
         return res

@@ -7,6 +7,7 @@ import {
   type Tenant,
 } from "@ra/contracts";
 import { z } from "zod";
+import { validateLogo } from "../backend/src/websites/logo";
 
 export { publicProfileSchema, type Snapshot } from "@ra/contracts";
 /** Serialize supported JSON with sorted object keys and preserved array order for stable digests. */
@@ -30,6 +31,18 @@ export function digest(value: unknown) {
 /** Validate a partial draft or complete publication without rewriting persisted snapshot data. */
 export function validateSnapshot(input: unknown, publish = false): Snapshot {
   const snapshot = websiteSnapshotSchema.parse(input);
+  for (const logo of [
+    snapshot.branding.logoLight,
+    snapshot.branding.logoDark,
+  ]) {
+    if (logo) {
+      try {
+        validateLogo(logo);
+      } catch {
+        throw new Error("Invalid logo image");
+      }
+    }
+  }
   if (Buffer.byteLength(canonicalJson(snapshot)) > 524288)
     throw new Error("Snapshot exceeds 512 KiB");
   if (!snapshot.languages.enabled.includes(snapshot.languages.default))

@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 const base = "/ra/stocksbuddha";
@@ -333,6 +334,39 @@ test("RA creates plan and discount; investor completes KYC, admin approves; sign
       (await fetch("/api/workspaces/stocksbuddha/onboarding")).json(),
     );
     const orderId = state.orders[0].id;
+    const agreementFrame = investor.getByRole("region", {
+      name: "Agreement and MITC pages",
+      exact: true,
+    });
+    await expect(agreementFrame).toBeVisible();
+    await expect(
+      agreementFrame.locator('canvas[data-rendered="true"]'),
+    ).toBeVisible();
+    const agreementResponse = await investor.request.get(
+      `/api/workspaces/stocksbuddha/onboarding/agreement/${orderId}`,
+    );
+    expect(agreementResponse.status()).toBe(200);
+    expect(agreementResponse.headers()["content-security-policy"]).toContain(
+      "frame-ancestors 'self'",
+    );
+    expect((await agreementResponse.body()).subarray(0, 5).toString()).toBe(
+      "%PDF-",
+    );
+    for (const width of [1280, 390]) {
+      await investor.setViewportSize({ width, height: 900 });
+      expect(
+        await investor.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+      await agreementFrame.scrollIntoViewIfNeeded();
+      await expect(
+        agreementFrame.locator('canvas[data-rendered="true"]'),
+      ).toBeVisible();
+      await investor.screenshot({
+        path: `/tmp/stocksbuddha-investor-letterhead-preview-${width}.png`,
+      });
+    }
     const forged = await investor.evaluate(
       async (id) =>
         (
@@ -354,6 +388,100 @@ test("RA creates plan and discount; investor completes KYC, admin approves; sign
     await investor
       .getByLabel("Full name for signature", { exact: true })
       .fill("Example Investor");
+    await investor
+      .getByLabel("Signature method", { exact: true })
+      .selectOption("upload");
+    const signaturePng = await investor.evaluate(() => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 400;
+      canvas.height = 120;
+      const context = canvas.getContext("2d")!;
+      context.lineWidth = 3;
+      context.beginPath();
+      context.moveTo(15, 85);
+      context.bezierCurveTo(90, 0, 130, 110, 350, 20);
+      context.stroke();
+      return canvas.toDataURL("image/png").split(",")[1];
+    });
+    await investor
+      .getByLabel("Signature image", { exact: true })
+      .setInputFiles({
+        name: "investor-signature.png",
+        mimeType: "image/png",
+        buffer: Buffer.from(signaturePng, "base64"),
+      });
+    await expect(investor.locator(".signature-selection img")).toBeVisible();
+    await investor
+      .getByLabel("Signature method", { exact: true })
+      .selectOption("draw");
+    const pad = investor.getByLabel("Draw your signature here", {
+      exact: true,
+    });
+    await pad.scrollIntoViewIfNeeded();
+    const box = (await pad.boundingBox())!;
+    await investor.mouse.move(box.x + 20, box.y + 30);
+    await investor.mouse.down();
+    await investor.mouse.move(box.x + box.width / 2, box.y + 70, { steps: 8 });
+    await investor.mouse.move(box.x + box.width - 20, box.y + 20, { steps: 8 });
+    await investor.mouse.up();
+    await expect(investor.locator(".signature-selection img")).toBeVisible();
+    await investor
+      .getByRole("button", { name: "Clear drawing", exact: true })
+      .click();
+    await expect(
+      investor.getByRole("button", { name: "Sign and continue", exact: true }),
+    ).toBeDisabled();
+    const touch = await investorContext.newCDPSession(investor);
+    await touch.send("Emulation.setTouchEmulationEnabled", {
+      enabled: true,
+      maxTouchPoints: 1,
+    });
+    await pad.scrollIntoViewIfNeeded();
+    const touchBox = (await pad.boundingBox())!;
+    await touch.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x: touchBox.x + 20, y: touchBox.y + 30 }],
+    });
+    await touch.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ x: touchBox.x + touchBox.width / 2, y: touchBox.y + 70 }],
+    });
+    await touch.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [
+        { x: touchBox.x + touchBox.width - 20, y: touchBox.y + 20 },
+      ],
+    });
+    await touch.send("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
+    });
+    await expect(investor.locator(".signature-selection img")).toBeVisible();
+    await investor.screenshot({
+      path: "/tmp/stocksbuddha-touch-signature.png",
+    });
+    await touch.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+    await touch.detach();
+    await investor
+      .getByLabel("Signature method", { exact: true })
+      .selectOption("typed");
+    for (const font of ["formal", "allura", "caveat"])
+      await investor
+        .getByLabel("Signature font", { exact: true })
+        .selectOption(font);
+    await investor.evaluate(() => document.fonts.ready);
+    for (const width of [390, 1280]) {
+      await investor.setViewportSize({ width, height: 900 });
+      await investor.locator(".signature-input").scrollIntoViewIfNeeded();
+      expect(
+        await investor.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+      await investor.screenshot({
+        path: `/tmp/stocksbuddha-signature-controls-${width}.png`,
+      });
+    }
     await investor
       .getByRole("button", { name: "Send email confirmation code" })
       .click();
@@ -385,6 +513,18 @@ test("RA creates plan and discount; investor completes KYC, admin approves; sign
     const link = await downloadable.getAttribute("href");
     const archived = await investorContext.request.get(link!);
     expect(archived.ok()).toBeTruthy();
+    await writeFile(
+      "/tmp/stocksbuddha-signed-visual-signature.pdf",
+      await archived.body(),
+    );
+    await investor
+      .getByText("Read agreement and MITC", { exact: true })
+      .click();
+    await expect(
+      investor
+        .getByRole("region", { name: "Agreement and MITC pages" })
+        .locator('canvas[data-rendered="true"]'),
+    ).toBeVisible();
     const originalBytes = await archived.body();
     expect(originalBytes.subarray(0, 5).toString()).toBe("%PDF-");
     await login(other, "onboarding-other@example.test");

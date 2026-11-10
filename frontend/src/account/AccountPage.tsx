@@ -14,6 +14,7 @@ import { Brand } from "../websites/PublicWebsite";
 import { AccessibilityControls } from "../components/AccessibilityControls";
 import { roleErrorMessage } from "./role-errors";
 import { WorkspaceShell } from "./WorkspaceShell";
+import { BrandLogo } from "../components/BrandLogo";
 import type { UiMessageKey } from "../locales/messages";
 
 const roleLabels: Record<string, UiMessageKey> = {
@@ -81,6 +82,7 @@ export function AccountPage({ data }: { data: PageData }) {
           />
         ) : (
           <a className="account-platform" href="/">
+            <BrandLogo stocksBuddha />
             {tenant}
           </a>
         )}

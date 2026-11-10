@@ -47,11 +47,24 @@ export function mountOnboarding(
   });
   api.use((req, res, next) =>
     express.json({
-      limit: ["/qr-settings", "/qr-submit"].includes(req.path) ? "3mb" : "64kb",
+      limit:
+        req.path === "/sign"
+          ? "192kb"
+          : [
+                "/qr-settings",
+                "/qr-submit",
+                "/letterhead",
+                "/letterhead-preview",
+              ].includes(req.path)
+            ? "3mb"
+            : "64kb",
     })(req, res, next),
   );
   api.get("/qr-settings", async (_req, res) =>
     res.json(await service.qrSettings(res.locals.onboardingContext)),
+  );
+  api.get("/letterhead", async (_req, res) =>
+    res.json(await service.letterheadSettings(res.locals.onboardingContext)),
   );
   api.get("/qr-payments", async (_req, res) =>
     res.json(await service.qrQueue(res.locals.onboardingContext)),
@@ -82,12 +95,46 @@ export function mountOnboarding(
   api.get("/jobs", async (_req, res) => {
     res.json(await service.queueStatus(res.locals.onboardingContext));
   });
+  api.get("/sample-agreement", async (_req, res) => {
+    res.setHeader(
+      "Content-Disposition",
+      'inline; filename="sample-agreement.pdf"',
+    );
+    res
+      .type("pdf")
+      .send(await service.sampleAgreement(res.locals.onboardingContext));
+  });
+  api.get("/agreement/:id", async (req, res) => {
+    // Permit the signed-in investor's same-origin page to display this private PDF.
+    res.setHeader(
+      "Content-Security-Policy",
+      "form-action 'self'; frame-ancestors 'self'; base-uri 'none'; object-src 'none'",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      'inline; filename="agreement-preview.pdf"',
+    );
+    res
+      .type("pdf")
+      .send(
+        await service.previewAgreement(
+          res.locals.onboardingContext,
+          req.params.id,
+        ),
+      );
+  });
   api.post("/:action", async (req, res) => {
     const context = res.locals.onboardingContext,
       body = req.body;
     if (!body || typeof body !== "object" || Array.isArray(body))
       return res.status(400).json({ error: "invalid_fields" });
     switch (req.params.action) {
+      case "letterhead":
+        return res.json(await service.letterheadSettings(context, body));
+      case "letterhead-preview":
+        return res
+          .type("pdf")
+          .send(await service.sampleAgreement(context, body));
       case "retry-job":
         return res.json(await service.retryJob(context, body));
       case "plan":

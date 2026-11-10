@@ -1,3 +1,6 @@
+import { normalizeSignature } from "./signature";
+import { signatureBox, signatureStamp } from "../agreement-pdf";
+import type { SignatureMark } from "@ra/contracts";
 import {
   qrFile,
   qrSettingsSchema,
@@ -9,6 +12,22 @@ import { indianMobile } from "../sms/policy";
 import { requireVerifiedMobile } from "../sms/kyc";
 import { reportBackground } from "../background-monitoring";
 import { researchEligible } from "./eligibility";
+import {
+  defaultLetterheadMargins,
+  letterheadInputSchema,
+  normalizeLetterhead,
+} from "./letterhead";
+import type { LetterheadSettings } from "@ra/contracts";
+import {
+  agreementHash,
+  appendConsent,
+  freezeAgreement,
+  letterhead,
+  publishedLogos,
+  sampleAgreement,
+  type FrozenAgreement,
+  type Letterhead,
+} from "../agreement-pdf";
 import { randomInt, randomUUID } from "node:crypto";
 import type { DataSource, EntityManager } from "typeorm";
 import type {
@@ -26,10 +45,10 @@ import { uuidPattern } from "../documents/policy";
 import type { PaymentGateway } from "./cashfree";
 import {
   agreement,
+  hash,
   couponInput,
   devEnabled,
   equal,
-  hash,
   keyed,
   kycProfile,
   money,
@@ -102,6 +121,8 @@ type OrderRow = {
 };
 type Snapshot = {
   text: string;
+  document?: FrozenAgreement;
+  letterhead?: Letterhead;
   planName: string;
   profile: KycProfile;
   email: string;
@@ -115,10 +136,15 @@ type Snapshot = {
   taxBps: number;
 };
 type Signature = {
+  mark?: SignatureMark;
+  markSha256?: string;
+  stamp?: string;
+  stampSha256?: string;
   name: string;
   signedAt: string;
   hash: string;
-  method: "typed_email_otp" | "skipped_dev";
+  method:
+    "typed_email_otp" | "draw_email_otp" | "upload_email_otp" | "skipped_dev";
   userId: string;
   membershipId: string;
   consent: string;
@@ -344,6 +370,59 @@ export class OnboardingService {
         }
       : null;
   }
+  /** Read only this tenant's encrypted stationery; defaults are resolved separately for Stocks Buddha. */
+  private async stationery(
+    manager: EntityManager,
+    tenantId: string,
+  ): Promise<LetterheadSettings> {
+    const [row] = await manager.query(
+      "SELECT * FROM ra_letterhead_settings WHERE tenant_id=?",
+      [tenantId],
+    );
+    return row
+      ? {
+          ...unseal<Omit<LetterheadSettings, "version">>(
+            this.secret,
+            row.config_cipher,
+          ),
+          version: row.version,
+        }
+      : {
+          version: 0,
+          name: "",
+          pdf: null,
+          sha256: null,
+          margins: defaultLetterheadMargins,
+        };
+  }
+  /** Allow current RA Admins to read, replace or reset their own versioned letterhead without approving legal terms. */
+  async letterheadSettings(context: OnboardingContext, input?: unknown) {
+    return this.db.transaction(async (manager) => {
+      const actor = await this.actor(manager, context);
+      requireValue(actor.role === "owner", "forbidden", 403);
+      const current = await this.stationery(manager, actor.tenantId);
+      if (input === undefined) return current;
+      const parsed = letterheadInputSchema.safeParse(input);
+      requireValue(parsed.success, "invalid_letterhead", 422);
+      requireValue(
+        parsed.data.version === current.version,
+        "version_conflict",
+        409,
+      );
+      const value = await normalizeLetterhead(input);
+      await manager.query(
+        "INSERT INTO ra_letterhead_settings(tenant_id,config_cipher,version) VALUES (?,?,1) ON DUPLICATE KEY UPDATE config_cipher=VALUES(config_cipher),version=version+1",
+        [actor.tenantId, seal(this.secret, value)],
+      );
+      await this.audit(
+        manager,
+        actor,
+        "agreement.letterhead_saved",
+        actor.tenantId,
+      );
+      return { ...value, version: current.version + 1 };
+    });
+  }
   /** Permit development signing, or explicitly reviewed production signing with production database settings. */
   private signingEnabled() {
     return this.options.env.NODE_ENV !== "production"
@@ -365,6 +444,12 @@ export class OnboardingService {
       total: row.total,
       days: row.days,
       text: snapshot.text,
+      signatureBox:
+        snapshot.document?.layoutVersion.endsWith(":signature-v2") &&
+        snapshot.letterhead
+          ? signatureBox(snapshot.letterhead)
+          : undefined,
+      pdfHash: snapshot.document?.sha256,
       hash: row.agreement_hash,
       expiresAt: iso(row.expires_at),
       signedAt: row.signed_at ? iso(row.signed_at) : null,
@@ -936,8 +1021,27 @@ export class OnboardingService {
         date: this.now().toISOString(),
       };
       const rendered = agreement(settings.terms, values);
+      const identity = await letterhead(
+        {
+          name: actor.raName,
+          registration: actor.registration,
+          contact: settings.contact,
+          address: settings.address,
+        },
+        actor.slug,
+        await publishedLogos(manager, actor.tenantId),
+        await this.stationery(manager, actor.tenantId),
+      );
+      const document = await freezeAgreement(
+        rendered,
+        identity,
+        kyc.status === "skipped_dev" ||
+          this.options.env.NODE_ENV !== "production",
+      );
       const snapshot: Snapshot = {
         text: rendered,
+        document,
+        letterhead: identity,
         planName: plan.name,
         profile,
         email: actor.email,
@@ -961,7 +1065,7 @@ export class OnboardingService {
           coupon?.id ?? null,
           key,
           seal(this.secret, snapshot),
-          hash(rendered),
+          agreementHash(rendered, document),
           kyc.family_hash,
           amounts.subtotal,
           amounts.discount,
@@ -975,6 +1079,53 @@ export class OnboardingService {
       );
       await this.audit(manager, actor, "checkout.created", id);
       return { id };
+    });
+  }
+  /** Return only the current investor's frozen pre-consent PDF, never another customer's agreement. */
+  async previewAgreement(
+    context: OnboardingContext,
+    id: unknown,
+  ): Promise<Buffer> {
+    return this.db.transaction(async (manager) => {
+      const actor = await this.actor(manager, context);
+      const row = await this.order(manager, actor, id);
+      const snapshot = unseal<Snapshot>(this.secret, row.snapshot_cipher);
+      requireValue(
+        agreementHash(snapshot.text, snapshot.document) === row.agreement_hash,
+        "agreement_integrity_failed",
+        409,
+      );
+      return snapshot.document
+        ? Buffer.from(snapshot.document.pdf, "base64")
+        : pdf(snapshot.text);
+    });
+  }
+  /** Preview saved RA terms on stationery with synthetic client details; never save, approve or sign them. */
+  async sampleAgreement(
+    context: OnboardingContext,
+    input?: unknown,
+  ): Promise<Buffer> {
+    return this.db.transaction(async (manager) => {
+      const actor = await this.actor(manager, context);
+      requireValue(actor.role === "owner", "forbidden", 403);
+      const settings = await this.settings(manager, actor.tenantId);
+      const stationery =
+        input === undefined
+          ? await this.stationery(manager, actor.tenantId)
+          : { ...(await normalizeLetterhead(input)), version: 0 };
+      const identity = await letterhead(
+        {
+          name: actor.raName,
+          registration:
+            actor.registration ?? "Registration required before live use",
+          contact: settings?.contact ?? "Configure RA contact details",
+          address: settings?.address ?? "Configure registered address",
+        },
+        actor.slug,
+        await publishedLogos(manager, actor.tenantId),
+        stationery,
+      );
+      return sampleAgreement(identity, settings?.terms);
     });
   }
   /** Resolve an exact current investor order and reject cross-account IDs. */
@@ -1003,6 +1154,11 @@ export class OnboardingService {
       [row.tenant_id, row.membership_id],
     );
     const snapshot = unseal<Snapshot>(this.secret, row.snapshot_cipher);
+    requireValue(
+      agreementHash(snapshot.text, snapshot.document) === row.agreement_hash,
+      "agreement_integrity_failed",
+      409,
+    );
     if (kyc?.status !== "skipped_dev")
       await requireVerifiedMobile(
         manager,
@@ -1069,7 +1225,7 @@ export class OnboardingService {
     await this.options.mailer!(delivery);
     return { sent: true };
   }
-  /** Persist explicit consent and a typed signature tied to an immutable agreement hash and single-use email code. */
+  /** Persist consent, the matching typed name and validated signature artwork with an immutable agreement hash and single-use email code. */
   async sign(context: OnboardingContext, input: Record<string, unknown>) {
     const result = await this.db.transaction(async (manager) => {
       const actor = await this.actor(manager, context),
@@ -1093,6 +1249,13 @@ export class OnboardingService {
           snapshot.profile.fullName.normalize("NFKC").toLowerCase(),
         "signature_name_mismatch",
       );
+      const mark = normalizeSignature(input.mark);
+      requireValue(
+        input.mark === undefined ||
+          snapshot.document?.layoutVersion.endsWith(":signature-v2"),
+        "signature_checkout_required",
+        409,
+      );
       const code = typeof input.code === "string" ? input.code : "";
       const valid =
         row.otp_hash &&
@@ -1110,11 +1273,23 @@ export class OnboardingService {
         );
         return { id: row.id, invalid: true };
       }
+      const stamp = snapshot.document?.layoutVersion.endsWith(":signature-v2")
+        ? await signatureStamp(name, mark)
+        : undefined;
       const signature: Signature = {
+        stamp: stamp?.toString("base64"),
+        stampSha256: stamp ? hash(stamp) : undefined,
         name,
         signedAt: this.now().toISOString(),
         hash: row.agreement_hash,
-        method: "typed_email_otp",
+        method:
+          mark.mode === "typed"
+            ? "typed_email_otp"
+            : mark.mode === "draw"
+              ? "draw_email_otp"
+              : "upload_email_otp",
+        mark,
+        markSha256: hash(JSON.stringify(mark)),
         userId: actor.userId,
         membershipId: actor.membershipId,
         consent:
@@ -1214,14 +1389,35 @@ export class OnboardingService {
     const snapshot = unseal<Snapshot>(this.secret, row.snapshot_cipher),
       signature = unseal<Signature>(this.secret, row.signature_cipher);
     requireValue(
-      hash(snapshot.text) === row.agreement_hash &&
-        signature.hash === row.agreement_hash,
+      agreementHash(snapshot.text, snapshot.document) === row.agreement_hash &&
+        signature.hash === row.agreement_hash &&
+        (!signature.mark ||
+          hash(JSON.stringify(normalizeSignature(signature.mark))) ===
+            signature.markSha256) &&
+        (!signature.stamp ||
+          hash(Buffer.from(signature.stamp, "base64")) ===
+            signature.stampSha256),
       "agreement_integrity_failed",
       409,
     );
-    const bytes = await pdf(
-      `${row.dev ? "DEVELOPMENT / SANDBOX EVIDENCE\n\n" : ""}${snapshot.text}\n\nCONSENT RECORD\nName: ${signature.name}\nMethod: ${signature.method}\nSigned: ${signature.signedAt}\nAgreement SHA-256: ${signature.hash}\n${signature.consent}\n`,
-    );
+    const record = `CONSENT RECORD\nName: ${signature.name}\nMethod: ${signature.method}\nSigned: ${signature.signedAt}\nAgreement SHA-256: ${signature.hash}\n${signature.consent}\n${signature.mark ? `Signature mode: ${signature.mark.mode}\nSignature SHA-256: ${signature.markSha256}\nSignature stamp SHA-256: ${signature.stampSha256 ?? "legacy"}\n` : ""}`;
+    const bytes =
+      snapshot.document && snapshot.letterhead
+        ? await appendConsent(
+            snapshot.document,
+            snapshot.letterhead,
+            `${row.dev ? "DEVELOPMENT / SANDBOX EVIDENCE\n\n" : ""}${record}`,
+            signature.mark
+              ? {
+                  name: signature.name,
+                  mark: signature.mark,
+                  stamp: signature.stamp,
+                }
+              : undefined,
+          )
+        : await pdf(
+            `${row.dev ? "DEVELOPMENT / SANDBOX EVIDENCE\n\n" : ""}${snapshot.text}\n\n${record}`,
+          );
     await this.options.documents.storeOrderEvidence(row.id, "agreement", bytes);
     return this.options.documents.readOrderEvidence(row.id, "agreement");
   }
