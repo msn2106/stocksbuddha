@@ -120,7 +120,10 @@ for (const [email, role] of [
     [randomUUID(), role, email],
   );
 }
-await db.query("UPDATE tenants SET status='active' WHERE slug='alpha'");
+// Synthetic registration enables agreement/checkout regressions for the isolated Alpha fixture.
+await db.query(
+  "UPDATE tenants SET status='active',registration_number='INH-SYNTHETIC-TEST' WHERE slug='alpha'",
+);
 await db.query(
   "INSERT INTO tenant_memberships(id,tenant_id,user_id,role,status,profile_json,capabilities_json) SELECT ?,t.id,u.id,'owner','active','{\"schemaVersion\":1}','{}' FROM tenants t CROSS JOIN auth_users u WHERE t.slug='alpha' AND u.email='settings-admin@example.test'",
   [randomUUID()],
@@ -236,6 +239,15 @@ const app = createPublicApp({
       await onboarding.reconcile("stocksbuddha", req.body.id);
       await onboarding.deliverOne();
       return res.sendStatus(204);
+    })
+    .post("/__test/expire-checkout", express.json(), async (req, res) => {
+      if (req.headers.origin !== origin || typeof req.body?.id !== "string")
+        return res.sendStatus(403);
+      const result = await db.query(
+        "UPDATE subscription_orders SET expires_at=DATE_SUB(UTC_TIMESTAMP(3),INTERVAL 1 MINUTE) WHERE id=? AND status IN ('quoted','signed') AND payment_method IS NULL AND payment_session IS NULL",
+        [req.body.id],
+      );
+      return res.sendStatus(result.affectedRows === 1 ? 204 : 409);
     })
     .post("/__test/deliver", async (req, res) => {
       if (req.headers.origin !== origin) return res.sendStatus(403);

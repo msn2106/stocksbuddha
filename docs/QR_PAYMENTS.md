@@ -9,7 +9,7 @@ Open **Website configuration → Payment Settings**. The QR and Cashfree section
 1. Enter the payee name, UPI ID and optional instructions.
 2. Upload a PNG or JPEG of the RA's receiving QR, up to 1 MiB. The application checks the file type, signature and size; it does not decode the QR or verify that the image encodes the entered UPI ID. The RA must check both, and the investor must check the payee displayed by the UPI app.
 3. Enable QR payments and choose **Save QR settings**. Upload, replacement and removal have a preview and participate in the editor's unsaved-change guard. Removal also disables QR.
-4. Configure the RA's own Cashfree merchant credentials separately if online checkout is offered. Existing merchant editing locks and production gates remain unchanged; they do not lock QR settings.
+4. Configure the RA's own Cashfree merchant credentials separately if online checkout is offered. Cashfree merchant settings lock once a Cashfree session/method or legacy payment reference binds the account, including retained cancelled sessions. Quoted/signed orders without Cashfree evidence, QR payments and no-charge orders do not block Cashfree setup. Production gates remain unchanged, and the Cashfree lock does not lock QR settings.
 
 Only an active verified RA owner with supported capability settings can manage QR settings. Platform ownership alone, Analyst, Support and investors cannot manage them. No image or payment configuration is added to public website snapshots.
 
@@ -24,6 +24,8 @@ Selecting the QR radio does not start a payment. **Show QR and pay** reserves th
 The investor submits a 6–40 character alphanumeric UTR/transaction reference, local payment date/time and PNG, JPEG or PDF evidence up to 2 MiB. The backend normalizes references to uppercase and rejects a reference already claimed anywhere within that RA, including a rejected historical claim. Evidence and reference cannot be edited after submission; repeating the identical request is harmless. Contact the RA to resolve mistakes. References are claims, not automatic proof of funds received.
 
 Payment time cannot precede attempt creation by more than a minute or exceed server time by more than a minute, allowing minute-resolution date inputs. The claim can be submitted and reviewed after the original thirty-minute checkout expires. The UI tells investors with expired checkouts to submit proof if already paid and otherwise contact the RA before transferring. No new QR attempt can start on an expired quote.
+
+Unstarted quoted/signed checkouts expire after thirty minutes. Expiry is independent of whether QR/Cashfree credentials are saved. The investor sees an explicit expiry notice with **Choose a plan again**, and the plan form is available again. A fresh quote uses current pricing and terms and requires new MITC consent; existing expired agreement/order records remain unchanged. An open page updates at the checkout deadline. An already-pending QR or Cashfree attempt keeps its existing proof/status recovery and cannot be replaced just because the quote deadline passed.
 
 The investor sees **Awaiting payment verification** after submission. Research access remains unavailable until payment approval and all existing eligibility conditions are satisfied.
 

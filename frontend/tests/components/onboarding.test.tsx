@@ -797,6 +797,47 @@ test("investors read the letterhead PDF inline before consent, with an optional 
   }
 });
 
+test("expired quoted and signed orders expose a fresh quote without cancelling history or renewing pending payments", async () => {
+  for (const state of ["quoted", "signed", "payment_pending"]) {
+    const f = fixture();
+    f.view.customer = { ...f.customer, status: "verified" };
+    f.view.qrEnabled = true;
+    f.view.orders = [
+      order({
+        status: state,
+        expiresAt: "2000-01-01T00:00:00Z",
+        paymentMethod: state === "payment_pending" ? "cashfree" : null,
+      }),
+    ];
+    render(<App data={f.data} />);
+    await screen.findByRole("heading", { name: "Choose your plan" });
+    if (state === "payment_pending") {
+      assert.equal(
+        screen.queryByRole("button", {
+          name: "Review final price and agreement",
+        }),
+        null,
+      );
+      assert.ok(screen.getByRole("button", { name: "Check payment status" }));
+    } else {
+      assert.ok(screen.getByText(/This checkout has expired/));
+      fireEvent.click(screen.getByRole("radio", { name: /Monthly research/ }));
+      submit("Review final price and agreement");
+      await waitFor(() =>
+        assert.ok(f.calls.some((call) => call.name === "quote")),
+      );
+      assert.equal(f.calls[0].body.planId, "plan-id");
+      assert.equal(
+        f.calls.some((call) =>
+          ["cancel", "payment", "qr-start", "sign"].includes(call.name),
+        ),
+        false,
+      );
+    }
+    cleanup();
+  }
+});
+
 test("new checkouts submit the selected visual signature with the unchanged email verification fields", async () => {
   const f = fixture();
   f.view.orders = [

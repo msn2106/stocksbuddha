@@ -40,7 +40,7 @@ export function settingsError(code: string): string {
     integration_credentials_required:
       "Enter the provider credential for this first save. Existing credentials can be left blank.",
     payment_settings_locked:
-      "Cashfree credentials are locked because a checkout or payment already exists. Contact platform support to rotate merchant credentials safely.",
+      "Cashfree credentials are locked because a Cashfree checkout or payment is already recorded. Contact platform support to rotate merchant credentials safely.",
     sandbox_forbidden_in_production:
       "Production websites require production Cashfree credentials.",
     production_payments_not_approved:

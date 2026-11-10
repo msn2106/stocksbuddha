@@ -257,7 +257,7 @@ test("payment settings expose sandbox/live selection, merchant ownership and loc
   cleanup();
   f.state.locked = true;
   render(<IntegrationSettings slug="alpha" kind="payment" />);
-  await screen.findByText(/A checkout or payment already uses this merchant/);
+  await screen.findByText(/A Cashfree checkout has already started/);
   assert.ok(
     screen
       .getByRole("button", { name: "Save payment settings" })

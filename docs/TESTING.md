@@ -110,4 +110,10 @@ Per-RA stationery tests additionally cover A4/single-page/size validation, PDF s
 
 Investor PDF reader component tests cover authenticated loading, the bundled worker, page navigation, zoom limits, resizing, cancellation, resource cleanup and download/page failures with localized retry and text fallback. The onboarding browser flow waits for a rendered canvas, verifies the canonical PDF endpoint and captures desktop/mobile previews before consent.
 
+## Cashfree credential setup
+
+Cashfree configuration regressions distinguish actual Cashfree session/method/legacy-payment evidence from quoted/signed agreements, QR payments and no-charge subscriptions, with tenant isolation and secret retention checks. The settings Playwright suite enters and saves credentials before payment while an investor order is quoted, then saves again after signing without changing or deleting that order. Retained cancelled Cashfree sessions remain locked.
+
+Checkout-expiry regressions use controlled clocks to verify open-page expiry and timer cleanup, fresh plan selection from expired quoted/signed orders, and continued pending-payment recovery. The settings browser regression enables both methods, expires only an unstarted disposable checkout, verifies both payment-start APIs still reject it, and creates/signs a fresh quote before checking that QR is selected by default and both payment actions are available. Desktop/mobile screenshots and axe scans cover the expiry notice. No real payment is started by this regression.
+
 Signature tests cover all PNG filters and RGB/RGBA validation, blank/corrupt artwork, font choices and Unicode, multipage stamping without losing original streams, required OTP, encrypted signature hashes/tampering, drawing completion/cancellation/clear, upload failures and page-preview overlays. The onboarding browser flow exercises signature modes and signed PDF rendering before payment.

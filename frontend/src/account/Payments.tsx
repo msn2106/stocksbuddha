@@ -53,6 +53,43 @@ export async function paymentFile(file: File, proof = false): Promise<string> {
   });
 }
 
+/** Track the server-issued deadline so an open checkout changes state when its window ends. */
+export function useCheckoutExpired(expiresAt?: string): boolean {
+  const deadline = expiresAt ? Date.parse(expiresAt) : NaN;
+  const [expired, setExpired] = useState(
+    () => Number.isFinite(deadline) && deadline <= Date.now(),
+  );
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    /** Recheck the absolute deadline and cap long fixture deadlines without overflowing browser timers. */
+    function update() {
+      const remaining = deadline - Date.now();
+      setExpired(Number.isFinite(deadline) && remaining <= 0);
+      if (remaining > 0)
+        timer = setTimeout(update, Math.min(remaining + 1, 2147483647));
+    }
+    update();
+    return () => clearTimeout(timer);
+  }, [deadline]);
+  return expired;
+}
+
+/** Explain why expired quotes cannot collect fees and point to the fresh plan/agreement flow. */
+export function ExpiredCheckoutNotice({ hi }: { hi: boolean }) {
+  return (
+    <div className="workspace-notice" role="status">
+      <p>
+        {hi
+          ? "इस चेकआउट की समय सीमा समाप्त हो गई है। भुगतान से पहले योजना फिर चुनें और नवीनतम राशि तथा MITC की समीक्षा करें।"
+          : "This checkout has expired. Choose a plan again and review the latest price and MITC before paying."}
+      </p>
+      <a className="button secondary" href="#choose-plan">
+        {hi ? "योजना फिर चुनें" : "Choose a plan again"}
+      </a>
+    </div>
+  );
+}
+
 /** Default to QR, exposing instructions only after the server reserves an agreement-bound payment. */
 export function PaymentChooser({
   order,
@@ -76,7 +113,7 @@ export function PaymentChooser({
   const [method, setMethod] = useState(view.qrEnabled ? "qr" : "cashfree"),
     [payment, setPayment] = useState<QrPayment | null>(null),
     [loadError, setLoadError] = useState(false);
-  const expired = Date.parse(order.expiresAt) <= Date.now();
+  const expired = useCheckoutExpired(order.expiresAt);
   const qr = order.paymentMethod === "qr";
   /** Recover the frozen payment after reload, including proof submission after quote expiry. */
   async function load() {
@@ -251,6 +288,8 @@ export function PaymentChooser({
       </div>
     );
   if (order.status === "cancelled") return null;
+  if (order.status === "signed" && expired)
+    return <ExpiredCheckoutNotice hi={hi} />;
   return (
     <div className="payment-panel">
       {order.status === "signed" && order.total > 0 && (

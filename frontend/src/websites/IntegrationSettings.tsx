@@ -150,8 +150,8 @@ export function IntegrationSettings({
           )}
           {!telegram && settings.locked && (
             <p className="settings-feedback" role="status">
-              A checkout or payment already uses this merchant configuration.
-              Contact platform support to rotate credentials safely.
+              A Cashfree checkout has already started for this RA. Contact
+              platform support to rotate credentials safely.
             </p>
           )}
           <form

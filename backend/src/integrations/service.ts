@@ -101,13 +101,13 @@ export class IntegrationSettingsService {
       ? { ...config, version: 0, provider: "cashfree", enabled: true }
       : undefined;
   }
-  /** Prevent merchant switching once retained checkout/payment evidence depends on the original account. */
+  /** Lock merchant settings only when retained Cashfree session, method or legacy payment evidence binds an account. */
   private async paymentLocked(
     manager: Pick<EntityManager, "query">,
     tenantId: string,
   ) {
     const [order] = await manager.query(
-      "SELECT id FROM subscription_orders WHERE tenant_id=? AND status<>'cancelled' LIMIT 1 FOR UPDATE",
+      "SELECT id FROM subscription_orders WHERE tenant_id=? AND (payment_session IS NOT NULL OR payment_method='cashfree' OR (payment_method IS NULL AND payment_id IS NOT NULL AND payment_id<>'no_charge')) LIMIT 1 FOR UPDATE",
       [tenantId],
     );
     return !!order;

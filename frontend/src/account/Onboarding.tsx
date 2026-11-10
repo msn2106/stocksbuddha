@@ -1,6 +1,11 @@
 import { SignatureInput } from "./SignatureInput";
 import type { SignatureMark } from "@ra/contracts";
-import { PaymentChooser, QrReviewQueue } from "./Payments";
+import {
+  PaymentChooser,
+  QrReviewQueue,
+  ExpiredCheckoutNotice,
+  useCheckoutExpired,
+} from "./Payments";
 import { MobileVerification } from "./MobileVerification";
 import { DeliveryStatus } from "./DeliveryStatus";
 import { AgreementSamples } from "./AgreementSamples";
@@ -1397,6 +1402,7 @@ function Investor({
   const customer = view.customer!,
     verified = ["verified", "skipped_dev"].includes(customer.status);
   const current = view.orders.find((order) => order.status !== "cancelled");
+  const currentExpired = useCheckoutExpired(current?.expiresAt);
   const active =
     current?.status === "paid" &&
     Boolean(current.endsAt && Date.parse(current.endsAt) > Date.now());
@@ -1481,6 +1487,8 @@ function Investor({
               {!active &&
                 (!current ||
                   current.status === "cancelled" ||
+                  (currentExpired &&
+                    ["quoted", "signed"].includes(current.status)) ||
                   (current.status === "paid" && !active)) && (
                   <form
                     className="workspace-form onboarding-form"
@@ -1592,7 +1600,7 @@ function Checkout({
   hi: boolean;
   base: string;
 }) {
-  const expired = Date.parse(order.expiresAt) <= Date.now();
+  const expired = useCheckoutExpired(order.expiresAt);
   const [previewOpen, setPreviewOpen] = useState(order.status === "quoted");
   const [mark, setMark] = useState<SignatureMark | null>({
     mode: "typed",
@@ -1628,6 +1636,9 @@ function Checkout({
           {hi ? "चेकआउट की समय सीमा:" : "Checkout valid until:"}{" "}
           {new Date(order.expiresAt).toLocaleString(hi ? "hi-IN" : "en-IN")}
         </p>
+      )}
+      {expired && order.status === "quoted" && (
+        <ExpiredCheckoutNotice hi={hi} />
       )}
       <details
         open={previewOpen}

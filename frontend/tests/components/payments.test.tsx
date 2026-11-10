@@ -7,12 +7,15 @@ import {
   screen,
   fireEvent,
   waitFor,
+  act,
+  renderHook,
 } from "@testing-library/react";
 import type { OnboardingView, OrderView } from "@ra/contracts";
 import {
   PaymentChooser,
   QrReviewQueue,
   paymentFile,
+  useCheckoutExpired,
 } from "../../src/account/Payments";
 import { PaymentSettings } from "../../src/websites/PaymentSettings";
 const originalFetch = globalThis.fetch,
@@ -157,13 +160,10 @@ test("expired and free checkouts preserve boundaries; failed provider confirmati
       {...f}
     />,
   );
+  assert.ok(screen.getByRole("link", { name: "योजना फिर चुनें" }));
   assert.equal(
-    (
-      screen.getByRole("button", {
-        name: "QR दिखाएँ और भुगतान करें",
-      }) as HTMLButtonElement
-    ).disabled,
-    true,
+    screen.queryByRole("button", { name: "QR दिखाएँ और भुगतान करें" }),
+    null,
   );
   cleanup();
   render(
@@ -569,4 +569,77 @@ test("QR settings recover from initial load failure and save uploaded replacemen
   );
   await waitFor(() => assert.equal(bodies.length, 2));
   assert.equal(bodies[1].removeImage, true);
+});
+
+test("an open payment chooser expires at its deadline and preserves pending Cashfree recovery", async (context) => {
+  const now = new Date("2026-11-10T12:00:00Z");
+  context.mock.timers.enable({ apis: ["Date", "setTimeout"], now });
+  const f = controls();
+  const mounted = render(
+    <PaymentChooser
+      order={{
+        ...order,
+        expiresAt: new Date(now.getTime() + 1000).toISOString(),
+      }}
+      view={view}
+      api={api}
+      hi={false}
+      pending={false}
+      {...f}
+    />,
+  );
+  assert.equal(
+    screen
+      .getByRole("button", { name: "Show QR and pay" })
+      .hasAttribute("disabled"),
+    false,
+  );
+  await act(async () => context.mock.timers.tick(1001));
+  assert.ok(screen.getByText(/This checkout has expired/));
+  assert.equal(
+    screen
+      .getByRole("link", { name: "Choose a plan again" })
+      .getAttribute("href"),
+    "#choose-plan",
+  );
+  assert.equal(screen.queryByRole("radio"), null);
+  assert.equal(f.calls.length, 0);
+  mounted.unmount();
+  render(
+    <PaymentChooser
+      order={{
+        ...order,
+        expiresAt: "2000-01-01",
+        status: "payment_pending",
+        paymentMethod: "cashfree",
+      }}
+      view={view}
+      api={api}
+      hi={false}
+      pending={false}
+      {...f}
+    />,
+  );
+  assert.ok(screen.getByRole("button", { name: "Check payment status" }));
+  assert.equal(
+    screen.queryByRole("link", { name: "Choose a plan again" }),
+    null,
+  );
+});
+
+test("expiry timers reset for fresh orders, ignore absent dates and clean up after unmount", async (context) => {
+  const now = new Date("2026-11-10T12:00:00Z");
+  context.mock.timers.enable({ apis: ["Date", "setTimeout"], now });
+  const hook = renderHook(
+    ({ expiresAt }: { expiresAt?: string }) => useCheckoutExpired(expiresAt),
+    { initialProps: { expiresAt: undefined } as { expiresAt?: string } },
+  );
+  assert.equal(hook.result.current, false);
+  hook.rerender({ expiresAt: new Date(now.getTime() + 1000).toISOString() });
+  await act(async () => context.mock.timers.tick(1001));
+  assert.equal(hook.result.current, true);
+  hook.rerender({ expiresAt: new Date(now.getTime() + 10000).toISOString() });
+  assert.equal(hook.result.current, false);
+  hook.unmount();
+  await act(async () => context.mock.timers.tick(10000));
 });
