@@ -63,6 +63,7 @@ export type AgreementSettings = {
 export type OrderView = {
   id: string;
   status: string;
+  paymentMethod?: "qr" | "cashfree" | null;
   planName: string;
   subtotal: number;
   discount: number;
@@ -84,6 +85,7 @@ export type OnboardingView = {
   devSkip: boolean;
   signingEnabled: boolean;
   paymentEnabled: boolean;
+  qrEnabled?: boolean;
   plans: Plan[];
   coupons: Coupon[];
   settings: AgreementSettings | null;

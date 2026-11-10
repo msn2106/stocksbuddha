@@ -1,3 +1,4 @@
+import { PaymentSettings } from "./PaymentSettings";
 import { IntegrationSettings } from "./IntegrationSettings";
 import { SmsSettings } from "./SmsSettings";
 import { useEffect, useState, useRef } from "react";
@@ -35,7 +36,7 @@ const tabs = [
   "Footer",
   "SMS Settings",
   "Telegram Settings",
-  "Payment Gateway Settings",
+  "Payment Settings",
 ] as const;
 const defaults = ["research", "approach", "about", "investor"] as const;
 
@@ -98,7 +99,7 @@ export function WebsiteEditor({ tenant }: { tenant: Tenant }) {
   const integrationTab = [
     "SMS Settings",
     "Telegram Settings",
-    "Payment Gateway Settings",
+    "Payment Settings",
   ].includes(tab);
   const snapshot = state.snapshot;
   /** Apply an isolated local edit and invalidate the saved preview without mutating the source snapshot. */
@@ -867,10 +868,9 @@ export function WebsiteEditor({ tenant }: { tenant: Tenant }) {
           onBusyChange={setPrivateBusy}
         />
       )}
-      {tab === "Payment Gateway Settings" && (
-        <IntegrationSettings
+      {tab === "Payment Settings" && (
+        <PaymentSettings
           slug={tenant.slug}
-          kind="payment"
           onDirtyChange={setPrivateDirty}
           onBusyChange={setPrivateBusy}
         />

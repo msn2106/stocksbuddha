@@ -45,7 +45,31 @@ export function mountOnboarding(
     };
     next();
   });
-  api.use(express.json({ limit: "64kb" }));
+  api.use((req, res, next) =>
+    express.json({
+      limit: ["/qr-settings", "/qr-submit"].includes(req.path) ? "3mb" : "64kb",
+    })(req, res, next),
+  );
+  api.get("/qr-settings", async (_req, res) =>
+    res.json(await service.qrSettings(res.locals.onboardingContext)),
+  );
+  api.get("/qr-payments", async (_req, res) =>
+    res.json(await service.qrQueue(res.locals.onboardingContext)),
+  );
+  api.get("/qr-payment/:id", async (req, res) =>
+    res.json(
+      await service.qrPayment(res.locals.onboardingContext, req.params.id),
+    ),
+  );
+  api.get("/qr-payment/:id/proof", async (req, res) => {
+    const file = await service.qrProof(
+      res.locals.onboardingContext,
+      req.params.id,
+    );
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Disposition", `attachment; filename="${file.name}"`);
+    res.type(file.mime).send(file.bytes);
+  });
   api.get("/", async (req, res) => {
     res.json(
       await service.read(
@@ -89,6 +113,14 @@ export function mountOnboarding(
         return res.json(await service.sign(context, body));
       case "skip":
         return res.json(await service.skip(context, body));
+      case "qr-settings":
+        return res.json(await service.qrSettings(context, body));
+      case "qr-start":
+        return res.json(await service.startQr(context, body.orderId));
+      case "qr-submit":
+        return res.json(await service.submitQr(context, body));
+      case "qr-review":
+        return res.json(await service.reviewQr(context, body));
       case "payment":
         return res.json(await service.payment(context, body.orderId));
       case "confirm":

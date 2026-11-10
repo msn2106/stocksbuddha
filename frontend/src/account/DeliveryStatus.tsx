@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 type Job = {
   id: string;
   paymentStatus: string;
+  paymentMethod?: string | null;
   deliveryStatus: string | null;
   attempts: number;
   queuedAt: string;
@@ -85,17 +86,26 @@ export function DeliveryStatus({ api, hi }: { api: string; hi: boolean }) {
                 {hi ? "कतार में" : "Queued"}: {job.queuedAt} ·{" "}
                 {hi ? "अगला प्रयास" : "Next attempt"}: {job.availableAt ?? "—"}
               </p>
-              {(job.paymentStatus === "payment_pending" ||
-                job.deliveryStatus === "pending" ||
-                job.deliveryStatus === "sending") && (
-                <button
-                  className="button secondary"
-                  type="button"
-                  disabled={pending}
-                  onClick={() => void retry(job.id)}
-                >
-                  {hi ? "पुनः प्रयास" : "Retry"}
-                </button>
+              {job.paymentMethod === "qr" &&
+              job.paymentStatus === "payment_pending" ? (
+                <p>
+                  {hi
+                    ? "ऊपर QR भुगतान समीक्षा में जाँचें।"
+                    : "Use QR payment reviews above to check this payment."}
+                </p>
+              ) : (
+                (job.paymentStatus === "payment_pending" ||
+                  job.deliveryStatus === "pending" ||
+                  job.deliveryStatus === "sending") && (
+                  <button
+                    className="button secondary"
+                    type="button"
+                    disabled={pending}
+                    onClick={() => void retry(job.id)}
+                  >
+                    {hi ? "पुनः प्रयास" : "Retry"}
+                  </button>
+                )
               )}
             </li>
           ))}

@@ -20,6 +20,11 @@ export async function privateRequest(api: string, body?: unknown) {
 /** Translate actionable integration failures without displaying provider payloads. */
 export function settingsError(code: string): string {
   const messages: Record<string, string> = {
+    invalid_qr_settings:
+      "Enter a payee name and valid UPI ID (for example research@bank).",
+    qr_image_required: "Upload a QR image before enabling QR payments.",
+    invalid_payment_file:
+      "Use a valid PNG or JPEG up to 1 MB for the QR, or payment proof up to 2 MB (PNG, JPEG or PDF).",
     version_conflict:
       "These settings changed in another window. Reload, review and save again.",
     invalid_sms_settings:
@@ -35,7 +40,7 @@ export function settingsError(code: string): string {
     integration_credentials_required:
       "Enter the provider credential for this first save. Existing credentials can be left blank.",
     payment_settings_locked:
-      "Payment settings are locked because a checkout or payment already exists. Contact platform support to rotate merchant credentials safely.",
+      "Cashfree credentials are locked because a checkout or payment already exists. Contact platform support to rotate merchant credentials safely.",
     sandbox_forbidden_in_production:
       "Production websites require production Cashfree credentials.",
     production_payments_not_approved:

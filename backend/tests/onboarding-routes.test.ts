@@ -153,6 +153,10 @@ test("onboarding APIs derive identity and tenant, enforce origin, parse bounded 
     "code",
     "sign",
     "skip",
+    "qr-settings",
+    "qr-start",
+    "qr-submit",
+    "qr-review",
     "payment",
     "confirm",
     "cancel",
@@ -293,4 +297,35 @@ test("queue status and retry routes derive their context from the authenticated 
     200,
   );
   assert.equal(state.calls.at(-1)?.operation, "retryJob");
+});
+
+test("QR read and evidence APIs retain workspace auth, no-store, attachment headers and bounded request bodies", async () => {
+  const { state, request } = harness();
+  for (const endpoint of ["qr-settings", "qr-payments", "qr-payment/order"]) {
+    const response = await request(`${path}/${endpoint}`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers["cache-control"], "no-store");
+  }
+  const oversized = Buffer.from(JSON.stringify({ image: "a".repeat(3200000) }));
+  assert.equal(
+    (await request(`${path}/qr-settings`, "POST", oversized, origin)).status,
+    413,
+  );
+  assert.equal(
+    (await request(`${path}/qr-submit`, "POST", oversized, origin)).status,
+    413,
+  );
+  assert.equal(
+    (
+      await request(
+        `${path}/qr-start`,
+        "POST",
+        Buffer.from(JSON.stringify({ image: "a".repeat(100000) })),
+        origin,
+      )
+    ).status,
+    413,
+  );
+  state.signedIn = false;
+  assert.equal((await request(`${path}/qr-payment/order/proof`)).status, 401);
 });

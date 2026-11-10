@@ -1,6 +1,6 @@
 # MariaDB persistence
 
-The current twenty-nine-table schema uses TypeORM and mysql2. Nineteen ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
+The current thirty-one-table schema uses TypeORM and mysql2. Twenty ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
 
 ## Local setup
 
@@ -102,7 +102,7 @@ Apply additive migration `1794355200000-RecoveryEmailLimits` explicitly before s
 
 ## Private integrations and template libraries
 
-Apply `1794441600000-TenantIntegrations` (migration 19) explicitly before startup. It creates `tenant_integrations` for separately versioned encrypted Telegram/payment credentials and expands `sms_settings.config_cipher` to `MEDIUMTEXT` for up to 100 SMS templates. Current totals are 29 tables including metadata. Preserve the existing encryption key; no public website revision contains these credentials. See [configuration and merchant editing restrictions](../docs/WEBSITE_EDITOR.md#private-service-settings).
+Apply `1794441600000-TenantIntegrations` (migration 19) explicitly before startup. It creates `tenant_integrations` for separately versioned encrypted Telegram/payment credentials and expands `sms_settings.config_cipher` to `MEDIUMTEXT` for up to 100 SMS templates. That migration brought the total to 29 tables including metadata; the current QR migration below brings it to 31. Preserve the existing encryption key; no public website revision contains these credentials. See [configuration and merchant editing restrictions](../docs/WEBSITE_EDITOR.md#private-service-settings).
 
 ## Legacy development onboarding encryption
 
@@ -129,3 +129,7 @@ JS
 ```
 
 For a reviewed apply, pass `true` and a callback that writes the supplied original encrypted rows to an exclusively created backup file (owner-only permissions). Never print snapshots, keys or raw driver exceptions. The local November 2026 repair was dry-run and applied with such a backup, then verified through an idempotent rerun and the authenticated Users screen. The automated fixture tests cover unchanged current rows, nested history, signatures, hash conflicts, corrupt data, missing keys, production denial and backup failure.
+
+## QR payment configuration and evidence
+
+Apply `1794528000000-QrPayments` (migration 20) before startup. It adds `ra_qr_settings`, `qr_payment_attempts` and `subscription_orders.payment_method`, backfilling existing Cashfree sessions. Current totals are 31 tables including metadata. QR images/snapshots and payment proofs are bounded encrypted base64 JSON in MariaDB `MEDIUMTEXT`, separately from Google Drive documents; review notes are encrypted and normalized references use tenant-bound keyed hashes with a uniqueness constraint. Preserve the retained `ONBOARDING_DATA_KEY` and include these tables in backups, regulated retention, capacity planning and restore verification. Replacing current settings cannot rewrite an existing attempt. There is no destructive rollback. See [payment states, expiry, manual verification and API limits](../docs/QR_PAYMENTS.md).

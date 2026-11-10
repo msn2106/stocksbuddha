@@ -5,7 +5,7 @@
 ## Implemented
 
 - Local Docker Compose for MariaDB and the DbGate Community browser client; the application continues directly in Node. DbGate is bound to loopback, preconfigured only for the local dev database and excluded from hosted deployment.
-- Twenty-nine constrained InnoDB tables, nineteen TypeORM application migrations and verified metadata bootstrap.
+- Thirty-one constrained InnoDB tables, twenty TypeORM application migrations and verified metadata bootstrap.
 - Separate `stocksbuddha_dev` / `stocksbuddha_prod` targets, including optional Hostinger account prefix. No persistent third environment. SQL timestamp defaults explicitly use UTC expressions; the driver timezone setting controls value conversion and is not assumed to set server timezone.
 - Source-checksum manifest, applied ledger, attempt outcomes, one release lock, drift rejection and refusal to retry failed/unfinished migrations automatically.
 - Repeatable dev preview seeds preserving UUIDs, localized websites, owner edits and explicit unpublication.
@@ -78,7 +78,7 @@ The schema now includes migration `CreateDocuments1794009600000`, adding the `do
 
 ## Investor onboarding extension — 8 November 2026
 
-Migration `1794096000000-InvestorOnboarding` adds `ra_agreement_settings`, `subscription_plans`, `discount_codes`, `investor_kyc`, `kyc_history`, `subscription_orders`, `onboarding_deliveries` and `auth_users.signup_phone`. Current totals are nineteen application migrations and twenty-nine tables including metadata. Identity/agreement snapshots are encrypted; per-tenant row locks serialize reservations and transitions. Payment activation and durable delivery jobs commit together. Apply this migration explicitly before startup. See [schema, operating rules and encryption-key recovery](INVESTOR_ONBOARDING.md).
+Migration `1794096000000-InvestorOnboarding` adds `ra_agreement_settings`, `subscription_plans`, `discount_codes`, `investor_kyc`, `kyc_history`, `subscription_orders`, `onboarding_deliveries` and `auth_users.signup_phone`. Current totals are twenty application migrations and thirty-one tables including metadata. Identity/agreement snapshots are encrypted; per-tenant row locks serialize reservations and transitions. Payment activation and durable delivery jobs commit together. Apply this migration explicitly before startup. See [schema, operating rules and encryption-key recovery](INVESTOR_ONBOARDING.md).
 
 ## Document transfer concurrency extension
 
@@ -92,4 +92,8 @@ Migration `1794268800000-MobileVerification` is the seventeenth application migr
 
 `1794355200000-RecoveryEmailLimits` is migration 18 and adds `recovery_email_sends`, for 28 tables at that migration including metadata. Apply it explicitly before startup. This ledger persists global account-level email recovery reservations; a locked identity row prevents concurrent sends from exceeding either the minute cooldown or the rolling five-send daily allowance. SMTP is outside the transaction. The native Better Auth reset-mail callback applies the reservation to all production reset entry points.
 
-Migration 19, `1794441600000-TenantIntegrations`, adds separately encrypted/versioned private Telegram/payment settings and expands the existing SMS ciphertext column for a template library. Current totals are nineteen application migrations and twenty-nine tables including metadata. Apply it before startup; legacy SMS records are normalized into starter templates on read. See [private configuration](WEBSITE_EDITOR.md#private-service-settings).
+Migration 19, `1794441600000-TenantIntegrations`, adds separately encrypted/versioned private Telegram/payment settings and expands the existing SMS ciphertext column for a template library. Current totals are twenty application migrations and thirty-one tables including metadata. Apply it before startup; legacy SMS records are normalized into starter templates on read. See [private configuration](WEBSITE_EDITOR.md#private-service-settings).
+
+## QR payment extension
+
+Migration 20 (`1794528000000-QrPayments`) adds encrypted current RA QR settings, retained per-order manual payment claims/reviews and an explicit order payment method. Current totals are twenty application migrations and thirty-one tables including metadata. Apply all migrations through this version before startup. QR setup remains independent of Cashfree credential locks; each started attempt freezes its receiving details. Review/claim version checks use current locking reads after tenant serialization. SMS and integration authorization follow the onboarding user/session/tenant/member lock order to avoid concurrent-session inversions. See [QR schema/storage, API and operating rules](QR_PAYMENTS.md).

@@ -108,7 +108,7 @@ test("RA configures private template library and dedicated integration tabs acro
     fullPage: true,
   });
   await page
-    .getByRole("button", { name: "Payment Gateway Settings", exact: true })
+    .getByRole("button", { name: "Payment Settings", exact: true })
     .click();
   await page
     .getByLabel("Client ID", { exact: true })

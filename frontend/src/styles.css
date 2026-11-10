@@ -4207,3 +4207,158 @@ footer[data-footer="compact"] .footer-top {
     min-height: 42px;
   }
 }
+
+/* Payment instructions share the account/editor typography and calm verification hierarchy. */
+.payment-settings {
+  display: grid;
+  gap: 2rem;
+}
+.payment-panel {
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-block: 1.25rem;
+  min-width: 0;
+}
+.payment-panel h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.payment-panel p,
+.qr-review-list small {
+  overflow-wrap: anywhere;
+}
+.payment-methods {
+  border: 0;
+  padding: 0;
+  margin: 0 0 1.25rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.payment-methods legend {
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+.payment-methods label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid var(--border);
+  padding: 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.payment-methods label:has(input:checked) {
+  border-color: var(--primary);
+  background: #edf2e9;
+}
+.payment-methods label:has(input:disabled) {
+  opacity: 0.65;
+  cursor: default;
+}
+.payment-methods small,
+.qr-review-list span,
+.qr-review-list small {
+  display: block;
+  margin-top: 0.3rem;
+}
+.qr-payment-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+.payment-qr {
+  display: block;
+  width: 240px;
+  height: 240px;
+  max-width: 100%;
+  object-fit: contain;
+  background: white;
+  border: 1px solid #ddd;
+  padding: 12px;
+  border-radius: 4px;
+}
+.payment-amount {
+  font-size: 1.75rem;
+  font-weight: 650;
+  margin-top: 0;
+  font-variant-numeric: tabular-nums;
+}
+.payment-download {
+  display: inline-block;
+  padding-block: 0.75rem;
+}
+.payment-review-state {
+  display: flex;
+  align-items: start;
+  gap: 0.75rem;
+}
+.payment-review-state svg {
+  flex-shrink: 0;
+}
+.qr-review-list {
+  padding: 0;
+  list-style: none;
+}
+.qr-review-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.qr-review-list li > div {
+  min-width: 0;
+}
+.qr-review-detail {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+.payment-check {
+  display: flex;
+  gap: 0.75rem;
+  align-items: start;
+}
+.payment-check input {
+  width: auto;
+  flex-shrink: 0;
+  margin-top: 0.3rem;
+}
+.qr-settings-preview {
+  display: grid;
+  justify-items: start;
+  gap: 0.75rem;
+}
+@media (max-width: 600px) {
+  .payment-panel {
+    padding: 1rem;
+  }
+  .payment-methods,
+  .qr-payment-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .qr-review-list li {
+    align-items: start;
+    flex-direction: column;
+  }
+}
+
+.payment-panel > :is(p, h2, h3, form, div) + :is(p, h2, h3, form, div) {
+  margin-top: 1rem;
+}
+.payment-panel a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.payment-panel .payment-methods {
+  margin-top: 0;
+}
+
+.payment-panel h2 {
+  font-size: clamp(1.75rem, 2.4vw, 2rem);
+  margin-bottom: 0.75rem;
+}

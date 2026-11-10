@@ -78,7 +78,8 @@ function fixture(admin = false) {
     result: Record<string, unknown> = { id: "new-id" };
   globalThis.FormData = window.FormData;
   globalThis.fetch = async (url, init) => {
-    if (String(url).endsWith("/jobs")) return Response.json([]);
+    if (String(url).endsWith("/jobs") || String(url).endsWith("/qr-payments"))
+      return Response.json([]);
     if (init?.method === "POST") {
       const name = String(url).split("/").at(-1)!;
       const body = typeof init.body === "string" ? JSON.parse(init.body) : {};

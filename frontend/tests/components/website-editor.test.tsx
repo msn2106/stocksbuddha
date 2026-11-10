@@ -388,6 +388,15 @@ test("private settings have separate tabs, publication actions stay separate and
         trial: true,
         events: [],
       });
+    if (String(url).endsWith("/qr-settings"))
+      return Response.json({
+        version: 0,
+        enabled: false,
+        image: "",
+        payee: "",
+        upiId: "",
+        instructions: "",
+      });
     if (String(url).includes("/integrations/"))
       return Response.json({ version: 0, configured: false });
     return baseFetch(url, init);
@@ -407,7 +416,7 @@ test("private settings have separate tabs, publication actions stay separate and
   window.confirm = () => true;
   click("Telegram Settings");
   await screen.findByLabelText("Bot token");
-  click("Payment Gateway Settings");
+  click("Payment Settings");
   await screen.findByLabelText("Client ID");
   click("Branding");
   await screen.findByLabelText("Website name");

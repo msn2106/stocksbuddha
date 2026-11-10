@@ -1,3 +1,4 @@
+import { PaymentChooser, QrReviewQueue } from "./Payments";
 import { MobileVerification } from "./MobileVerification";
 import { DeliveryStatus } from "./DeliveryStatus";
 import { sampleResearchAgreement } from "@ra/contracts";
@@ -34,6 +35,50 @@ type Run = (
   refresh?: boolean,
 ) => Promise<void>;
 const errors: Record<string, [string, string]> = {
+  invalid_payment_file: [
+    "Use valid payment proof up to 2 MB (PNG, JPEG or PDF).",
+    "PNG, JPEG या PDF प्रमाण (अधिकतम 2 MB) चुनें।",
+  ],
+  invalid_qr_submission: [
+    "Enter a transaction reference (6–40 letters or digits), date and payment proof.",
+    "लेनदेन संदर्भ (6–40 अक्षर या अंक), तारीख और प्रमाण दर्ज करें।",
+  ],
+  invalid_payment_date: [
+    "Payment time must be after you started this QR payment and cannot be in the future.",
+    "भुगतान समय QR भुगतान शुरू होने के बाद का होना चाहिए और भविष्य का नहीं हो सकता।",
+  ],
+  payment_reference_used: [
+    "This transaction reference was already submitted to this RA. Contact your RA to resolve it.",
+    "यह लेनदेन संदर्भ पहले जमा हो चुका है। अपने आरए से संपर्क करें।",
+  ],
+  payment_method_locked: [
+    "A payment is already in progress. Resolve it before choosing another method.",
+    "भुगतान जारी है। दूसरा तरीका चुनने से पहले इसे सुलझाएँ।",
+  ],
+  qr_manual_review_required: [
+    "QR payments require a bank check in QR payment reviews.",
+    "QR भुगतान की बैंक जाँच QR भुगतान समीक्षा में करें।",
+  ],
+  qr_already_submitted: [
+    "Payment proof is already submitted. Refresh to see its review status.",
+    "प्रमाण जमा हो चुका है। समीक्षा स्थिति के लिए रीफ़्रेश करें।",
+  ],
+  qr_already_reviewed: [
+    "This payment has already been reviewed. Refresh the page.",
+    "इस भुगतान की समीक्षा हो चुकी है। पेज रीफ़्रेश करें।",
+  ],
+  invalid_qr_review: [
+    "Enter a review note and confirm that you checked the receiving bank account.",
+    "समीक्षा नोट दर्ज करें और बैंक खाते की जाँच की पुष्टि करें।",
+  ],
+  qr_proof_required: [
+    "The investor must submit payment proof before approval.",
+    "अनुमोदन से पहले निवेशक को भुगतान प्रमाण जमा करना होगा।",
+  ],
+  qr_unavailable: [
+    "QR payments are unavailable for this RA. Refresh to see other methods.",
+    "इस आरए के लिए QR भुगतान उपलब्ध नहीं है। अन्य तरीकों के लिए रीफ़्रेश करें।",
+  ],
   version_conflict: [
     "This record changed. Refresh and review it before saving again.",
     "यह रिकॉर्ड बदल गया है। रीफ़्रेश करके फिर जाँचें।",
@@ -297,7 +342,12 @@ export function Onboarding({
           {message}
         </p>
       )}
-      {view?.admin && <DeliveryStatus key={api} api={api} hi={hi} />}
+      {view?.admin && (
+        <>
+          <QrReviewQueue api={api} run={run} pending={pending} />
+          <DeliveryStatus key={api} api={api} hi={hi} />
+        </>
+      )}
       {!view ? (
         <p role="status">{hi ? "लोड हो रहा है…" : "Loading your workspace…"}</p>
       ) : view.admin ? (
@@ -1486,7 +1536,11 @@ function Investor({
           )}
           {view.orders
             .filter(
-              (order) => order.status === "paid" && order.id !== current?.id,
+              (order) =>
+                (order.status === "paid" ||
+                  (order.status === "cancelled" &&
+                    order.paymentMethod === "qr")) &&
+                order.id !== current?.id,
             )
             .map((order) => (
               <Checkout
@@ -1636,56 +1690,18 @@ function Checkout({
           Skip MITC — DEV only
         </button>
       )}
-      {["signed", "payment_pending"].includes(order.status) && (
-        <div className="onboarding-actions">
-          {!expired && (
-            <button
-              className="button primary"
-              disabled={pending || (!view.paymentEnabled && order.total !== 0)}
-              onClick={() =>
-                void run(async () => {
-                  const result = await action("payment", { orderId: order.id });
-                  if (typeof result.session === "string")
-                    await hostedCheckout(result.session, String(result.mode));
-                })
-              }
-            >
-              {order.total === 0
-                ? hi
-                  ? "बिना शुल्क सदस्यता की पुष्टि करें"
-                  : "Confirm no-charge subscription"
-                : hi
-                  ? "Cashfree से भुगतान करें"
-                  : "Pay with Cashfree"}
-            </button>
-          )}
-          {order.status === "payment_pending" && (
-            <button
-              className="button secondary"
-              disabled={pending}
-              onClick={() =>
-                void run(
-                  async () => {
-                    const result = await action("confirm", {
-                      orderId: order.id,
-                    });
-                    if (!result.paid) throw new Error("payment_in_progress");
-                  },
-                  hi ? "भुगतान की पुष्टि हो गई।" : "Payment confirmed.",
-                )
-              }
-            >
-              {hi ? "भुगतान स्थिति जाँचें" : "Check payment status"}
-            </button>
-          )}
-          {!view.paymentEnabled && order.total > 0 && (
-            <p>
-              {hi
-                ? "ऑनलाइन भुगतान सक्रिय होने की प्रतीक्षा है।"
-                : "Online payments are awaiting activation for this RA."}
-            </p>
-          )}
-        </div>
+      {(["signed", "payment_pending"].includes(order.status) ||
+        (order.status === "cancelled" && order.paymentMethod === "qr")) && (
+        <PaymentChooser
+          order={order}
+          view={view}
+          action={action}
+          run={run}
+          pending={pending}
+          hi={hi}
+          api={`/api/workspaces/${base.split("/").at(-1)}/onboarding`}
+          checkout={hostedCheckout}
+        />
       )}
       {["quoted", "signed"].includes(order.status) && (
         <button

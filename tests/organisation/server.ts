@@ -77,6 +77,7 @@ for (const email of [
   "onboarding-admin@example.test",
   "onboarding-investor@example.test",
   "onboarding-other@example.test",
+  "qr-investor@example.test",
   "owner@example.test",
   "admin@example.test",
   "analyst@example.test",
@@ -112,6 +113,7 @@ for (const [email, role] of [
   ["onboarding-admin@example.test", "owner"],
   ["onboarding-investor@example.test", "subscriber"],
   ["onboarding-other@example.test", "subscriber"],
+  ["qr-investor@example.test", "subscriber"],
 ]) {
   await db.query(
     "INSERT INTO tenant_memberships(id,tenant_id,user_id,role,status,profile_json,capabilities_json) SELECT ?,t.id,u.id,?,'active','{\"schemaVersion\":1}','{}' FROM tenants t CROSS JOIN auth_users u WHERE t.slug='stocksbuddha' AND u.email=?",
@@ -157,6 +159,7 @@ const integrations = new IntegrationSettingsService(db, {
 });
 const onboarding = new OnboardingService(db, {
   env: {
+    ONBOARDING_DATA_KEY: "a".repeat(64),
     AUTH_SECRET: "test-onboarding-secret-at-least-32-characters",
     AUTH_BASE_URL: origin,
     DB_ENV: "dev",
@@ -199,6 +202,9 @@ const sms = new SmsService(
     await mailer({ to: email, kind: "security", url: `${origin}/login` });
   },
 );
+// Request throttling has dedicated unit/MariaDB tests. This multi-account browser suite
+// shares one loopback IP; retain send quotas but avoid consuming a shared request bucket across cases.
+sms.throttle = async () => {};
 messages.length = 0;
 const service = new OrganisationService(db),
   store = new MariaDbWorkspaceStore(db);
@@ -231,6 +237,11 @@ const app = createPublicApp({
       await onboarding.deliverOne();
       return res.sendStatus(204);
     })
+    .post("/__test/deliver", async (req, res) => {
+      if (req.headers.origin !== origin) return res.sendStatus(403);
+      await onboarding.deliverOne();
+      return res.sendStatus(204);
+    })
     .get("/__test/sms", (_req, res) =>
       res.json(
         smsMessages.map((message) => ({
@@ -242,7 +253,14 @@ const app = createPublicApp({
     .get("/__test/mail", (_req, res) => res.json(messages))
     .post("/__test/suspend-beta", async (req, res) => {
       if (req.headers.origin !== origin) return res.sendStatus(403);
-      await db.query("UPDATE tenants SET status='suspended' WHERE slug='beta'");
+      // Mutate through the primary key, matching runtime tenant locks instead of
+      // taking the slug index first while the account's background read finishes.
+      const [tenant] = await db.query(
+        "SELECT id FROM tenants WHERE slug='beta'",
+      );
+      await db.query("UPDATE tenants SET status='suspended' WHERE id=?", [
+        tenant.id,
+      ]);
       return res.sendStatus(204);
     })
     .use("/assets", express.static("frontend/dist/client/assets")),

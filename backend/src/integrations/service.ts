@@ -48,10 +48,38 @@ export class IntegrationSettingsService {
   }
   /** Recheck the current owner, session, tenant and unsupported overrides under locks. */
   private async owner(manager: EntityManager, context: Context) {
-    const [actor] = await manager.query(
-      "SELECT u.id,m.id AS membership_id,m.capabilities_json,t.slug FROM auth_sessions s JOIN auth_users u ON u.id=s.user_id JOIN tenant_memberships m ON m.user_id=u.id JOIN tenants t ON t.id=m.tenant_id WHERE s.token=? AND s.expires_at>UTC_TIMESTAMP(3) AND u.email_verified=1 AND m.tenant_id=? AND m.role='owner' AND m.status='active' AND t.status='active' FOR UPDATE",
-      [context.token, context.tenantId],
+    // Keep parallel QR/Cashfree settings reads in the same lock order as onboarding.
+    const [identity] = await manager.query(
+      "SELECT u.id FROM auth_sessions s JOIN auth_users u ON u.id=s.user_id WHERE s.token=? AND s.expires_at>UTC_TIMESTAMP(3) AND u.email_verified=1",
+      [context.token],
     );
+    requireValue(identity, "forbidden", 403);
+    const [user] = await manager.query(
+      "SELECT id,email_verified FROM auth_users WHERE id=? FOR UPDATE",
+      [identity.id],
+    );
+    const [session] = await manager.query(
+      "SELECT id FROM auth_sessions WHERE token=? AND user_id=? AND expires_at>UTC_TIMESTAMP(3) LOCK IN SHARE MODE",
+      [context.token, identity.id],
+    );
+    const [tenant] = await manager.query(
+      "SELECT id,slug FROM tenants WHERE id=? AND status='active' FOR UPDATE",
+      [context.tenantId],
+    );
+    requireValue(user?.email_verified && session && tenant, "forbidden", 403);
+    const [member] = await manager.query(
+      "SELECT id,role,capabilities_json FROM tenant_memberships WHERE tenant_id=? AND user_id=? AND status='active' FOR UPDATE",
+      [context.tenantId, identity.id],
+    );
+    const actor =
+      member?.role === "owner"
+        ? {
+            id: identity.id,
+            membership_id: member.id,
+            slug: tenant.slug,
+            capabilities_json: member.capabilities_json,
+          }
+        : undefined;
     requireValue(actor, "forbidden", 403);
     const overrides =
       typeof actor.capabilities_json === "string"
@@ -79,7 +107,7 @@ export class IntegrationSettingsService {
     tenantId: string,
   ) {
     const [order] = await manager.query(
-      "SELECT id FROM subscription_orders WHERE tenant_id=? AND status<>'cancelled' LIMIT 1",
+      "SELECT id FROM subscription_orders WHERE tenant_id=? AND status<>'cancelled' LIMIT 1 FOR UPDATE",
       [tenantId],
     );
     return !!order;
@@ -94,7 +122,7 @@ export class IntegrationSettingsService {
     return this.db.transaction(async (manager) => {
       const actor = await this.owner(manager, context);
       const [row] = await manager.query(
-        "SELECT config_cipher,version FROM tenant_integrations WHERE tenant_id=? AND kind=?",
+        "SELECT config_cipher,version FROM tenant_integrations WHERE tenant_id=? AND kind=? FOR UPDATE",
         [context.tenantId, kind],
       );
       const config: Partial<Telegram & Payment> | undefined = row
@@ -129,7 +157,7 @@ export class IntegrationSettingsService {
     return this.db.transaction(async (manager) => {
       const actor = await this.owner(manager, context);
       const [row] = await manager.query(
-        "SELECT config_cipher,version FROM tenant_integrations WHERE tenant_id=? AND kind=?",
+        "SELECT config_cipher,version FROM tenant_integrations WHERE tenant_id=? AND kind=? FOR UPDATE",
         [context.tenantId, kind],
       );
       requireValue(
@@ -197,7 +225,7 @@ export class IntegrationSettingsService {
     manager: Pick<EntityManager, "query"> = this.db,
   ): Promise<PaymentGateway | undefined> {
     const [row] = await manager.query(
-      "SELECT i.config_cipher FROM tenant_integrations i JOIN tenants t ON t.id=i.tenant_id WHERE t.slug=? AND t.status='active' AND i.kind='payment'",
+      "SELECT i.config_cipher FROM tenant_integrations i JOIN tenants t ON t.id=i.tenant_id WHERE t.slug=? AND t.status='active' AND i.kind='payment' LOCK IN SHARE MODE",
       [slug],
     );
     if (!row) return fallback;

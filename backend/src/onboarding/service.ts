@@ -1,3 +1,10 @@
+import {
+  qrFile,
+  qrSettingsSchema,
+  qrSubmissionSchema,
+  qrReviewSchema,
+  type QrSettings,
+} from "./qr";
 import { indianMobile } from "../sms/policy";
 import { requireVerifiedMobile } from "../sms/kyc";
 import { reportBackground } from "../background-monitoring";
@@ -85,6 +92,7 @@ type OrderRow = {
   agreement_id: string | null;
   invoice_id: string | null;
   payment_session: string | null;
+  payment_method: "qr" | "cashfree" | null;
   otp_hash: string | null;
   otp_attempts: number;
   otp_sent_at: string | null;
@@ -349,6 +357,7 @@ export class OnboardingService {
     return {
       id: row.id,
       status: row.status,
+      paymentMethod: row.payment_method,
       planName: snapshot.planName,
       subtotal: row.subtotal,
       discount: row.discount,
@@ -435,6 +444,9 @@ export class OnboardingService {
         devSkip: devEnabled(this.options.env),
         signingEnabled: this.signingEnabled(),
         paymentEnabled: Boolean(await this.gateway(actor.slug, manager)),
+        qrEnabled:
+          this.signingEnabled() &&
+          Boolean((await this.qrConfig(manager, actor.tenantId))?.enabled),
         plans,
         coupons,
         settings: admin ? settings : null,
@@ -1231,6 +1243,297 @@ export class OnboardingService {
       return { id: row.id };
     });
   }
+  /** Read retained private configuration inside the caller's tenant transaction. */
+  private async qrConfig(
+    manager: EntityManager,
+    tenantId: string,
+  ): Promise<QrSettings | null> {
+    const [row] = await manager.query(
+      "SELECT config_cipher,version FROM ra_qr_settings WHERE tenant_id=? FOR UPDATE",
+      [tenantId],
+    );
+    return row ? unseal<QrSettings>(this.secret, row.config_cipher) : null;
+  }
+  /** RA-only settings are independent of the frozen Cashfree merchant configuration. */
+  async qrSettings(context: OnboardingContext, input?: unknown) {
+    return this.db.transaction(async (manager) => {
+      const actor = await this.actor(manager, context);
+      requireValue(actor.role === "owner", "forbidden", 403);
+      const [row] = await manager.query(
+        "SELECT config_cipher,version FROM ra_qr_settings WHERE tenant_id=? FOR UPDATE",
+        [actor.tenantId],
+      );
+      const previous = row
+        ? unseal<QrSettings>(this.secret, row.config_cipher)
+        : { enabled: false, payee: "", upiId: "", instructions: "", image: "" };
+      if (input === undefined)
+        return { ...previous, version: row?.version ?? 0 };
+      const parsed = qrSettingsSchema.safeParse(input);
+      requireValue(parsed.success, "invalid_qr_settings", 422);
+      const { version, removeImage, ...values } = parsed.data;
+      requireValue(version === (row?.version ?? 0), "version_conflict", 409);
+      const config = {
+        ...values,
+        image: removeImage ? "" : (values.image ?? previous.image),
+      };
+      if (config.image) qrFile(config.image);
+      requireValue(!config.enabled || config.image, "qr_image_required", 422);
+      await manager.query(
+        "INSERT INTO ra_qr_settings(tenant_id,config_cipher,version) VALUES (?,?,?) ON DUPLICATE KEY UPDATE config_cipher=VALUES(config_cipher),version=VALUES(version)",
+        [actor.tenantId, seal(this.secret, config), version + 1],
+      );
+      await this.audit(manager, actor, "qr.settings.updated", actor.tenantId);
+      return { ...config, version: version + 1 };
+    });
+  }
+  /** Reserve one manual payment and freeze its payee before revealing the QR; archive consent first. */
+  async startQr(context: OnboardingContext, id: unknown) {
+    await this.db.transaction(async (manager) => {
+      const actor = await this.actor(manager, context),
+        row = await this.order(manager, actor, id);
+      requireValue(
+        row.status === "signed" ||
+          (row.status === "payment_pending" && row.payment_method === "qr"),
+        "agreement_required",
+        409,
+      );
+      if (row.payment_method !== "qr") await this.eligible(manager, row);
+    });
+    await this.archive(uuid(id));
+    return this.db.transaction(async (manager) => {
+      const actor = await this.actor(manager, context),
+        row = await this.order(manager, actor, id);
+      requireValue(
+        this.signingEnabled() &&
+          (this.options.env.NODE_ENV !== "production" || !row.dev),
+        "production_payments_not_approved",
+        403,
+      );
+      requireValue(
+        row.agreement_id && row.signed_at,
+        "agreement_required",
+        409,
+      );
+      if (row.status === "payment_pending" && row.payment_method === "qr")
+        return { ok: true };
+      requireValue(
+        row.status === "signed" &&
+          !row.payment_session &&
+          !row.payment_method &&
+          row.total > 0,
+        "payment_method_locked",
+        409,
+      );
+      await this.eligible(manager, row);
+      const config = await this.qrConfig(manager, actor.tenantId);
+      requireValue(config?.enabled && config.image, "qr_unavailable", 409);
+      await manager.query(
+        "INSERT INTO qr_payment_attempts(order_id,tenant_id,config_cipher,status) VALUES (?,?,?,'started')",
+        [row.id, actor.tenantId, seal(this.secret, config)],
+      );
+      await manager.query(
+        "UPDATE subscription_orders SET status='payment_pending',payment_method='qr' WHERE id=?",
+        [row.id],
+      );
+      await this.audit(manager, actor, "qr.payment.started", row.id);
+      return { ok: true };
+    });
+  }
+  /** Authorize a frozen QR attempt for its investor or the RA; proof bytes are fetched separately. */
+  private async qrAttempt(manager: EntityManager, actor: Actor, id: unknown) {
+    const [order]: OrderRow[] = await manager.query(
+      "SELECT * FROM subscription_orders WHERE id=? AND tenant_id=? FOR UPDATE",
+      [uuid(id), actor.tenantId],
+    );
+    requireValue(
+      order &&
+        (actor.role === "owner" || order.membership_id === actor.membershipId),
+      "order_not_found",
+      404,
+    );
+    const [attempt] = await manager.query(
+      "SELECT * FROM qr_payment_attempts WHERE order_id=? AND tenant_id=? FOR UPDATE",
+      [order.id, actor.tenantId],
+    );
+    requireValue(attempt, "qr_payment_not_found", 404);
+    return { order, attempt };
+  }
+  /** Return only authorized payment instructions and review facts, retaining old QR versions after replacement. */
+  async qrPayment(context: OnboardingContext, id: unknown) {
+    return this.db.transaction(async (manager) => {
+      const actor = await this.actor(manager, context),
+        { order, attempt } = await this.qrAttempt(manager, actor, id);
+      const proof = attempt.proof_cipher
+        ? unseal<{ reference: string; paidAt: string }>(
+            this.secret,
+            attempt.proof_cipher,
+          )
+        : null;
+      return {
+        orderId: order.id,
+        total: order.total,
+        status: attempt.status,
+        version: attempt.version,
+        config: unseal<QrSettings>(this.secret, attempt.config_cipher),
+        reference: proof?.reference ?? "",
+        paidAt: proof?.paidAt ?? null,
+        reason: attempt.reason_cipher
+          ? unseal<string>(this.secret, attempt.reason_cipher)
+          : "",
+      };
+    });
+  }
+  /** Retain one immutable claim, deduplicating normalized UTRs within each RA before manual verification. */
+  async submitQr(context: OnboardingContext, input: unknown) {
+    const parsed = qrSubmissionSchema.safeParse(input);
+    requireValue(parsed.success, "invalid_qr_submission", 422);
+    const data = parsed.data;
+    qrFile(data.proof, true);
+    return this.db.transaction(async (manager) => {
+      const actor = await this.actor(manager, context);
+      requireValue(actor.role === "subscriber", "forbidden", 403);
+      const { order, attempt } = await this.qrAttempt(
+        manager,
+        actor,
+        data.orderId,
+      );
+      requireValue(
+        order.status === "payment_pending" && order.payment_method === "qr",
+        "invalid_order_state",
+        409,
+      );
+      const referenceHash = keyed(
+        this.secret,
+        `qr:${actor.tenantId}:${data.reference}`,
+      );
+      if (attempt.status === "submitted") {
+        const saved = unseal<{
+          reference: string;
+          paidAt: string;
+          proof: string;
+        }>(this.secret, attempt.proof_cipher);
+        requireValue(
+          saved.reference === data.reference &&
+            saved.paidAt === data.paidAt &&
+            saved.proof === data.proof,
+          "qr_already_submitted",
+          409,
+        );
+        return { ok: true };
+      }
+      requireValue(attempt.status === "started", "qr_already_reviewed", 409);
+      const paidAt = Date.parse(data.paidAt);
+      requireValue(
+        paidAt >= Date.parse(iso(attempt.created_at)) - 60000 &&
+          paidAt <= this.now().getTime() + 60000,
+        "invalid_payment_date",
+        422,
+      );
+      const [duplicate] = await manager.query(
+        "SELECT order_id FROM qr_payment_attempts WHERE tenant_id=? AND reference_hash=? FOR UPDATE",
+        [actor.tenantId, referenceHash],
+      );
+      requireValue(!duplicate, "payment_reference_used", 409);
+      await manager.query(
+        "UPDATE qr_payment_attempts SET status='submitted',proof_cipher=?,reference_hash=?,submitted_at=?,version=version+1 WHERE order_id=?",
+        [seal(this.secret, data), referenceHash, this.now(), order.id],
+      );
+      await this.audit(manager, actor, "qr.payment.submitted", order.id);
+      return { ok: true };
+    });
+  }
+  /** Bound review queue; started attempts can be closed only after the RA checks for received funds. */
+  async qrQueue(context: OnboardingContext) {
+    return this.db.transaction(async (manager) => {
+      const actor = await this.actor(manager, context);
+      requireValue(actor.role === "owner", "forbidden", 403);
+      const rows = await manager.query(
+        "SELECT q.order_id,q.status,q.version,q.created_at,q.submitted_at,o.total,o.membership_id FROM qr_payment_attempts q JOIN subscription_orders o ON o.id=q.order_id AND o.tenant_id=q.tenant_id WHERE q.tenant_id=? AND q.status IN ('started','submitted') ORDER BY CASE WHEN q.status='submitted' THEN 0 ELSE 1 END,q.created_at,q.order_id LIMIT 100",
+        [actor.tenantId],
+      );
+      return rows.map((row: Record<string, unknown>) => ({
+        orderId: row.order_id,
+        status: row.status,
+        version: row.version,
+        total: row.total,
+        customerId: row.membership_id,
+        createdAt: iso(row.created_at as string),
+      }));
+    });
+  }
+  /** Confirm bank receipt explicitly; serialize review, entitlement and durable receipt/email work atomically. */
+  async reviewQr(context: OnboardingContext, input: unknown) {
+    const parsed = qrReviewSchema.safeParse(input);
+    requireValue(parsed.success, "invalid_qr_review", 422);
+    const data = parsed.data;
+    return this.db.transaction(async (manager) => {
+      const actor = await this.actor(manager, context);
+      requireValue(actor.role === "owner", "forbidden", 403);
+      const { order, attempt } = await this.qrAttempt(
+        manager,
+        actor,
+        data.orderId,
+      );
+      requireValue(attempt.version === data.version, "version_conflict", 409);
+      requireValue(
+        order.status === "payment_pending" &&
+          order.payment_method === "qr" &&
+          ["started", "submitted"].includes(attempt.status),
+        "qr_already_reviewed",
+        409,
+      );
+      if (data.approve) {
+        requireValue(
+          this.signingEnabled() &&
+            (this.options.env.NODE_ENV !== "production" || !order.dev),
+          "production_payments_not_approved",
+          403,
+        );
+        requireValue(
+          attempt.status === "submitted" && attempt.proof_cipher,
+          "qr_proof_required",
+          409,
+        );
+        await this.activate(manager, order, `qr-${order.id}`);
+      } else {
+        await manager.query(
+          "UPDATE subscription_orders SET status='cancelled' WHERE id=?",
+          [order.id],
+        );
+      }
+      await manager.query(
+        "UPDATE qr_payment_attempts SET status=?,reviewed_by=?,reviewed_at=?,reason_cipher=?,version=version+1 WHERE order_id=?",
+        [
+          data.approve ? "approved" : "rejected",
+          actor.userId,
+          this.now(),
+          seal(this.secret, data.reason),
+          order.id,
+        ],
+      );
+      await this.audit(
+        manager,
+        actor,
+        data.approve ? "qr.payment.approved" : "qr.payment.rejected",
+        order.id,
+      );
+      return { ok: true };
+    });
+  }
+  /** Release proof only as an authenticated attachment; never render uploaded PDF/image evidence inline. */
+  async qrProof(context: OnboardingContext, id: unknown) {
+    return this.db.transaction(async (manager) => {
+      const actor = await this.actor(manager, context),
+        { attempt } = await this.qrAttempt(manager, actor, id);
+      requireValue(attempt.proof_cipher, "qr_proof_required", 404);
+      const saved = unseal<{ proof: string }>(
+        this.secret,
+        attempt.proof_cipher,
+      );
+      return qrFile(saved.proof, true);
+    });
+  }
+
   /** Create or resume one hosted payment only after consent evidence has been durably archived. */
   async payment(context: OnboardingContext, id: unknown) {
     const authorized = await this.db.transaction(async (manager) => {
@@ -1259,6 +1562,7 @@ export class OnboardingService {
         await this.activate(manager, row, "no_charge");
         return { paid: true };
       }
+      requireValue(row.payment_method !== "qr", "payment_method_locked", 409);
       const gateway = await this.gateway(actor.slug, manager);
       requireValue(gateway, "payments_unavailable", 503);
       requireValue(
@@ -1280,7 +1584,7 @@ export class OnboardingService {
           expiresAt: iso(row.expires_at),
         });
         await manager.query(
-          "UPDATE subscription_orders SET status='payment_pending',payment_session=? WHERE id=?",
+          "UPDATE subscription_orders SET status='payment_pending',payment_method='cashfree',payment_session=? WHERE id=?",
           [session, row.id],
         );
         row.payment_session = session;
@@ -1343,6 +1647,7 @@ export class OnboardingService {
         [tenant.id, uuid(id)],
       );
       requireValue(row, "order_not_found", 404);
+      requireValue(row.payment_method !== "qr", "payment_method_locked", 409);
       if (row.status === "paid") return { paid: true };
       requireValue(
         row.status === "payment_pending" &&
@@ -1393,7 +1698,18 @@ export class OnboardingService {
   /** Generate the RA-issued invoice from frozen tax/pricing facts and confirmed payment, separately from Cashfree merchant fees. */
   private async invoice(row: OrderRow): Promise<Buffer> {
     const snapshot = unseal<Snapshot>(this.secret, row.snapshot_cipher);
-    const content = `${row.dev ? "DEVELOPMENT / SANDBOX — NOT A TAX INVOICE\n" : "PAYMENT RECEIPT / COMMERCIAL INVOICE\n"}Invoice number: SB-${row.id}\nRA: ${snapshot.raName}\nSEBI: ${snapshot.registration}\nAddress: ${snapshot.settings.address}\nContact: ${snapshot.settings.contact}\nGSTIN: ${snapshot.settings.gstin || "Not registered / no GST charged"}\nCustomer: ${snapshot.profile.fullName}\nEmail: ${snapshot.email}\nPlan: ${snapshot.planName}\nFees: ${money(row.subtotal)}\nDiscount (${snapshot.couponCode || "none"}): ${money(row.discount)}\nTax: ${money(row.tax)}\nTotal paid: ${money(row.total)}\nPayment reference: ${row.payment_id}\nPaid: ${row.paid_at ? iso(row.paid_at) : ""}\nService starts: ${row.starts_at ? iso(row.starts_at) : ""}\nService ends: ${row.ends_at ? iso(row.ends_at) : ""}\n`;
+    const [qrAttempt] =
+      row.payment_method === "qr"
+        ? await this.db.query(
+            "SELECT proof_cipher FROM qr_payment_attempts WHERE order_id=? AND tenant_id=?",
+            [row.id, row.tenant_id],
+          )
+        : [];
+    const qrReference = qrAttempt?.proof_cipher
+      ? unseal<{ reference: string }>(this.secret, qrAttempt.proof_cipher)
+          .reference
+      : "";
+    const content = `${row.dev ? "DEVELOPMENT / SANDBOX — NOT A TAX INVOICE\n" : "PAYMENT RECEIPT / COMMERCIAL INVOICE\n"}Invoice number: SB-${row.id}\nRA: ${snapshot.raName}\nSEBI: ${snapshot.registration}\nAddress: ${snapshot.settings.address}\nContact: ${snapshot.settings.contact}\nGSTIN: ${snapshot.settings.gstin || "Not registered / no GST charged"}\nCustomer: ${snapshot.profile.fullName}\nEmail: ${snapshot.email}\nPlan: ${snapshot.planName}\nFees: ${money(row.subtotal)}\nDiscount (${snapshot.couponCode || "none"}): ${money(row.discount)}\nTax: ${money(row.tax)}\nTotal paid: ${money(row.total)}\nPayment method: ${row.payment_id === "no_charge" ? "no_charge" : (row.payment_method ?? "cashfree")}\nPayment reference: ${qrReference || row.payment_id}\nPaid: ${row.paid_at ? iso(row.paid_at) : ""}\nService starts: ${row.starts_at ? iso(row.starts_at) : ""}\nService ends: ${row.ends_at ? iso(row.ends_at) : ""}\n`;
     return pdf(content);
   }
   /** Lease one durable delivery, archive invoice and retry email independently of successful payment. */
@@ -1489,12 +1805,13 @@ export class OnboardingService {
       const actor = await this.actor(manager, context);
       requireValue(actor.role === "owner", "forbidden", 403);
       const rows = await manager.query(
-        "SELECT o.id,o.status AS payment_status,o.created_at,o.last_reconciled_at,d.status AS delivery_status,d.attempts,d.available_at,d.lease_until,d.sent_at,o.paid_at FROM subscription_orders o LEFT JOIN onboarding_deliveries d ON d.order_id=o.id WHERE o.tenant_id=? AND (o.status='payment_pending' OR d.order_id IS NOT NULL) ORDER BY (o.status='payment_pending' OR d.status<>'sent') DESC,CASE WHEN o.status='payment_pending' OR d.status<>'sent' THEN o.created_at END,o.created_at DESC,o.id LIMIT 100",
+        "SELECT o.id,o.payment_method,o.status AS payment_status,o.created_at,o.last_reconciled_at,d.status AS delivery_status,d.attempts,d.available_at,d.lease_until,d.sent_at,o.paid_at FROM subscription_orders o LEFT JOIN onboarding_deliveries d ON d.order_id=o.id WHERE o.tenant_id=? AND (o.status='payment_pending' OR d.order_id IS NOT NULL) ORDER BY (o.status='payment_pending' OR d.status<>'sent') DESC,CASE WHEN o.status='payment_pending' OR d.status<>'sent' THEN o.created_at END,o.created_at DESC,o.id LIMIT 100",
         [actor.tenantId],
       );
       return rows.map((row: Record<string, string | number | Date | null>) => ({
         id: String(row.id),
         paymentStatus: String(row.payment_status),
+        paymentMethod: row.payment_method ? String(row.payment_method) : null,
         deliveryStatus: row.delivery_status
           ? String(row.delivery_status)
           : null,
@@ -1529,6 +1846,11 @@ export class OnboardingService {
         "invalid_order_status",
         409,
       );
+      requireValue(
+        row.payment_method !== "qr" || row.status === "paid",
+        "qr_manual_review_required",
+        409,
+      );
       if (row.status === "paid") {
         const [job] = await manager.query(
           "SELECT *,lease_until>UTC_TIMESTAMP(3) AS leased FROM onboarding_deliveries WHERE order_id=? FOR UPDATE",
@@ -1553,7 +1875,7 @@ export class OnboardingService {
   /** Recheck bounded pending payments to recover missed webhook notifications. */
   async reconcilePending(): Promise<void> {
     const rows: { id: string; slug: string }[] = await this.db.query(
-      "SELECT o.id,t.slug FROM subscription_orders o JOIN tenants t ON t.id=o.tenant_id WHERE o.status='payment_pending' ORDER BY COALESCE(o.last_reconciled_at,o.created_at) LIMIT 20",
+      "SELECT o.id,t.slug FROM subscription_orders o JOIN tenants t ON t.id=o.tenant_id WHERE o.status='payment_pending' AND (o.payment_method IS NULL OR o.payment_method='cashfree') ORDER BY COALESCE(o.last_reconciled_at,o.created_at) LIMIT 20",
     );
     for (const row of rows) {
       try {

@@ -115,10 +115,34 @@ export class SmsService {
     context: Context,
     role: string,
   ): Promise<Actor> {
-    const [actor] = await manager.query(
-      "SELECT m.id,m.user_id,m.role,m.mobile,m.mobile_verified_at,m.capabilities_json,u.email,u.signup_phone FROM auth_sessions s JOIN auth_users u ON u.id=s.user_id JOIN tenant_memberships m ON m.user_id=u.id JOIN tenants t ON t.id=m.tenant_id WHERE s.token=? AND s.expires_at>? AND u.email_verified=1 AND m.tenant_id=? AND m.status='active' AND t.status='active' FOR UPDATE",
-      [context.token, this.now(), context.tenantId],
+    // Match onboarding/document lock order: user, current session, tenant, membership.
+    // A joined FOR UPDATE may lock the session first and deadlock concurrent payment reads.
+    const [identity] = await manager.query(
+      "SELECT u.id FROM auth_sessions s JOIN auth_users u ON u.id=s.user_id WHERE s.token=? AND s.expires_at>? AND u.email_verified=1",
+      [context.token, this.now()],
     );
+    if (!identity) throw new SmsError("forbidden", 403);
+    const [user] = await manager.query(
+      "SELECT id,email,email_verified,signup_phone FROM auth_users WHERE id=? FOR UPDATE",
+      [identity.id],
+    );
+    const [session] = await manager.query(
+      "SELECT id FROM auth_sessions WHERE token=? AND user_id=? AND expires_at>? LOCK IN SHARE MODE",
+      [context.token, identity.id, this.now()],
+    );
+    const [tenant] = await manager.query(
+      "SELECT id FROM tenants WHERE id=? AND status='active' FOR UPDATE",
+      [context.tenantId],
+    );
+    if (!user?.email_verified || !session || !tenant)
+      throw new SmsError("forbidden", 403);
+    const [member] = await manager.query(
+      "SELECT id,user_id,role,mobile,mobile_verified_at,capabilities_json FROM tenant_memberships WHERE tenant_id=? AND user_id=? AND status='active' FOR UPDATE",
+      [context.tenantId, user.id],
+    );
+    const actor = member
+      ? { ...member, email: user.email, signup_phone: user.signup_phone }
+      : undefined;
     if (!actor || actor.role !== role) throw new SmsError("forbidden", 403);
     const overrides =
       typeof actor.capabilities_json === "string"
