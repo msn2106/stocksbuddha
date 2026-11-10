@@ -100,3 +100,5 @@ For anonymous callers, quota/cooldown suppression returns the same generic resul
 ## SMS template library
 
 The dedicated **SMS Settings** tab replaces the former Branding section. It starts with Login (existing post-password-login mobile/KYC verification) and Reset/Forgot Password (a reference copy; global resets remain platform-owned). Owners can add custom templates, up to 100 total; only Login is dispatched by this release. Approved template IDs/text must match DLT registration. Additional templates are stored without triggering sends. Legacy configuration is normalized without losing its active verification template. See [private settings, placeholders and restrictions](WEBSITE_EDITOR.md#private-service-settings).
+
+Verified investors see their verified mobile and an explicit **Change mobile number** action. The send/OTP forms are hidden after proof succeeds and on subsequent page loads; opening and cancelling a number change does not send SMS. The optional password-reset section explains that SMS recovery is separate from KYC and email recovery remains available. Existing server-side number-change and paid-client protections still apply.

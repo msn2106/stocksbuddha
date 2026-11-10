@@ -1001,15 +1001,17 @@ function Kyc({
         <ShieldCheck size={22} />
         <strong>{status(customer.status, hi)}</strong>
       </p>
-      <p>
-        {customer.mobileVerified
-          ? hi
-            ? "मोबाइल सत्यापित"
-            : "Mobile verified"
-          : hi
-            ? "मोबाइल सत्यापन बाकी"
-            : "Mobile verification pending"}
-      </p>
+      {admin && (
+        <p>
+          {customer.mobileVerified
+            ? hi
+              ? "मोबाइल सत्यापित"
+              : "Mobile verified"
+            : hi
+              ? "मोबाइल सत्यापन बाकी"
+              : "Mobile verification pending"}
+        </p>
+      )}
       {!admin && (
         <MobileVerification
           slug={base.split("/")[2]}

@@ -354,3 +354,31 @@ test("SMS recovery offers email from the start, enforces cooldown and directs to
   assert.ok(screen.getByText(/3 एसएमएस कोड/));
   assert.ok(screen.getByRole("link", { name: "ईमेल से पासवर्ड रीसेट करें" }));
 });
+
+test("verified mobiles hide the send-code form on load and after verification; changing a number is explicit and cancellable", async () => {
+  const f = mobileFixture();
+  f.state.verified = true;
+  render(<MobileVerification slug="alpha" hi={false} onVerified={() => {}} />);
+  assert.equal(screen.queryByLabelText("Mobile number"), null);
+  await screen.findByRole("heading", { name: "Mobile verified" });
+  assert.equal(
+    screen.queryByRole("button", { name: "Send mobile code" }),
+    null,
+  );
+  assert.equal(screen.queryByLabelText("Mobile number"), null);
+  assert.ok(screen.getByText(/This is separate from KYC/));
+  fireEvent.click(screen.getByRole("button", { name: "Change mobile number" }));
+  fireEvent.change(screen.getByLabelText("Mobile number"), {
+    target: { value: "9876543210" },
+  });
+  assert.ok(screen.getByRole("button", { name: "Send mobile code" }));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel number change" }));
+  assert.equal(screen.queryByLabelText("Mobile number"), null);
+  assert.equal(f.calls.filter((entry) => entry.action === "send").length, 0);
+  cleanup();
+  render(<MobileVerification slug="alpha" hi={true} onVerified={() => {}} />);
+  await screen.findByRole("heading", { name: "मोबाइल सत्यापित है" });
+  fireEvent.click(screen.getByRole("button", { name: "मोबाइल नंबर बदलें" }));
+  fireEvent.click(screen.getByRole("button", { name: "नंबर बदलना रद्द करें" }));
+  assert.equal(screen.queryByRole("button", { name: "कोड भेजें" }), null);
+});

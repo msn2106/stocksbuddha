@@ -103,3 +103,29 @@ Apply additive migration `1794355200000-RecoveryEmailLimits` explicitly before s
 ## Private integrations and template libraries
 
 Apply `1794441600000-TenantIntegrations` (migration 19) explicitly before startup. It creates `tenant_integrations` for separately versioned encrypted Telegram/payment credentials and expands `sms_settings.config_cipher` to `MEDIUMTEXT` for up to 100 SMS templates. Current totals are 29 tables including metadata. Preserve the existing encryption key; no public website revision contains these credentials. See [configuration and merchant editing restrictions](../docs/WEBSITE_EDITOR.md#private-service-settings).
+
+## Legacy development onboarding encryption
+
+Before mobile verification, development onboarding could encrypt evidence using `AUTH_SECRET` when `ONBOARDING_DATA_KEY` was absent. Supplying a new data key without migrating those records makes Users/KYC/order reads fail authentication. Do not delete records, reset keys or add a production fallback. The explicit `repairLegacyOnboarding` helper in `database/legacy-onboarding.ts` supports this specific **development-only** transition, provided the original `AUTH_SECRET` is still retained. It rejects production and unknown/corrupt evidence. It first authenticates every current/nested history/order/signature snapshot and verifies old keyed lookups, then returns a dry-run summary.
+
+A reviewed apply requires a successful private backup callback before the first update. All updates use one transaction under the same tenant locks as onboarding writers. Current-key evidence stays unchanged; legacy ciphertext and PAN/family lookup hashes migrate, with historical review versions, signatures, agreement hashes, payment/status/date facts and evidence references preserved. Old pending signing-code digests cannot be rekeyed and are invalidated without resetting guess budgets or send timestamps. This is an operator data repair, not a schema migration or a general production key-rotation tool.
+
+If old/new key periods allowed the same PAN on two investor records, the repair reports `panConflicts` and preserves the old conflicting PAN lookup rather than deleting, merging or choosing an investor identity. Family hashes still converge so their fee accounting cannot split across keys. Correct duplicate identity data explicitly in the RA admin workflow afterwards; a zero-change rerun means the encryption repair is complete, not that identity conflicts were resolved. The encrypted backup retains the exact original records. Keep it and the original keys privately under the development-data retention policy.
+
+From the repository root, dry-run with:
+
+```sh
+node --env-file=backend/.env --import tsx --input-type=module <<'JS'
+import { createDatabase, databaseConfig } from './database/config.ts';
+import { repairLegacyOnboarding } from './database/legacy-onboarding.ts';
+const db = createDatabase(databaseConfig(process.env, 'dev'));
+try {
+  await db.initialize();
+  console.log(await repairLegacyOnboarding(db, process.env));
+} finally {
+  if (db.isInitialized) await db.destroy();
+}
+JS
+```
+
+For a reviewed apply, pass `true` and a callback that writes the supplied original encrypted rows to an exclusively created backup file (owner-only permissions). Never print snapshots, keys or raw driver exceptions. The local November 2026 repair was dry-run and applied with such a backup, then verified through an idempotent rerun and the authenticated Users screen. The automated fixture tests cover unchanged current rows, nested history, signatures, hash conflicts, corrupt data, missing keys, production denial and backup failure.

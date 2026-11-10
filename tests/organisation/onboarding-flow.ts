@@ -177,6 +177,36 @@ test("RA creates plan and discount; investor completes KYC, admin approves; sign
     await expect(
       investor.getByLabel("Full name as on PAN", { exact: true }),
     ).toBeEnabled();
+    await expect(
+      investor.getByRole("button", { name: "Send mobile code", exact: true }),
+    ).toHaveCount(0);
+    await investor.reload();
+    await expect(
+      investor.getByRole("heading", { name: "Mobile verified", exact: true }),
+    ).toBeVisible();
+    await expect(
+      investor.getByRole("button", { name: "Send mobile code", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      investor.getByRole("button", {
+        name: "Change mobile number",
+        exact: true,
+      }),
+    ).toBeVisible();
+    for (const [name, width] of [
+      ["desktop", 1280],
+      ["mobile", 390],
+    ] as const) {
+      await investor.setViewportSize({ width, height: 900 });
+      expect(
+        (await new AxeBuilder({ page: investor }).analyze()).violations,
+      ).toEqual([]);
+      await investor.screenshot({
+        path: `/tmp/sb-verified-mobile-${name}.png`,
+        fullPage: true,
+      });
+    }
+    await investor.setViewportSize({ width: 1280, height: 720 });
     await investor
       .getByLabel("Current password", { exact: true })
       .fill("test-password-123");

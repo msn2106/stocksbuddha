@@ -109,6 +109,7 @@ export function MobileVerification({
   const api = `/api/sms/${slug}`;
   const [state, setState] = useState<MobileState | null>(null),
     [mobile, setMobile] = useState("");
+  const [changingMobile, setChangingMobile] = useState(false);
   const [challenge, setChallenge] = useState<Challenge | null>(null),
     [code, setCode] = useState("");
   const [wait, setWait] = useState(0),
@@ -161,120 +162,165 @@ export function MobileVerification({
       aria-busy={busy}
     >
       <h3>
-        {hi
-          ? "पहला चरण: मोबाइल सत्यापित करें"
-          : "First step: verify your mobile"}
+        {state?.verified
+          ? hi
+            ? "मोबाइल सत्यापित है"
+            : "Mobile verified"
+          : hi
+            ? "पहला चरण: मोबाइल सत्यापित करें"
+            : "First step: verify your mobile"}
       </h3>
       {error && <p role="alert">{smsError(error, hi)}</p>}
       {message && <p role="status">{message}</p>}
+      {!state && !error && (
+        <p role="status">
+          {hi
+            ? "मोबाइल सत्यापन स्थिति जाँची जा रही है…"
+            : "Checking mobile verification…"}
+        </p>
+      )}
       {state?.verified && (
         <p>
           {hi ? "सत्यापित मोबाइल:" : "Verified mobile:"} {state.mobile}
         </p>
       )}
-      <form
-        method="post"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void run(async () => {
-            const next = await smsRequest(api, "send", {
-              mobile,
-              key: crypto.randomUUID(),
-            });
-            setChallenge(next);
-            setWait(next.retryAfter);
-            setExpiry(next.expiresIn);
-            setCode("");
-            setMessage(
-              next.deliveryUncertain
-                ? smsError("sms_delivery_uncertain", hi)
-                : hi
-                  ? "कोड भेजने का अनुरोध हुआ। कोड किसी से साझा न करें।"
-                  : "Code requested. Never share it with anyone.",
-            );
-          });
-        }}
-      >
-        <label>
-          {hi ? "मोबाइल नंबर" : "Mobile number"}
-          <input
-            type="tel"
-            autoComplete="tel"
-            required
-            maxLength={20}
-            value={mobile}
-            onChange={(event) => {
-              setMobile(event.target.value);
-              setChallenge(null);
-            }}
-          />
-        </label>
+      {state?.verified && !changingMobile && (
         <button
+          type="button"
           className="button secondary"
-          disabled={busy || wait > 0 || !state}
+          onClick={() => setChangingMobile(true)}
         >
-          {wait > 0
-            ? `${hi ? "फिर भेजें" : "Resend in"} ${wait}s`
-            : hi
-              ? "कोड भेजें"
-              : "Send mobile code"}
+          {hi ? "मोबाइल नंबर बदलें" : "Change mobile number"}
         </button>
-      </form>
-      {challenge && (
-        <form
-          method="post"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void run(async () => {
-              setChallenge((previous) =>
-                previous
-                  ? {
-                      ...previous,
-                      attemptsRemaining: Math.max(
-                        0,
-                        previous.attemptsRemaining - 1,
-                      ),
-                    }
-                  : null,
-              );
-              await smsRequest(api, "verify", {
-                challengeId: challenge.challengeId,
-                code,
+      )}
+      {state && (!state.verified || changingMobile) && (
+        <>
+          <form
+            method="post"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void run(async () => {
+                const next = await smsRequest(api, "send", {
+                  mobile,
+                  key: crypto.randomUUID(),
+                });
+                setChallenge(next);
+                setWait(next.retryAfter);
+                setExpiry(next.expiresIn);
+                setCode("");
+                setMessage(
+                  next.deliveryUncertain
+                    ? smsError("sms_delivery_uncertain", hi)
+                    : hi
+                      ? "कोड भेजने का अनुरोध हुआ। कोड किसी से साझा न करें।"
+                      : "Code requested. Never share it with anyone.",
+                );
               });
-              const next = await smsRequest(api, "mobile");
-              setState(next);
-              setMobile(next.mobile);
-              setChallenge(null);
-              setCode("");
-              onVerified();
-            });
-          }}
-        >
-          <p role="status">
-            {hi ? "कोड की अवधि (सेकंड):" : "Code expires in seconds:"} {expiry}.{" "}
-            {hi ? "शेष प्रेषण:" : "Sends remaining:"} {challenge.sendsRemaining}
-            . {hi ? "शेष प्रयास:" : "Attempts remaining:"}{" "}
-            {challenge.attemptsRemaining}
-          </p>
-          <label>
-            {hi ? "छह अंकों का कोड" : "Six-digit mobile code"}
-            <input
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="[0-9]{6}"
-              maxLength={6}
-              required
-              value={code}
-              onChange={(event) => setCode(event.target.value)}
-            />
-          </label>
-          <button
-            className="button primary"
-            disabled={busy || expiry === 0 || challenge.attemptsRemaining === 0}
+            }}
           >
-            {hi ? "मोबाइल सत्यापित करें" : "Verify mobile"}
-          </button>
-        </form>
+            <label>
+              {hi ? "मोबाइल नंबर" : "Mobile number"}
+              <input
+                type="tel"
+                autoComplete="tel"
+                required
+                maxLength={20}
+                value={mobile}
+                onChange={(event) => {
+                  setMobile(event.target.value);
+                  setChallenge(null);
+                }}
+              />
+            </label>
+            <button
+              className="button secondary"
+              disabled={busy || wait > 0 || !state}
+            >
+              {wait > 0
+                ? `${hi ? "फिर भेजें" : "Resend in"} ${wait}s`
+                : hi
+                  ? "कोड भेजें"
+                  : "Send mobile code"}
+            </button>
+          </form>
+          {challenge && (
+            <form
+              method="post"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void run(async () => {
+                  setChallenge((previous) =>
+                    previous
+                      ? {
+                          ...previous,
+                          attemptsRemaining: Math.max(
+                            0,
+                            previous.attemptsRemaining - 1,
+                          ),
+                        }
+                      : null,
+                  );
+                  await smsRequest(api, "verify", {
+                    challengeId: challenge.challengeId,
+                    code,
+                  });
+                  const next = await smsRequest(api, "mobile");
+                  setState(next);
+                  setMobile(next.mobile);
+                  setChallenge(null);
+                  setCode("");
+                  setChangingMobile(false);
+                  onVerified();
+                });
+              }}
+            >
+              <p role="status">
+                {hi ? "कोड की अवधि (सेकंड):" : "Code expires in seconds:"}{" "}
+                {expiry}. {hi ? "शेष प्रेषण:" : "Sends remaining:"}{" "}
+                {challenge.sendsRemaining}.{" "}
+                {hi ? "शेष प्रयास:" : "Attempts remaining:"}{" "}
+                {challenge.attemptsRemaining}
+              </p>
+              <label>
+                {hi ? "छह अंकों का कोड" : "Six-digit mobile code"}
+                <input
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  required
+                  value={code}
+                  onChange={(event) => setCode(event.target.value)}
+                />
+              </label>
+              <button
+                className="button primary"
+                disabled={
+                  busy || expiry === 0 || challenge.attemptsRemaining === 0
+                }
+              >
+                {hi ? "मोबाइल सत्यापित करें" : "Verify mobile"}
+              </button>
+            </form>
+          )}
+          {changingMobile && (
+            <button
+              type="button"
+              className="button secondary"
+              disabled={busy}
+              onClick={() => {
+                setChangingMobile(false);
+                setMobile(state!.mobile);
+                setChallenge(null);
+                setCode("");
+                setError("");
+                setMessage("");
+              }}
+            >
+              {hi ? "नंबर बदलना रद्द करें" : "Cancel number change"}
+            </button>
+          )}
+        </>
       )}
       {state?.verified && (
         <form
@@ -293,6 +339,16 @@ export function MobileVerification({
             });
           }}
         >
+          <h4>
+            {hi
+              ? "एसएमएस से पासवर्ड रीसेट (वैकल्पिक)"
+              : "Reset your password by SMS (optional)"}
+          </h4>
+          <p>
+            {hi
+              ? "पासवर्ड भूलने पर इस सत्यापित नंबर पर रीसेट कोड प्राप्त करें। यह केवाईसी का चरण नहीं है। ईमेल से पासवर्ड रीसेट भी उपलब्ध है।"
+              : "If you forget your password, receive a reset code on this verified number. This is separate from KYC. Email password reset remains available."}
+          </p>
           <p>
             {hi
               ? "एसएमएस पासवर्ड रिकवरी वैकल्पिक है और सभी आरए में आपके साझा खाते पर लागू है। आपका आरए इसे सक्षम नहीं कर सकता।"
