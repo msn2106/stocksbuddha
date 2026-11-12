@@ -108,7 +108,7 @@ export function PaymentChooser({
   pending: boolean;
   hi: boolean;
   api: string;
-  checkout: (session: string, mode: string) => Promise<void>;
+  checkout: (session: string, mode: string) => Promise<boolean>;
 }) {
   const [method, setMethod] = useState(view.qrEnabled ? "qr" : "cashfree"),
     [payment, setPayment] = useState<QrPayment | null>(null),
@@ -362,11 +362,21 @@ export function PaymentChooser({
             className="button primary"
             disabled={pending || (!view.paymentEnabled && order.total !== 0)}
             onClick={() =>
-              void run(async () => {
-                const result = await action("payment", { orderId: order.id });
-                if (typeof result.session === "string")
-                  await checkout(result.session, String(result.mode));
-              })
+              void run(
+                async () => {
+                  const result = await action("payment", { orderId: order.id });
+                  if (
+                    typeof result.session === "string" &&
+                    (await checkout(result.session, String(result.mode)))
+                  )
+                    await action("confirm", { orderId: order.id });
+                },
+                order.total > 0
+                  ? hi
+                    ? "यदि सदस्यता अभी लंबित है, तो भुगतान की स्थिति जाँचें।"
+                    : "If your subscription is still pending, check payment status."
+                  : undefined,
+              )
             }
           >
             {order.total === 0

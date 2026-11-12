@@ -76,6 +76,7 @@ function controls() {
   };
   const checkout = async (session: string) => {
     sessions.push(session);
+    return false;
   };
   return { calls, action, run, failures, checkout, sessions };
 }

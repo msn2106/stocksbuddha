@@ -536,26 +536,96 @@ test("RA creates plan and discount; investor completes KYC, admin approves; sign
         )
       ).status(),
     ).toBe(403);
-    await investor.evaluate(() => {
-      (window as typeof window & { Cashfree: unknown }).Cashfree = () => ({
-        checkout: async ({
-          paymentSessionId,
-        }: {
-          paymentSessionId: string;
-        }) => {
-          await fetch("/__test/settle", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              id: paymentSessionId.slice("fixture-".length),
-            }),
+    const sandboxCheckout =
+      "https://sandbox.cashfree.com/pg/view/sessions/checkout";
+    await investor.route(sandboxCheckout, (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `<!doctype html><html lang="en"><title>Sandbox checkout</title>
+          <main><h1>Sandbox checkout loaded</h1>
+          <button onclick="parent.postMessage('close-sandbox-checkout', '*')">Close checkout</button></main></html>`,
+      }),
+    );
+    const checkoutPost = investor.waitForRequest(
+      (request) =>
+        request.url() === sandboxCheckout && request.method() === "POST",
+    );
+    await investor.route(
+      "https://sdk.cashfree.com/js/v3/cashfree.js",
+      (route) =>
+        route.fulfill({
+          contentType: "application/javascript",
+          body: `
+          let attempt = 0;
+          let originalSession;
+          window.Cashfree = ({ mode }) => ({
+            async checkout({ paymentSessionId, redirectTarget }) {
+              if (mode !== "sandbox" || redirectTarget !== "_modal")
+                throw new Error("Expected sandbox modal checkout");
+              if (++attempt === 1) {
+                originalSession = paymentSessionId;
+                const frame = document.createElement("iframe");
+                frame.name = "cashfree-test-checkout";
+                frame.title = "Sandbox checkout";
+                document.body.append(frame);
+                const form = document.createElement("form");
+                form.method = "POST";
+                form.action = ${JSON.stringify(sandboxCheckout)};
+                form.target = frame.name;
+                document.body.append(form);
+                await new Promise((resolve) => {
+                  function close(event) {
+                    if (event.source !== frame.contentWindow ||
+                        event.origin !== "https://sandbox.cashfree.com" ||
+                        event.data !== "close-sandbox-checkout") return;
+                    window.removeEventListener("message", close);
+                    resolve();
+                  }
+                  window.addEventListener("message", close);
+                  form.submit();
+                });
+                form.remove();
+                frame.remove();
+                return { error: { message: "Checkout unavailable" } };
+              }
+              if (paymentSessionId !== originalSession)
+                throw new Error("Expected checkout to reuse the session");
+              const response = await fetch("/__test/settle", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: paymentSessionId.slice("fixture-".length) }),
+              });
+              if (!response.ok) throw new Error("Settlement fixture failed");
+              return { paymentDetails: { paymentMessage: "Attempt finished" } };
+            },
           });
-        },
-      });
+        `,
+        }),
+    );
+    const payWithCashfree = investor.getByRole("button", {
+      name: "Pay with Cashfree",
+      exact: true,
     });
-    await investor
-      .getByRole("button", { name: "Pay with Cashfree", exact: true })
-      .click();
+    await payWithCashfree.click();
+    await checkoutPost;
+    const checkoutFrame = investor.frameLocator(
+      'iframe[name="cashfree-test-checkout"]',
+    );
+    await expect(
+      checkoutFrame.getByRole("heading", { name: "Sandbox checkout loaded" }),
+    ).toBeVisible();
+    await checkoutFrame.getByRole("button", { name: "Close checkout" }).click();
+    await expect(investor.getByRole("alert")).toContainText(
+      "Cashfree checkout was closed or could not open.",
+    );
+    await expect(
+      investor.getByRole("button", { name: "Check payment status" }),
+    ).toBeEnabled();
+    const confirmed = investor.waitForResponse((response) =>
+      response.url().endsWith("/onboarding/confirm"),
+    );
+    await payWithCashfree.click();
+    expect((await confirmed).ok()).toBeTruthy();
     await expect(
       investor.getByText("Confirmed", { exact: true }),
     ).toBeVisible();

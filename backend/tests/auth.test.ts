@@ -286,6 +286,36 @@ test("auth forms forward only credentials, preserve cookies, reject foreign orig
   assert.equal(publicPage.headers["content-security-policy"], undefined);
 });
 
+test("only authenticated investor checkout pages permit Cashfree form submissions", async () => {
+  const onboarding = {} as NonNullable<AuthRoutesDependencies["onboarding"]>;
+  const { request, workspace, state } = harness({ onboarding });
+  workspace.membership.role = "subscriber";
+  for (const path of ["/account", "/account/onboarding"]) {
+    const response = await request(`/ra/stocksbuddha${path}`);
+    assert.equal(response.status, 200);
+    assert.equal(
+      response.headers["content-security-policy"],
+      "form-action 'self' https://sandbox.cashfree.com https://api.cashfree.com; frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
+    );
+  }
+  state.signedIn = false;
+  const anonymous = await request("/ra/stocksbuddha/account/onboarding");
+  assert.equal(anonymous.status, 303);
+  workspace.membership.role = "owner";
+  state.signedIn = true;
+  for (const response of [
+    anonymous,
+    await request("/ra/stocksbuddha/login"),
+    await request("/ra/stocksbuddha/workspace"),
+    await request("/api/workspaces/stocksbuddha"),
+  ]) {
+    assert.equal(
+      response.headers["content-security-policy"],
+      "form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
+    );
+  }
+});
+
 test("private pages and APIs require sessions and current tenant membership on every request", async () => {
   const { request, state, calls, workspace } = harness();
   state.signedIn = false;

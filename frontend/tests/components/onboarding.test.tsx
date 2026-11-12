@@ -452,12 +452,19 @@ test("signed/pending/paid checkouts resume payment and expose immutable agreemen
   (window as typeof window & { Cashfree: unknown }).Cashfree = () => ({
     checkout: async (value: unknown) => {
       checkout = value;
+      return { paymentDetails: { paymentMessage: "Attempt finished" } };
     },
   });
   const root = render(<App data={f.data} />);
   await screen.findByRole("button", { name: "Pay with Cashfree" });
   fireEvent.click(screen.getByRole("button", { name: "Pay with Cashfree" }));
-  await waitFor(() => assert.ok(checkout));
+  await waitFor(() =>
+    assert.ok(f.calls.some((call) => call.name === "confirm")),
+  );
+  assert.deepEqual(checkout, {
+    paymentSessionId: "session",
+    redirectTarget: "_modal",
+  });
   root.unmount();
   f.view.orders = [
     order({
@@ -570,15 +577,39 @@ test("hosted SDK loading handles network errors and rejects a script that does n
     'script[src="https://sdk.cashfree.com/js/v3/cashfree.js"]',
   ) as HTMLScriptElement;
   script.onerror!(new Event("error"));
-  await assert.rejects(failed, /payments_unavailable/);
+  await assert.rejects(failed, /cashfree_checkout_interrupted/);
 
   const missing = hostedCheckout("session", "sandbox");
   const next = document.querySelector(
     'script[src="https://sdk.cashfree.com/js/v3/cashfree.js"]',
   ) as HTMLScriptElement;
   next.onload!(new Event("load"));
-  await assert.rejects(missing, /payments_unavailable/);
-  next.remove();
+  await assert.rejects(missing, /cashfree_checkout_interrupted/);
+  assert.equal(next.isConnected, false);
+});
+
+test("Cashfree SDK failures are translated without exposing provider details", async () => {
+  const target = window as typeof window & { Cashfree: unknown };
+  target.Cashfree = () => ({
+    checkout: async () => ({ error: { message: "Provider diagnostics" } }),
+  });
+  await assert.rejects(
+    hostedCheckout("session", "sandbox"),
+    /^Error: cashfree_checkout_interrupted$/,
+  );
+  target.Cashfree = () => ({
+    checkout: async () => {
+      throw new Error("Provider diagnostics");
+    },
+  });
+  await assert.rejects(
+    hostedCheckout("session", "sandbox"),
+    /^Error: cashfree_checkout_interrupted$/,
+  );
+  target.Cashfree = () => ({
+    checkout: async () => ({ redirect: true }),
+  });
+  assert.equal(await hostedCheckout("session", "sandbox"), false);
 });
 
 test("English and Hindi cover every published/admin/detail and investor progression state", async () => {

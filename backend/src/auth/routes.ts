@@ -55,6 +55,10 @@ export type AuthRoutesDependencies = {
   integrations?: IntegrationSettingsService;
 };
 
+const privatePagePolicy =
+  "frame-ancestors 'none'; base-uri 'none'; object-src 'none'";
+const sameOriginForms = `form-action 'self'; ${privatePagePolicy}`;
+
 /** Pass a safe account projection to the shared React SSR pipeline, excluding session tokens. */
 function accountPage(
   res: Response,
@@ -64,6 +68,17 @@ function accountPage(
   status = 200,
 ) {
   res.status(status);
+  // The Cashfree SDK posts the payment session to its hosted checkout frame.
+  if (
+    res.locals.onboardingEnabled &&
+    account.mode === "workspace" &&
+    account.area === "investor" &&
+    (!account.section || account.section === "onboarding")
+  )
+    res.setHeader(
+      "Content-Security-Policy",
+      `form-action 'self' https://sandbox.cashfree.com https://api.cashfree.com; ${privatePagePolicy}`,
+    );
   res.locals.accountPage = {
     tenant,
     website: null,
@@ -136,10 +151,7 @@ export function createAuthRoutes({
     ],
     (req, res, next) => {
       req.headers["x-auth-client-ip"] = clientIp(req, trusted);
-      res.setHeader(
-        "Content-Security-Policy",
-        "form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'",
-      );
+      res.setHeader("Content-Security-Policy", sameOriginForms);
       next();
     },
   );

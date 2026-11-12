@@ -155,6 +155,14 @@ const errors: Record<string, [string, string]> = {
     "Online payments are awaiting activation for this RA.",
     "इस आरए के लिए ऑनलाइन भुगतान अभी उपलब्ध नहीं है।",
   ],
+  payment_provider_unavailable: [
+    "Cashfree could not prepare or verify this payment. Try again shortly. If the issue continues, contact your RA.",
+    "Cashfree भुगतान तैयार या सत्यापित नहीं कर सका। थोड़ी देर बाद फिर प्रयास करें। समस्या बनी रहे तो अपने आरए से संपर्क करें।",
+  ],
+  cashfree_checkout_interrupted: [
+    "Cashfree checkout was closed or could not open. If you already paid, check payment status before trying again.",
+    "Cashfree चेकआउट बंद हो गया या खुल नहीं सका। यदि आपने भुगतान किया है, तो दोबारा प्रयास करने से पहले भुगतान की स्थिति जाँचें।",
+  ],
   checkout_expired: [
     "This checkout expired. Cancel it and select your plan again.",
     "चेकआउट समाप्त हो गया। इसे रद्द करके योजना फिर चुनें।",
@@ -222,35 +230,49 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
     </label>
   );
 }
-/** Load the official Cashfree SDK only when an authenticated investor starts a configured hosted checkout. */
+/** Open Cashfree's hosted modal and report whether the browser observed a completed attempt. */
 export async function hostedCheckout(
   session: string,
   mode: string,
-): Promise<void> {
+): Promise<boolean> {
   const target = window as typeof window & {
     Cashfree?: (options: { mode: string }) => {
       checkout: (options: {
         paymentSessionId: string;
-        redirectTarget: string;
-      }) => Promise<unknown>;
+        redirectTarget: "_modal";
+      }) => Promise<{ error?: unknown; paymentDetails?: unknown }>;
     };
   };
-  if (!target.Cashfree)
-    await new Promise<void>((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "https://sdk.cashfree.com/js/v3/cashfree.js";
-      script.async = true;
-      script.onload = () => resolve();
-      script.onerror = () => {
-        script.remove();
-        reject(new Error("payments_unavailable"));
-      };
-      document.head.append(script);
+  try {
+    if (!target.Cashfree)
+      await new Promise<void>((resolve, reject) => {
+        const script = document.createElement("script");
+        /** Remove unusable scripts so the investor can retry the same checkout. */
+        function fail() {
+          clearTimeout(timeout);
+          script.remove();
+          reject(new Error("cashfree_checkout_interrupted"));
+        }
+        const timeout = setTimeout(fail, 10000);
+        script.src = "https://sdk.cashfree.com/js/v3/cashfree.js";
+        script.async = true;
+        script.onload = () => {
+          clearTimeout(timeout);
+          if (target.Cashfree) resolve();
+          else fail();
+        };
+        script.onerror = fail;
+        document.head.append(script);
+      });
+    const result = await target.Cashfree!({ mode }).checkout({
+      paymentSessionId: session,
+      redirectTarget: "_modal",
     });
-  if (!target.Cashfree) throw new Error("payments_unavailable");
-  await target
-    .Cashfree({ mode })
-    .checkout({ paymentSessionId: session, redirectTarget: "_self" });
+    if (result?.error) throw new Error("cashfree_checkout_interrupted");
+    return Boolean(result?.paymentDetails);
+  } catch {
+    throw new Error("cashfree_checkout_interrupted");
+  }
 }
 /** Render role-scoped onboarding, offer management and user detail inside the established workspace shell. */
 export function Onboarding({
@@ -318,9 +340,11 @@ export function Onboarding({
       if (refresh) await load();
       setMessage(notice ?? (hi ? "बदलाव सहेजे गए।" : "Changes saved."));
     } catch (failure) {
-      setError(
-        failure instanceof Error ? failure.message : "onboarding_unavailable",
-      );
+      const code =
+        failure instanceof Error ? failure.message : "onboarding_unavailable";
+      if (code === "cashfree_checkout_interrupted")
+        await load().catch(() => undefined);
+      setError(code);
     } finally {
       setPending(false);
     }
