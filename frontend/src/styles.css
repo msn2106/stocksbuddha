@@ -4609,3 +4609,20 @@ html[data-contrast="high"] .brand-artwork-auto .brand-artwork-dark {
   position: absolute;
   pointer-events: none;
 }
+
+.signing-spinner {
+  flex: none;
+  animation: signing-spin 800ms linear infinite;
+}
+
+@keyframes signing-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signing-spinner {
+    animation: none;
+  }
+}

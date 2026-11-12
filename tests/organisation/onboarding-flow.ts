@@ -385,9 +385,17 @@ test("RA creates plan and discount; investor completes KYC, admin approves; sign
         "I have read and agree to the service terms, MITC and final payable amount.",
       )
       .check();
+    await expect(
+      investor.getByLabel("Full name for signature", { exact: true }),
+    ).toHaveValue("Example Investor");
     await investor
-      .getByLabel("Full name for signature", { exact: true })
-      .fill("Example Investor");
+      .getByLabel("Signature method", { exact: true })
+      .selectOption("typed");
+    for (const font of ["formal", "allura", "caveat"])
+      await investor
+        .getByLabel("Signature font", { exact: true })
+        .selectOption(font);
+    await investor.evaluate(() => document.fonts.ready);
     await investor
       .getByLabel("Signature method", { exact: true })
       .selectOption("upload");
@@ -462,14 +470,6 @@ test("RA creates plan and discount; investor completes KYC, admin approves; sign
     });
     await touch.send("Emulation.setTouchEmulationEnabled", { enabled: false });
     await touch.detach();
-    await investor
-      .getByLabel("Signature method", { exact: true })
-      .selectOption("typed");
-    for (const font of ["formal", "allura", "caveat"])
-      await investor
-        .getByLabel("Signature font", { exact: true })
-        .selectOption(font);
-    await investor.evaluate(() => document.fonts.ready);
     for (const width of [390, 1280]) {
       await investor.setViewportSize({ width, height: 900 });
       await investor.locator(".signature-input").scrollIntoViewIfNeeded();

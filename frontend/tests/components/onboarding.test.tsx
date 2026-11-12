@@ -841,11 +841,42 @@ test("expired quoted and signed orders expose a fresh quote without cancelling h
 test("new checkouts submit the selected visual signature with the unchanged email verification fields", async () => {
   const f = fixture();
   f.view.orders = [
-    order({ signatureBox: { x: 355, y: 686, width: 180, height: 54 } }),
+    order({
+      signatureName: "Frozen Investor",
+      signatureBox: { x: 355, y: 686, width: 180, height: 54 },
+    }),
   ];
+  const fetchAction = globalThis.fetch;
+  let finish!: () => void;
+  globalThis.fetch = async (url, init) => {
+    if (init?.method === "POST")
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    return fetchAction(url, init);
+  };
   render(<App data={f.data} />);
   const name = await screen.findByLabelText("Full name for signature");
-  fireEvent.change(name, { target: { value: "Example Investor" } });
+  assert.equal((name as HTMLInputElement).value, "Frozen Investor");
+  assert.ok((name as HTMLInputElement).readOnly);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Send email confirmation code" }),
+  );
+  const sending = screen.getByRole("button", { name: "Sending email code…" });
+  assert.equal(sending.getAttribute("aria-busy"), "true");
+  assert.ok((sending as HTMLButtonElement).disabled);
+  assert.ok(sending.querySelector("svg"));
+  assert.ok(
+    (
+      screen.getByRole("button", {
+        name: "Sign and continue",
+      }) as HTMLButtonElement
+    ).disabled,
+  );
+  finish();
+  await screen.findByText(
+    "A confirmation code was sent to your verified email.",
+  );
   fireEvent.change(screen.getByLabelText("Signature font"), {
     target: { value: "caveat" },
   });
@@ -856,7 +887,24 @@ test("new checkouts submit the selected visual signature with the unchanged emai
     target: { value: "123456" },
   });
   submit("Sign and continue");
-  await waitFor(() => assert.ok(f.calls.some((call) => call.name === "sign")));
+  const saving = screen.getByRole("button", { name: "Saving signature…" });
+  assert.equal(saving.getAttribute("aria-busy"), "true");
+  assert.ok((saving as HTMLButtonElement).disabled);
+  assert.ok(saving.querySelector("svg"));
+  f.setFailure("invalid_or_expired_code");
+  finish();
+  await waitFor(() =>
+    assert.equal(
+      screen
+        .getByRole("button", { name: "Sign and continue" })
+        .getAttribute("aria-busy"),
+      "false",
+    ),
+  );
+  assert.equal(
+    f.calls.find((call) => call.name === "sign")!.body.name,
+    "Frozen Investor",
+  );
   assert.deepEqual(f.calls.find((call) => call.name === "sign")!.body.mark, {
     mode: "typed",
     font: "caveat",

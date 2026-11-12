@@ -75,6 +75,7 @@ export type OrderView = {
   hash: string;
   pdfHash?: string;
   signatureBox?: SignatureBox;
+  signatureName?: string;
   expiresAt: string;
   signedAt: string | null;
   startsAt: string | null;

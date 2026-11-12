@@ -252,6 +252,7 @@ test("email codes remain required for artwork; encrypted evidence freezes its ha
       });
       const order = (await f.service.read(f.investor)).orders[0];
       assert.ok(order.signatureBox);
+      assert.equal(order.signatureName, f.profile.fullName);
       const mark =
         mode === "typed" ? { mode, font: "caveat" } : { mode, image: image() };
       const input = {

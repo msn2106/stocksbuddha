@@ -25,6 +25,7 @@ import {
   FileCheck2,
   ShieldCheck,
   CreditCard,
+  LoaderCircle,
 } from "lucide-react";
 import type {
   AgreementSettings,
@@ -1606,8 +1607,29 @@ function Checkout({
     mode: "typed",
     font: "allura",
   });
-  const [signatureName, setSignatureName] = useState("");
+  const [enteredName, setEnteredName] = useState("");
+  const signatureName = order.signatureName ?? enteredName;
+  const [signingAction, setSigningAction] = useState<"code" | "sign" | null>(
+    null,
+  );
   const [signatureBusy, setSignatureBusy] = useState(false);
+  const signingDisabled =
+    pending || signatureBusy || signingAction !== null || !view.signingEnabled;
+  /** Keep the initiating button busy through the action and its checkout refresh. */
+  async function runSigning(
+    kind: "code" | "sign",
+    body: Result,
+    notice?: string,
+  ) {
+    if (signingDisabled) return;
+    setSigningAction(kind);
+    try {
+      await run(() => action(kind, body), notice);
+    } finally {
+      setSigningAction(null);
+    }
+  }
+
   const agreementUrl = order.agreementId
     ? `/api/workspaces/${base.split("/").at(-1)}/documents/${order.agreementId}/download`
     : `/api/workspaces/${base.split("/").at(-1)}/onboarding/agreement/${order.id}`;
@@ -1679,16 +1701,15 @@ function Checkout({
           onSubmit={(event) => {
             event.preventDefault();
             const form = new FormData(event.currentTarget);
-            void run(() =>
-              action("sign", {
-                orderId: order.id,
-                name: form.get("signature"),
-                code: form.get("code"),
-                consent: form.get("consent") === "on",
-                hash: order.hash,
-                ...(order.signatureBox ? { mark } : {}),
-              }),
-            );
+            if (order.signatureBox && !mark) return;
+            void runSigning("sign", {
+              orderId: order.id,
+              name: signatureName,
+              code: form.get("code"),
+              consent: form.get("consent") === "on",
+              hash: order.hash,
+              ...(order.signatureBox ? { mark } : {}),
+            });
           }}
         >
           <Field
@@ -1706,7 +1727,8 @@ function Checkout({
             <input
               name="signature"
               value={signatureName}
-              onChange={(event) => setSignatureName(event.target.value)}
+              readOnly={order.signatureName !== undefined}
+              onChange={(event) => setEnteredName(event.target.value)}
               required
               maxLength={160}
               autoComplete="name"
@@ -1730,18 +1752,33 @@ function Checkout({
           )}
           <button
             type="button"
-            disabled={pending || signatureBusy || !view.signingEnabled}
+            disabled={signingDisabled}
+            aria-busy={signingAction === "code"}
             className="button secondary"
             onClick={() =>
-              void run(
-                () => action("code", { orderId: order.id }),
+              void runSigning(
+                "code",
+                { orderId: order.id },
                 hi
                   ? "पुष्टि कोड आपके ईमेल पर भेजा गया।"
                   : "A confirmation code was sent to your verified email.",
               )
             }
           >
-            {hi ? "ईमेल पुष्टि कोड भेजें" : "Send email confirmation code"}
+            {signingAction === "code" ? (
+              <>
+                <LoaderCircle
+                  className="signing-spinner"
+                  size={18}
+                  aria-hidden="true"
+                />
+                {hi ? "कोड भेजा जा रहा है…" : "Sending email code…"}
+              </>
+            ) : hi ? (
+              "ईमेल पुष्टि कोड भेजें"
+            ) : (
+              "Send email confirmation code"
+            )}
           </button>
           <Field label={hi ? "ईमेल पुष्टि कोड" : "Email confirmation code"}>
             <input
@@ -1754,15 +1791,24 @@ function Checkout({
             />
           </Field>
           <button
-            disabled={
-              pending ||
-              signatureBusy ||
-              !view.signingEnabled ||
-              Boolean(order.signatureBox && !mark)
-            }
+            disabled={signingDisabled || Boolean(order.signatureBox && !mark)}
+            aria-busy={signingAction === "sign"}
             className="button primary"
           >
-            {hi ? "हस्ताक्षर करें और आगे बढ़ें" : "Sign and continue"}
+            {signingAction === "sign" ? (
+              <>
+                <LoaderCircle
+                  className="signing-spinner"
+                  size={18}
+                  aria-hidden="true"
+                />
+                {hi ? "हस्ताक्षर सहेजे जा रहे हैं…" : "Saving signature…"}
+              </>
+            ) : hi ? (
+              "हस्ताक्षर करें और आगे बढ़ें"
+            ) : (
+              "Sign and continue"
+            )}
           </button>
         </form>
       )}

@@ -444,6 +444,7 @@ export class OnboardingService {
       total: row.total,
       days: row.days,
       text: snapshot.text,
+      signatureName: snapshot.profile.fullName,
       signatureBox:
         snapshot.document?.layoutVersion.endsWith(":signature-v2") &&
         snapshot.letterhead
