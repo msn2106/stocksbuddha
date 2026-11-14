@@ -457,6 +457,10 @@ test("signed/pending/paid checkouts resume payment and expose immutable agreemen
   });
   const root = render(<App data={f.data} />);
   await screen.findByRole("button", { name: "Pay with Cashfree" });
+  assert.equal(
+    screen.queryByRole("link", { name: "Download signed agreement" }),
+    null,
+  );
   fireEvent.click(screen.getByRole("button", { name: "Pay with Cashfree" }));
   await waitFor(() =>
     assert.ok(f.calls.some((call) => call.name === "confirm")),
@@ -476,6 +480,10 @@ test("signed/pending/paid checkouts resume payment and expose immutable agreemen
   f.setResult({ paid: false });
   render(<App data={f.data} />);
   await screen.findByRole("button", { name: "Check payment status" });
+  assert.equal(
+    screen.queryByRole("link", { name: "Download signed agreement" }),
+    null,
+  );
   fireEvent.click(screen.getByRole("button", { name: "Check payment status" }));
   await screen.findByRole("alert");
   f.setResult({ paid: true });

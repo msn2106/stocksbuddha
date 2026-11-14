@@ -1654,8 +1654,9 @@ function Checkout({
     }
   }
 
-  const agreementUrl = order.agreementId
-    ? `/api/workspaces/${base.split("/").at(-1)}/documents/${order.agreementId}/download`
+  const signedAgreementId = order.status === "paid" ? order.agreementId : null;
+  const agreementUrl = signedAgreementId
+    ? `/api/workspaces/${base.split("/").at(-1)}/documents/${signedAgreementId}/download`
     : `/api/workspaces/${base.split("/").at(-1)}/onboarding/agreement/${order.id}`;
   return (
     <section aria-labelledby={`order-${order.id}`}>
@@ -1886,7 +1887,7 @@ function Checkout({
       <div className="onboarding-actions">
         {[
           [
-            order.agreementId,
+            signedAgreementId,
             hi
               ? "हस्ताक्षरित अनुबंध डाउनलोड करें"
               : "Download signed agreement",

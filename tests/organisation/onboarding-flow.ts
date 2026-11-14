@@ -501,34 +501,23 @@ test("RA creates plan and discount; investor completes KYC, admin approves; sign
       .getByRole("button", { name: "Sign and continue", exact: true })
       .click();
     await expect(
-      investor.getByRole("link", { name: "Download signed agreement" }),
-    ).toBeVisible();
+      investor.getByRole("button", { name: "Pay with Cashfree", exact: true }),
+    ).toBeEnabled();
+    const downloadable = investor.getByRole("link", {
+      name: "Download signed agreement",
+    });
+    await expect(downloadable).toHaveCount(0);
     await investor.screenshot({
       path: "/tmp/stocksbuddha-onboarding-signed-desktop.png",
       fullPage: true,
     });
-    const downloadable = investor.getByRole("link", {
-      name: "Download signed agreement",
-    });
-    const link = await downloadable.getAttribute("href");
-    const archived = await investorContext.request.get(link!);
-    expect(archived.ok()).toBeTruthy();
-    await writeFile(
-      "/tmp/stocksbuddha-signed-visual-signature.pdf",
-      await archived.body(),
-    );
     await investor
       .getByText("Read agreement and MITC", { exact: true })
       .click();
     await expect(
-      investor
-        .getByRole("region", { name: "Agreement and MITC pages" })
-        .locator('canvas[data-rendered="true"]'),
-    ).toBeVisible();
-    const originalBytes = await archived.body();
-    expect(originalBytes.subarray(0, 5).toString()).toBe("%PDF-");
+      investor.getByRole("link", { name: "Open agreement PDF in a new tab" }),
+    ).toHaveAttribute("href", /onboarding\/agreement\//);
     await login(other, "onboarding-other@example.test");
-    expect((await otherContext.request.get(link!)).status()).toBe(404);
     expect(
       (
         await otherContext.request.get(
@@ -621,6 +610,7 @@ test("RA creates plan and discount; investor completes KYC, admin approves; sign
     await expect(
       investor.getByRole("button", { name: "Check payment status" }),
     ).toBeEnabled();
+    await expect(downloadable).toHaveCount(0);
     const confirmed = investor.waitForResponse((response) =>
       response.url().endsWith("/onboarding/confirm"),
     );
@@ -632,6 +622,17 @@ test("RA creates plan and discount; investor completes KYC, admin approves; sign
     await expect(
       investor.getByRole("link", { name: "Download invoice" }),
     ).toBeVisible();
+    await expect(downloadable).toBeVisible();
+    const link = await downloadable.getAttribute("href");
+    const archived = await investorContext.request.get(link!);
+    expect(archived.ok()).toBeTruthy();
+    const originalBytes = await archived.body();
+    expect(originalBytes.subarray(0, 5).toString()).toBe("%PDF-");
+    await writeFile(
+      "/tmp/stocksbuddha-signed-visual-signature.pdf",
+      originalBytes,
+    );
+    expect((await otherContext.request.get(link!)).status()).toBe(404);
     const sent = await (await request.get("/__test/mail")).json();
     const receipt = sent.findLast(
       (entry: { to: string; kind: string }) =>
