@@ -8,3 +8,5 @@ playwright-report/
 .DS_Store
 coverage/
 test-results-organisations/
+
+.data/

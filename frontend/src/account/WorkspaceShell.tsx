@@ -1,3 +1,4 @@
+import { MarketSetup, MarketReminder } from "./MarketSetup";
 import { Onboarding } from "./Onboarding";
 import { Documents } from "./Documents";
 import { roleErrorMessage } from "./role-errors";
@@ -237,6 +238,18 @@ export function WorkspaceShell({ data }: { data: PageData }) {
                   </a>
                 </>
               ))}
+            {!platform &&
+              !investor &&
+              account.role === "owner" &&
+              account.marketEnabled && (
+                <a
+                  href={`${base}/market?lang=${locale}`}
+                  aria-current={section === "market" ? "page" : undefined}
+                >
+                  <Settings size={19} aria-hidden="true" />
+                  {locale === "hi" ? "मार्केट सेटअप" : "Market Setup"}
+                </a>
+              )}
             <a
               href={`${base}/documents?lang=${locale}`}
               aria-current={section === "documents" ? "page" : undefined}
@@ -280,9 +293,20 @@ export function WorkspaceShell({ data }: { data: PageData }) {
           tabIndex={-1}
         >
           {!platform &&
-          account.onboardingEnabled &&
-          (["plans", "users", "onboarding"].includes(section) ||
-            (investor && section === "overview")) ? (
+            !investor &&
+            account.role === "owner" &&
+            account.marketEnabled &&
+            section !== "market" && <MarketReminder slug={data.tenant!.slug} />}
+          {section === "market" &&
+          !platform &&
+          !investor &&
+          account.role === "owner" &&
+          account.marketEnabled ? (
+            <MarketSetup slug={data.tenant!.slug} />
+          ) : !platform &&
+            account.onboardingEnabled &&
+            (["plans", "users", "onboarding"].includes(section) ||
+              (investor && section === "overview")) ? (
             <Onboarding data={data} overview={section === "overview"} />
           ) : section === "documents" ? (
             <Documents data={data} />

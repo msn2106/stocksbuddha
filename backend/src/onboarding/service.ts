@@ -1,3 +1,4 @@
+import { freezeResearchOfferings } from "../market/entitlements";
 import { normalizeSignature } from "./signature";
 import { signatureBox, signatureStamp } from "../agreement-pdf";
 import type { SignatureMark } from "@ra/contracts";
@@ -1078,6 +1079,7 @@ export class OnboardingService {
             this.options.env.NODE_ENV !== "production",
         ],
       );
+      await freezeResearchOfferings(manager, actor.tenantId, plan.id, id);
       await this.audit(manager, actor, "checkout.created", id);
       return { id };
     });

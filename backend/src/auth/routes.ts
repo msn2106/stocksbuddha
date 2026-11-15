@@ -1,3 +1,5 @@
+import { mountMarket } from "../market/routes";
+import type { MarketService } from "../market/service";
 import type { IntegrationSettingsService } from "../integrations/service";
 import { mountSms } from "../sms/routes";
 import type { SmsService } from "../sms/service";
@@ -51,6 +53,7 @@ export type AuthRoutesDependencies = {
   mailer?: AuthMailer;
   documents?: DocumentService;
   onboarding?: OnboardingService;
+  market?: MarketService;
   sms?: SmsService;
   integrations?: IntegrationSettingsService;
 };
@@ -85,7 +88,11 @@ function accountPage(
     page: "account",
     locale: "en",
     account: res.locals.onboardingEnabled
-      ? { ...account, onboardingEnabled: true }
+      ? {
+          ...account,
+          onboardingEnabled: true,
+          marketEnabled: Boolean(res.locals.marketEnabled),
+        }
       : account,
   };
   next();
@@ -115,6 +122,7 @@ export function createAuthRoutes({
   organisations,
   documents,
   onboarding,
+  market,
   sms,
   integrations,
   mailer,
@@ -123,6 +131,7 @@ export function createAuthRoutes({
   const origin = new URL(baseURL).origin;
   router.use((_req, res, next) => {
     res.locals.onboardingEnabled = Boolean(onboarding);
+    res.locals.marketEnabled = Boolean(market);
     next();
   });
   const trusted = trustedProxies(trustedProxyAddresses);
@@ -172,6 +181,14 @@ export function createAuthRoutes({
       auth,
       store,
       service: documents,
+      origin,
+      page: accountPage,
+    });
+  if (market)
+    mountMarket(router, {
+      auth,
+      store,
+      service: market,
       origin,
       page: accountPage,
     });

@@ -13,3 +13,7 @@ Keep future repo-wide development, release, and deployment helpers here. Package
 `check-dependency-policy.mjs` uses only Node built-ins and checks package manager configuration, exact dependency versions, and lockfile ownership. It runs on `preinstall` and through `npm run security:policy`. Its exported checker accepts a fixture root and command/environment adapters for unit testing the actual module. Integration tests use disposable directories and a local mock registry; they verify rejection of a one-day-old package, acceptance of an eight-day-old package, exact version saving, and rejection of weakened settings. `npm run test:policy` runs the tooling integration suite.
 
 `google-drive.ts` implements `npm run drive:authorize` (a single-use local Google consent callback that writes the refresh token only to ignored `backend/.env`) and `npm run drive:check` (read-only account/root permission verification). Configure the Desktop OAuth client before authorizing; the callback listens on loopback port 53682 and expires after ten minutes. See [Google Drive setup](../docs/GOOGLE_DRIVE.md).
+
+## Instrument catalogue
+
+`npm run market:import -- --local /absolute/folder` imports saved NSE/BSE gzip JSON masters and their download manifest; `--download` uses fixed public Upstox links. Output is ignored server-side reference data, not a browser asset. See [Market Setup](../docs/MARKET_SETUP.md) for scheduling, freshness and production permissions.

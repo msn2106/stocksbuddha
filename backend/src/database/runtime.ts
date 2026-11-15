@@ -1,3 +1,6 @@
+import { startCatalogueSync } from "../market/scheduler";
+import { MarketService } from "../market/service";
+import { InstrumentCatalogue, catalogueDirectory } from "../market/catalogue";
 import { IntegrationSettingsService } from "../integrations/service";
 import { RecoveryEmailLimiter } from "../auth/recovery-limits";
 import { SmsService } from "../sms/service";
@@ -158,6 +161,9 @@ export async function createPersistence(
     resolveGateway: (slug, manager) =>
       integrations.gateway(slug, gatewayConfig.get(slug), manager),
   });
+  const stopCatalogue = startCatalogueSync(catalogueDirectory(env), env, () => {
+    reportBackground("worker");
+  });
   let working: Promise<void> | undefined;
   let ticks = 0;
   /** Serialize bounded queue work; leases permit safe recovery after process failure. */
@@ -184,6 +190,11 @@ export async function createPersistence(
   return {
     authentication: createAuthRoutes({
       onboarding,
+      market: new MarketService(
+        db,
+        new InstrumentCatalogue(catalogueDirectory(env)),
+        env,
+      ),
       sms,
       integrations,
       documents,
@@ -205,6 +216,7 @@ export async function createPersistence(
     close: async () => {
       clearInterval(timer);
       await working;
+      await stopCatalogue();
       await Promise.all([authentication.close(), db.destroy()]);
     },
     /** Probe the live database without changing schema or exposing connection details. */

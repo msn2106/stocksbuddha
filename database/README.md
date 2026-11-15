@@ -1,6 +1,6 @@
 # MariaDB persistence
 
-The current thirty-two-table schema uses TypeORM and mysql2. Twenty-one ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
+The current thirty-eight-table schema uses TypeORM and mysql2. Twenty-two ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
 
 ## Local setup
 
@@ -136,4 +136,8 @@ Apply `1794528000000-QrPayments` (migration 20) before startup. It adds `ra_qr_s
 
 ## Per-RA letterhead configuration
 
-Apply migration 21, `1794614400000-LetterheadSettings`, before startup. It adds `ra_letterhead_settings` with the owning tenant key, encrypted LONGTEXT PDF/margin configuration and a positive optimistic version. Current totals are 21 application migrations and 32 tables including metadata. Current settings are private; order snapshots retain exact historical stationery and unsigned PDFs. Keep the retained data key and include the table in backups. Defaults require no seeded row: Stocks Buddha uses the supplied PDF; other RAs use standard stationery. See [upload/preview/reset behavior](../docs/BRANDING_AND_AGREEMENTS.md).
+Apply migration 21, `1794614400000-LetterheadSettings`, before startup. It adds `ra_letterhead_settings` with the owning tenant key, encrypted LONGTEXT PDF/margin configuration and a positive optimistic version. This migration brought the totals to 21 application migrations and 32 tables including metadata. Current settings are private; order snapshots retain exact historical stationery and unsigned PDFs. Keep the retained data key and include the table in backups. Defaults require no seeded row: Stocks Buddha uses the supplied PDF; other RAs use standard stationery. See [upload/preview/reset behavior](../docs/BRANDING_AND_AGREEMENTS.md).
+
+## Research Phase 1
+
+Migration 22, `1794614400001`, brings the totals to 22 application migrations and 38 tables including metadata. It adds six tables for encrypted RA declarations/audit revisions, plan and frozen order offerings, and future recommendation revisions/deliveries. Retain the onboarding encryption key with private backups. Existing orders receive no implicit research offering grants. See [Market Setup](../docs/MARKET_SETUP.md).

@@ -57,8 +57,10 @@ export type AccountView = {
     | "documents"
     | "plans"
     | "users"
-    | "onboarding";
+    | "onboarding"
+    | "market";
   onboardingEnabled?: boolean;
+  marketEnabled?: boolean;
   customerId?: string;
   profile?: { name: string; email: string; emailVerified: boolean };
   organisations?: {
@@ -146,3 +148,4 @@ export { logoSchema, type BrandLogos } from "./branding";
 export type { LetterheadSettings, LetterheadMargins } from "./letterhead";
 
 export type { SignatureMark, SignatureBox } from "./signature";
+export * from "./market";
