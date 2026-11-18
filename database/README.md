@@ -141,3 +141,7 @@ Apply migration 21, `1794614400000-LetterheadSettings`, before startup. It adds 
 ## Research Phase 1
 
 Migration 22, `1794614400001`, brings the totals to 22 application migrations and 38 tables including metadata. It adds six tables for encrypted RA declarations/audit revisions, plan and frozen order offerings, and future recommendation revisions/deliveries. Retain the onboarding encryption key with private backups. Existing orders receive no implicit research offering grants. See [Market Setup](../docs/MARKET_SETUP.md).
+
+## Research Phase 2
+
+Migration 23, `1794700800000-ResearchPublishing`, adds recommendation items, frozen recipient grants and encrypted client groups, plus delivery read timestamps. Current totals are **23 application migrations and 41 tables including metadata**. Apply explicitly before startup. The publisher uses the Phase 1 revision/delivery tables for immutable history and transactional dashboard distribution. See [Recommendations](../docs/RECOMMENDATIONS.md) for access, retention and lifecycle rules.

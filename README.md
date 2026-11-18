@@ -36,7 +36,7 @@ Investors now see KYC, plan/MITC and payment steps on their dashboard. After MIT
 
 ## Research market setup
 
-RA owners now have **Workspace → Market Setup** for public NSE/BSE instrument search, daily self-declarations, personal trades/holdings, external recommendation history, 30-day/5-day restriction previews and plan research offerings. Reference data requires no broker account. [Phase 1 setup and limits](docs/MARKET_SETUP.md) explains imports, optional daily refresh and privacy. Recommendation publishing, the investor research feed and Telegram delivery are subsequent work.
+RA owners now have **Workspace → Market Setup** for public NSE/BSE instrument search, daily self-declarations, personal trades/holdings, external recommendation history, 30-day/5-day restriction previews and plan research offerings. Reference data requires no broker account. [Phase 1 setup and limits](docs/MARKET_SETUP.md) explains imports, optional daily refresh and privacy. **Recommendations** now supports normal/multi-leg drafts, recipient previews, publication to eligible plans/client groups, immutable updates and closures, and investor dashboard/history access. See [Phase 2 workflow and limits](docs/RECOMMENDATIONS.md). Telegram delivery remains future work.
 
 ## Before committing
 

@@ -1,3 +1,5 @@
+import { mountResearch } from "../research/routes";
+import type { ResearchService } from "../research/service";
 import { mountMarket } from "../market/routes";
 import type { MarketService } from "../market/service";
 import type { IntegrationSettingsService } from "../integrations/service";
@@ -54,6 +56,7 @@ export type AuthRoutesDependencies = {
   documents?: DocumentService;
   onboarding?: OnboardingService;
   market?: MarketService;
+  research?: ResearchService;
   sms?: SmsService;
   integrations?: IntegrationSettingsService;
 };
@@ -92,6 +95,7 @@ function accountPage(
           ...account,
           onboardingEnabled: true,
           marketEnabled: Boolean(res.locals.marketEnabled),
+          researchEnabled: Boolean(res.locals.researchEnabled),
         }
       : account,
   };
@@ -123,6 +127,7 @@ export function createAuthRoutes({
   documents,
   onboarding,
   market,
+  research,
   sms,
   integrations,
   mailer,
@@ -132,6 +137,7 @@ export function createAuthRoutes({
   router.use((_req, res, next) => {
     res.locals.onboardingEnabled = Boolean(onboarding);
     res.locals.marketEnabled = Boolean(market);
+    res.locals.researchEnabled = Boolean(research);
     next();
   });
   const trusted = trustedProxies(trustedProxyAddresses);
@@ -181,6 +187,14 @@ export function createAuthRoutes({
       auth,
       store,
       service: documents,
+      origin,
+      page: accountPage,
+    });
+  if (research)
+    mountResearch(router, {
+      auth,
+      store,
+      service: research,
       origin,
       page: accountPage,
     });

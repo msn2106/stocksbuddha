@@ -11,6 +11,16 @@ import type { PaymentGateway } from "../src/onboarding/cashfree";
 export function onboardingFixture() {
   const memory = new DatabaseSync(":memory:");
   const definitions: Record<string, string> = {
+    research_items:
+      "id TEXT PRIMARY KEY,tenant_id TEXT,version INTEGER,status TEXT,draft_cipher TEXT,latest_revision_id TEXT,created_at TEXT,updated_at TEXT",
+    research_recipients:
+      "tenant_id TEXT,recommendation_id TEXT,membership_id TEXT,granted_at TEXT,PRIMARY KEY(tenant_id,recommendation_id,membership_id)",
+    research_revisions:
+      "id TEXT PRIMARY KEY,tenant_id TEXT,recommendation_id TEXT,version INTEGER,snapshot_cipher TEXT,created_at TEXT,UNIQUE(tenant_id,recommendation_id,version)",
+    research_deliveries:
+      "id TEXT PRIMARY KEY,tenant_id TEXT,revision_id TEXT,membership_id TEXT,channel TEXT,status TEXT,attempts INTEGER,created_at TEXT,read_at TEXT,UNIQUE(tenant_id,revision_id,membership_id,channel)",
+    research_groups:
+      "id TEXT PRIMARY KEY,tenant_id TEXT,name TEXT,version INTEGER,members_cipher TEXT",
     research_plan_offerings:
       "tenant_id TEXT,plan_id TEXT,offering TEXT,PRIMARY KEY(tenant_id,plan_id,offering)",
     research_order_offerings:

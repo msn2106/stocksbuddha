@@ -55,7 +55,7 @@ test("authenticated workspace is a blank shell with brand, placeholder sidebar a
   assert.ok(screen.getByRole("navigation", { name: "Workspace navigation" }));
   assert.ok(
     screen
-      .getByRole("button", { name: /Research.*Coming soon/ })
+      .getByRole("button", { name: /Settings.*Coming soon/ })
       .hasAttribute("disabled"),
   );
   assert.equal(screen.queryByText("Website management"), null);

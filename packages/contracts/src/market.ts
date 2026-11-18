@@ -128,6 +128,7 @@ export type DeclaredHolding = z.infer<typeof holdingSchema> & {
   voidReason?: string;
 };
 export type ExternalRecommendation = z.infer<typeof externalSchema> & {
+  sourceResearchId?: string;
   id: string;
   instrument: MarketInstrument;
   recordedAt: string;

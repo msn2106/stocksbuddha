@@ -256,7 +256,11 @@ export class MarketService {
         if (state.declaration) state.declaration.invalidated = true;
       } else if (command.action === "close") {
         const item = state.recommendations.find((r) => r.id === command.id);
-        requireValue(item && !item.closedOn, "record_not_found", 404);
+        requireValue(
+          item && !item.closedOn && !item.sourceResearchId,
+          "record_not_found",
+          404,
+        );
         item.closedOn = today;
         item.closeReason = command.reason;
       } else if (command.action === "plan") {

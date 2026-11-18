@@ -1,3 +1,4 @@
+import { ResearchService } from "../research/service";
 import { startCatalogueSync } from "../market/scheduler";
 import { MarketService } from "../market/service";
 import { InstrumentCatalogue, catalogueDirectory } from "../market/catalogue";
@@ -190,6 +191,12 @@ export async function createPersistence(
   return {
     authentication: createAuthRoutes({
       onboarding,
+      research: new ResearchService(
+        db,
+        new InstrumentCatalogue(catalogueDirectory(env)),
+        env,
+        storageConfig ? new GoogleDriveStorage(storageConfig) : null,
+      ),
       market: new MarketService(
         db,
         new InstrumentCatalogue(catalogueDirectory(env)),

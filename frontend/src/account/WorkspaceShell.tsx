@@ -1,3 +1,4 @@
+import { Recommendations } from "./Recommendations";
 import { MarketSetup, MarketReminder } from "./MarketSetup";
 import { Onboarding } from "./Onboarding";
 import { Documents } from "./Documents";
@@ -257,10 +258,20 @@ export function WorkspaceShell({ data }: { data: PageData }) {
               <FileText size={19} aria-hidden="true" />
               {t("org.documents")}
             </a>
-            {[
-              [BookOpen, "org.research"],
-              [Settings, "org.settings"],
-            ].map(([Icon, key]) => {
+            {!platform &&
+              account.researchEnabled &&
+              (investor || account.role === "owner") && (
+                <a
+                  href={`${base}/recommendations?lang=${locale}`}
+                  aria-current={
+                    section === "recommendations" ? "page" : undefined
+                  }
+                >
+                  <BookOpen size={19} aria-hidden="true" />
+                  {locale === "hi" ? "अनुशंसाएँ" : "Recommendations"}
+                </a>
+              )}
+            {[[Settings, "org.settings"]].map(([Icon, key]) => {
               const Symbol = Icon as typeof BookOpen;
               return (
                 <button key={key as string} disabled>
@@ -297,11 +308,22 @@ export function WorkspaceShell({ data }: { data: PageData }) {
             account.role === "owner" &&
             account.marketEnabled &&
             section !== "market" && <MarketReminder slug={data.tenant!.slug} />}
-          {section === "market" &&
+          {!platform &&
+            investor &&
+            account.researchEnabled &&
+            section === "overview" && (
+              <Recommendations slug={data.tenant!.slug} compact />
+            )}
+          {section === "recommendations" &&
           !platform &&
-          !investor &&
-          account.role === "owner" &&
-          account.marketEnabled ? (
+          account.researchEnabled &&
+          (investor || account.role === "owner") ? (
+            <Recommendations slug={data.tenant!.slug} owner={!investor} />
+          ) : section === "market" &&
+            !platform &&
+            !investor &&
+            account.role === "owner" &&
+            account.marketEnabled ? (
             <MarketSetup slug={data.tenant!.slug} />
           ) : !platform &&
             account.onboardingEnabled &&

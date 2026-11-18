@@ -45,7 +45,7 @@ export function MarketReminder({ slug }: { slug: string }) {
   ) : null;
 }
 /** Search explicit contracts; a selected identity is cleared as soon as search criteria change. */
-function InstrumentPicker({
+export function InstrumentPicker({
   base,
   onSelect,
 }: {
@@ -733,7 +733,14 @@ export function MarketSetup({ slug }: { slug: string }) {
                         </p>
                       ))}
                   </div>
-                  {!r.closedOn && (
+                  {r.sourceResearchId && (
+                    <a
+                      href={`/ra/${slug}/workspace/recommendations?lang=${locale}`}
+                    >
+                      Manage published recommendation
+                    </a>
+                  )}
+                  {!r.closedOn && !r.sourceResearchId && (
                     <Correction
                       busy={busy}
                       label="Close recommendation"

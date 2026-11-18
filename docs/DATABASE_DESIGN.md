@@ -528,4 +528,8 @@ Migration 21, `1794614400000-LetterheadSettings`, adds `ra_letterhead_settings`:
 
 ## Research setup extension
 
-Migration 22, `MarketSetup1794614400001`, adds six tables, bringing the current total to 38 including metadata: `ra_market_state` and `ra_market_events` store encrypted current declarations and immutable revisions; `research_plan_offerings` and `research_order_offerings` store configurable and checkout-frozen research access; `research_revisions` and `research_deliveries` are foundations for the future publisher. Every table carries a tenant foreign key with deletion restricted. Declaration changes serialize under the tenant lock and require the current version. Apply explicitly before startup; retain the existing encryption key. See [Market Setup](MARKET_SETUP.md) for owner access, imports and remaining publishing work.
+Migration 22, `MarketSetup1794614400001`, adds six tables, bringing the total at that migration to 38 including metadata: `ra_market_state` and `ra_market_events` store encrypted current declarations and immutable revisions; `research_plan_offerings` and `research_order_offerings` store configurable and checkout-frozen research access; `research_revisions` and `research_deliveries` provide the revision/delivery foundations used by Phase 2. Every table carries a tenant foreign key with deletion restricted. Declaration changes serialize under the tenant lock and require the current version. Apply explicitly before startup; retain the existing encryption key. See [Market Setup](MARKET_SETUP.md) for owner access, imports and declaration policies.
+
+## Research publication tables
+
+Migration 23 adds `research_items`, `research_recipients`, `research_groups` and delivery read timestamps. The current total is 41 tables including metadata. The Phase 1 revision/delivery foundations now support immutable published reports and transactional dashboard distribution. See [Recommendations](RECOMMENDATIONS.md).

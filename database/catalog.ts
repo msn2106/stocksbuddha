@@ -1,3 +1,4 @@
+import { ResearchPublishing1794700800000 } from "./migrations/1794700800000-ResearchPublishing";
 import { MarketSetup1794614400001 } from "./migrations/1794614400001-MarketSetup";
 import { QrPayments1794528000000 } from "./migrations/1794528000000-QrPayments";
 import { LetterheadSettings1794614400000 } from "./migrations/1794614400000-LetterheadSettings";
@@ -47,4 +48,5 @@ export const migrationClasses = [
   QrPayments1794528000000,
   LetterheadSettings1794614400000,
   MarketSetup1794614400001,
+  ResearchPublishing1794700800000,
 ];
