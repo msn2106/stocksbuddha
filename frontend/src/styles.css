@@ -5208,6 +5208,8 @@ html[data-contrast="high"] .brand-artwork-auto .brand-artwork-dark {
   margin: 4px 0 12px;
 }
 .research-state {
+  flex-shrink: 0;
+  white-space: nowrap;
   padding: 6px 12px;
   font-size: 0.8rem;
   background: #eaf5ef;
@@ -5352,4 +5354,34 @@ html[data-contrast="high"] .brand-artwork-auto .brand-artwork-dark {
   .research-choices {
     flex-direction: column;
   }
+}
+
+.research-discard {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: #fff9ed;
+  border: 2px solid #a77728;
+  padding: 24px;
+}
+.research-discard button {
+  margin: 8px 12px 0 0;
+}
+
+.research-publication-preview,
+.research-detail,
+.research-group-panel {
+  scroll-margin-top: 120px;
+}
+.research-report header > div {
+  min-width: 0;
+}
+.research-report header {
+  flex-wrap: wrap;
+}
+.research-recipient-summary {
+  margin: 16px 0;
+  padding: 16px;
+  background: #f0f5f2;
+  border: 1px solid #dce4df;
 }

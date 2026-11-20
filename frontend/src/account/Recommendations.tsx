@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, ArrowLeft, Bell, Users } from "lucide-react";
 import type {
   ResearchItem,
@@ -55,6 +55,13 @@ export function Recommendations({
     [groups, setGroups] = useState(false),
     [reason, setReason] = useState(""),
     [status, setStatus] = useState<"closed" | "withdrawn">("closed");
+  const detailRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (detail) {
+      detailRef.current?.focus();
+      detailRef.current?.scrollIntoView?.({ block: "start" });
+    }
+  }, [detail]);
   /** Parse safe API errors and keep transport failures visible instead of showing an empty successful list. */
   async function request(path: string, body?: unknown): Promise<unknown> {
     const r = await fetch(
@@ -70,7 +77,41 @@ export function Recommendations({
     const value = await r.json();
     if (!r.ok)
       throw new Error(
-        messages[value.error] ??
+        (value.error === "invalid_recommendation" && Array.isArray(value.issues)
+          ? value.issues
+              .map((issue: { path: string; message: string }) => {
+                const label = issue.path
+                  .replace(
+                    /^draft\.legs\.(\d+)\./,
+                    (_: string, n: string) =>
+                      `${hi ? "लेग" : "Leg"} ${Number(n) + 1} · `,
+                  )
+                  .replace(/^draft\./, "");
+                const friendly: Record<string, string> = {
+                  instrumentKey: hi ? "इंस्ट्रूमेंट" : "Instrument",
+                  stopLoss: hi ? "स्टॉप लॉस" : "Stop-loss",
+                  entryMin: hi ? "न्यूनतम एंट्री" : "Entry minimum",
+                  entryMax: hi ? "अधिकतम एंट्री" : "Entry maximum",
+                  targets: hi ? "लक्ष्य" : "Targets",
+                  legs: hi ? "ट्रेड लेग" : "Trade legs",
+                  audience: hi ? "प्राप्तकर्ता" : "Recipients",
+                  validUntil: hi
+                    ? "अनुशंसा की वैधता"
+                    : "Recommendation validity",
+                  attachmentIds: hi ? "सहायक फ़ाइलें" : "Supporting files",
+                  rationale: hi ? "रिसर्च का आधार" : "Rationale",
+                  disclosures: hi ? "प्रकटीकरण" : "Disclosures",
+                  aiDisclosure: hi ? "AI का उपयोग" : "AI use",
+                };
+                const readable = label.replace(
+                  /\b(instrumentKey|stopLoss|entryMin|entryMax|targets|legs|audience|validUntil|attachmentIds|rationale|disclosures|aiDisclosure)\b/g,
+                  (key) => friendly[key],
+                );
+                return `${readable}: ${issue.message}`;
+              })
+              .join("\n")
+          : undefined) ??
+          messages[value.error] ??
           (hi
             ? "अनुरोध पूरा नहीं हुआ। फिर प्रयास करें।"
             : `Unable to complete request: ${value.error ?? r.status}`),
@@ -341,7 +382,12 @@ export function Recommendations({
         </div>
       )}
       {detail && (
-        <section className="research-detail">
+        <section
+          className="research-detail"
+          ref={detailRef}
+          tabIndex={-1}
+          aria-label={hi ? "प्रकाशित रिपोर्ट" : "Published report"}
+        >
           <button onClick={() => setDetail(null)}>
             <ArrowLeft size={16} />
             {hi ? "रिपोर्ट बंद करें" : "Close report"}
@@ -461,9 +507,20 @@ function ClientGroups({
     [name, setName] = useState(""),
     [members, setMembers] = useState<string[]>([]),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [message, setMessage] = useState("");
+  const panelRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    panelRef.current?.focus();
+    panelRef.current?.scrollIntoView?.({ block: "start" });
+  }, []);
   return (
-    <section className="research-group-panel">
+    <section
+      className="research-group-panel"
+      ref={panelRef}
+      tabIndex={-1}
+      aria-label={hi ? "क्लाइंट समूह" : "Client group management"}
+    >
       <header>
         <h2>{hi ? "क्लाइंट समूह" : "Client groups"}</h2>
         <button onClick={onClose}>{hi ? "बंद करें" : "Close groups"}</button>
@@ -492,6 +549,7 @@ function ClientGroups({
               membershipIds: members,
             });
             await onSaved();
+            setMessage(hi ? "समूह सुरक्षित है।" : "Group saved.");
             setSelected("");
             setName("");
             setMembers([]);
@@ -557,6 +615,7 @@ function ClientGroups({
                 : "No active subscribers yet."}
             </p>
           )}
+          {message && <p role="status">{message}</p>}
           <button type="submit">
             {hi ? "समूह सुरक्षित करें" : "Save group"}
           </button>

@@ -3,7 +3,7 @@ import { fromNodeHeaders } from "better-auth/node";
 import type { AccountView, Tenant } from "@ra/contracts";
 import type { AuthRoutesDependencies } from "../auth/routes";
 import { OnboardingError } from "../onboarding/domain";
-import type { ResearchService } from "./service";
+import { ResearchValidationError, type ResearchService } from "./service";
 /** Bind recommendation APIs and pages to the current authenticated tenant; mutations require same origin. */
 export function mountResearch(
   router: Router,
@@ -125,6 +125,9 @@ export function mountResearch(
             : 503,
       )
       .json({
+        ...(error instanceof ResearchValidationError
+          ? { issues: error.issues }
+          : {}),
         error:
           error instanceof OnboardingError
             ? error.code

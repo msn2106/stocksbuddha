@@ -136,6 +136,21 @@ export class MarketService {
       };
     });
   }
+  /** Resolve a saved instrument, including expired identities, only for an authorized owner. */
+  async instrument(c: MarketContext, key: string) {
+    requireValue(key.length > 0 && key.length <= 160, "invalid_instrument");
+    await this.catalogue.load();
+    return this.db.transaction(async (m) => {
+      await this.owner(m, c);
+      const instrument = this.catalogue.get(key);
+      requireValue(
+        instrument && instrument.type !== "INDEX",
+        "instrument_not_found",
+        404,
+      );
+      return { instrument };
+    });
+  }
   /** Preview the same restriction guard used by future publication operations; no client approval flag is trusted. */
   async check(c: MarketContext, keys: string[]) {
     await this.catalogue.load();

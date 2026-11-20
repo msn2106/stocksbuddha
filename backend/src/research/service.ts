@@ -11,10 +11,16 @@ import {
   type ResearchDetail,
   type ResearchOptions,
   type ResearchPreview,
+  type ResearchRecipientSummary,
   type MarketState,
   type ResearchAttachment,
 } from "@ra/contracts";
-import { requireValue, seal, unseal } from "../onboarding/domain";
+import {
+  OnboardingError,
+  requireValue,
+  seal,
+  unseal,
+} from "../onboarding/domain";
 import { InstrumentCatalogue } from "../market/catalogue";
 import { emptyMarket, publicationCheck, indiaDate } from "../market/policy";
 import { devEnabled } from "../onboarding/domain";
@@ -35,6 +41,13 @@ type Row = {
   draft_cipher: string;
   latest_revision_id: string | null;
 };
+/** Return only safe field paths and validation messages, never submitted values. */
+export class ResearchValidationError extends OnboardingError {
+  /** Keep the established API error code while exposing actionable field failures. */
+  constructor(readonly issues: { path: string; message: string }[]) {
+    super("invalid_recommendation");
+  }
+}
 /** Persist tenant-scoped research, atomically freeze recipients, and retain immutable published versions. */
 export class ResearchService {
   private key: string;
@@ -219,7 +232,13 @@ export class ResearchService {
   /** Save a complete editable draft with optimistic concurrency; published facts remain unchanged. */
   async save(c: ResearchContext, input: unknown) {
     const p = researchSaveSchema.safeParse(input);
-    requireValue(p.success, "invalid_recommendation");
+    if (!p.success)
+      throw new ResearchValidationError(
+        p.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        })),
+      );
     const v = p.data;
     return this.db.transaction(async (m) => {
       await this.actor(m, c, true);
@@ -369,12 +388,17 @@ export class ResearchService {
     c: ResearchContext,
     row: Row,
     draft: ResearchDraft,
+    summary?: ResearchRecipientSummary,
   ): Promise<string[]> {
     if (row.latest_revision_id) {
       const rows: { membership_id: string }[] = await m.query(
         "SELECT membership_id FROM research_recipients WHERE tenant_id=? AND recommendation_id=? ORDER BY membership_id LOCK IN SHARE MODE",
         [c.tenantId, row.id],
       );
+      if (summary) {
+        summary.candidates = rows.length;
+        summary.historical = true;
+      }
       return rows.map((r) => r.membership_id);
     }
     let groupMembers: Set<string> | null = null;
@@ -402,9 +426,13 @@ export class ResearchService {
       [c.tenantId],
     );
     requireValue(members.length <= 2000, "audience_too_large");
+    if (summary) summary.candidates = members.length;
     const recipients: string[] = [];
     for (const member of members) {
-      if (groupMembers && !groupMembers.has(member.id)) continue;
+      if (groupMembers && !groupMembers.has(member.id)) {
+        if (summary) summary.outsideGroup++;
+        continue;
+      }
       const [kyc] = await m.query(
         "SELECT status FROM investor_kyc WHERE tenant_id=? AND membership_id=? LOCK IN SHARE MODE",
         [c.tenantId, member.id],
@@ -412,21 +440,29 @@ export class ResearchService {
       if (!(
         kyc?.status === "verified" ||
         (devEnabled(this.env) && kyc?.status === "skipped_dev")
-      ))
+      )) {
+        if (summary) summary.kyc++;
         continue;
+      }
       const orders: { plan_id: string; dev: number }[] = await m.query(
         "SELECT o.plan_id,o.dev FROM subscription_orders o JOIN research_order_offerings g ON g.order_id=o.id AND g.tenant_id=o.tenant_id WHERE o.tenant_id=? AND o.membership_id=? AND g.offering=? AND o.status='paid' AND o.starts_at<=? AND o.ends_at>? AND o.agreement_id IS NOT NULL LOCK IN SHARE MODE",
         [c.tenantId, member.id, draft.offering, this.now(), this.now()],
       );
+      const eligibleOrders = orders.filter(
+        (o) => this.env.NODE_ENV !== "production" || !o.dev,
+      );
+      if (!eligibleOrders.length) {
+        if (summary) summary.subscriptionOrOffering++;
+        continue;
+      }
       if (
-        orders.some(
-          (o) =>
-            (this.env.NODE_ENV !== "production" || !o.dev) &&
-            (draft.audience.mode !== "plans" ||
-              draft.audience.ids.includes(o.plan_id)),
-        )
-      )
-        recipients.push(member.id);
+        draft.audience.mode === "plans" &&
+        !eligibleOrders.some((o) => draft.audience.ids.includes(o.plan_id))
+      ) {
+        if (summary) summary.outsidePlan++;
+        continue;
+      }
+      recipients.push(member.id);
     }
     return recipients;
   }
@@ -494,7 +530,21 @@ export class ResearchService {
       requireValue(file, "attachment_not_found");
       attachments.push(file);
     }
-    const recipients = await this.recipients(m, c, row, draft);
+    const recipientSummary: ResearchRecipientSummary = {
+      candidates: 0,
+      historical: false,
+      outsideGroup: 0,
+      kyc: 0,
+      subscriptionOrOffering: 0,
+      outsidePlan: 0,
+    };
+    const recipients = await this.recipients(
+      m,
+      c,
+      row,
+      draft,
+      recipientSummary,
+    );
     if (!recipients.length) reasons.push("no_eligible_recipients");
     if (
       this.env.NODE_ENV === "production" &&
@@ -534,7 +584,15 @@ export class ResearchService {
         }),
       )
       .digest("hex");
-    return { snapshot, check, reasons, recipients, market, token };
+    return {
+      snapshot,
+      check,
+      reasons,
+      recipients,
+      recipientSummary,
+      market,
+      token,
+    };
   }
   /** Preview is informational; its token becomes invalid when content, recipients or declaration state changes. */
   async preview(c: ResearchContext, id: string): Promise<ResearchPreview> {
@@ -553,6 +611,7 @@ export class ResearchService {
         check: p.check,
         reasons: p.reasons,
         recipientCount: p.recipients.length,
+        recipientSummary: p.recipientSummary,
         token: p.check.allowed && !p.reasons.length ? p.token : null,
       };
     });

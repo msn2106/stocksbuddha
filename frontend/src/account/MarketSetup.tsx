@@ -44,40 +44,109 @@ export function MarketReminder({ slug }: { slug: string }) {
     </aside>
   ) : null;
 }
-/** Search explicit contracts; a selected identity is cleared as soon as search criteria change. */
+/** Search instruments without discarding the selected identity when search filters change. */
 export function InstrumentPicker({
   base,
   onSelect,
+  offering,
+  selectedKey,
+  onResolve,
 }: {
   base: string;
+  offering?: ResearchOffering;
+  selectedKey?: string;
+  onResolve?: (instrument: MarketInstrument) => void;
   onSelect: (i: MarketInstrument | null) => void;
 }) {
   const { locale } = useLanguage(),
     hi = locale === "hi";
   const [q, setQ] = useState(""),
-    [type, setType] = useState(""),
+    [type, setType] = useState(
+      offering === "equity"
+        ? "EQ"
+        : offering === "futures"
+          ? "FUT"
+          : offering === "options"
+            ? "CE"
+            : "",
+    ),
     [expiry, setExpiry] = useState(""),
     [rows, setRows] = useState<MarketInstrument[]>([]),
     [error, setError] = useState(false),
     [loading, setLoading] = useState(false),
-    [selected, setSelected] = useState("");
+    [selected, setSelected] = useState(selectedKey ?? "");
+  const allowedTypes =
+    offering === "equity"
+      ? ["EQ"]
+      : offering === "futures"
+        ? ["FUT"]
+        : offering === "options"
+          ? ["CE", "PE"]
+          : ["EQ", "FUT", "CE", "PE"];
+  const value = selectedKey ?? selected;
+  const [resolved, setResolved] = useState<MarketInstrument | null>(null);
+  const [resolveError, setResolveError] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const current =
+    resolved?.key === value ? resolved : rows.find((i) => i.key === value);
+  useEffect(() => {
+    if (!value || current) return;
+    const controller = new AbortController();
+    setResolveError(false);
+    fetch(`${base}/instruments/${encodeURIComponent(value)}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error();
+        return response.json();
+      })
+      .then(({ instrument }) => {
+        if (!controller.signal.aborted && instrument?.key === value) {
+          setResolved(instrument);
+          onResolve?.(instrument);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setResolveError(true);
+      });
+    return () => controller.abort();
+  }, [base, value, current, onResolve]);
+  const selectedLabel = current
+    ? `${current.exchange} · ${current.symbol} · ${current.type}`
+    : value;
+
+  const matches = rows.filter(
+    (i) => allowedTypes.includes(i.type) && (!type || i.type === type),
+  );
+  const contractExpiry = ["FUT", "CE", "PE"].includes(type) ? expiry : "";
   useEffect(() => {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       if (q.trim().length < 2) {
         setRows([]);
+        setLoading(false);
+        setSearched(false);
         return;
       }
       setLoading(true);
+      setSearched(false);
       setError(false);
-      fetch(`${base}/instruments?${new URLSearchParams({ q, type, expiry })}`, {
-        signal: controller.signal,
-      })
+      fetch(
+        `${base}/instruments?${new URLSearchParams({ q, type, expiry: contractExpiry })}`,
+        {
+          signal: controller.signal,
+        },
+      )
         .then(async (r) => {
           if (!r.ok) throw new Error();
           return r.json();
         })
-        .then((v) => setRows(v.instruments))
+        .then((v) => {
+          if (!controller.signal.aborted) {
+            setRows(v.instruments);
+            setSearched(true);
+          }
+        })
         .catch(() => {
           if (!controller.signal.aborted) setError(true);
         })
@@ -89,15 +158,31 @@ export function InstrumentPicker({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [base, q, type, expiry]);
-  /** Invalidate the selected contract when any search criterion changes. */
-  const clear = () => {
-    setSelected("");
-    onSelect(null);
-  };
+  }, [base, q, type, contractExpiry]);
   return (
     <fieldset className="market-picker">
       <legend>{hi ? "इंस्ट्रूमेंट चुनें" : "Select instrument"}</legend>
+      {value && (
+        <p className="research-selected">
+          {hi ? "चुना गया इंस्ट्रूमेंट" : "Selected instrument"}:{" "}
+          <strong>{selectedLabel}</strong>
+          {current && (
+            <span>
+              {" "}
+              {current.expiry ? ` · Expiry ${current.expiry}` : ""}
+              {current.strike !== null ? ` · Strike ₹${current.strike}` : ""}
+              {current.type !== "EQ" ? ` · Lot size ${current.lotSize}` : ""}
+            </span>
+          )}
+        </p>
+      )}
+      {resolveError && (
+        <p role="alert">
+          {hi
+            ? "इंस्ट्रूमेंट विवरण उपलब्ध नहीं है; चयन सुरक्षित है।"
+            : "Instrument details are unavailable; your selection is preserved. Reopen the draft or search again."}
+        </p>
+      )}
       <div className="market-grid">
         <label>
           {hi ? "नाम / सिंबल" : "Name / symbol"}
@@ -106,7 +191,8 @@ export function InstrumentPicker({
             placeholder="RELIANCE, NIFTY…"
             onChange={(e) => {
               setQ(e.target.value);
-              clear();
+              setRows([]);
+              setSearched(false);
             }}
           />
         </label>
@@ -116,52 +202,86 @@ export function InstrumentPicker({
             value={type}
             onChange={(e) => {
               setType(e.target.value);
-              clear();
+              setExpiry("");
+              setRows([]);
+              setSearched(false);
             }}
           >
-            <option value="">{hi ? "सभी" : "All"}</option>
-            {["EQ", "FUT", "CE", "PE"].map((t) => (
+            {allowedTypes.length === 4 && (
+              <option value="">{hi ? "सभी" : "All"}</option>
+            )}
+            {allowedTypes.map((t) => (
               <option key={t}>{t}</option>
             ))}
           </select>
         </label>
-        <label>
-          {hi ? "एक्सपायरी (वैकल्पिक)" : "Expiry (optional)"}
-          <input
-            type="date"
-            value={expiry}
-            onChange={(e) => {
-              setExpiry(e.target.value);
-              clear();
-            }}
-          />
-        </label>
+        {["FUT", "CE", "PE"].includes(type) && (
+          <label>
+            {hi
+              ? "कॉन्ट्रैक्ट एक्सपायरी (वैकल्पिक)"
+              : "Contract expiry (optional)"}
+            <input
+              type="date"
+              value={contractExpiry}
+              onChange={(e) => {
+                setExpiry(e.target.value);
+                setRows([]);
+                setSearched(false);
+              }}
+            />
+          </label>
+        )}
       </div>
       <label>
-        {hi ? "मिलते हुए कॉन्ट्रैक्ट" : "Matching contracts"}
+        {hi ? "मिलते हुए इंस्ट्रूमेंट" : "Matching instruments"}
         <select
-          value={selected}
+          value={value}
           onChange={(e) => {
             setSelected(e.target.value);
-            onSelect(rows.find((i) => i.key === e.target.value) ?? null);
+            const instrument = matches.find((i) => i.key === e.target.value);
+            if (instrument) {
+              setResolved(instrument);
+              onResolve?.(instrument);
+            }
+            if (instrument || !e.target.value) onSelect(instrument ?? null);
           }}
         >
           <option value="">
             {loading
               ? "Loading…"
               : hi
-                ? "कॉन्ट्रैक्ट चुनें"
-                : "Choose a contract"}
+                ? "इंस्ट्रूमेंट चुनें"
+                : "Choose an instrument"}
           </option>
-          {rows
-            .filter((i) => i.type !== "INDEX")
-            .map((i) => (
-              <option key={i.key} value={i.key}>
-                {i.exchange} · {i.symbol} · {i.type}
-              </option>
-            ))}
+          {value && !matches.some((i) => i.key === value) && (
+            <option value={value}>
+              {selectedLabel} · {hi ? "पहले चुना गया" : "Previously selected"}
+            </option>
+          )}
+          {matches.map((i) => (
+            <option key={i.key} value={i.key}>
+              {i.exchange} · {i.symbol} · {i.type}
+            </option>
+          ))}
         </select>
       </label>
+      {searched && !loading && !error && matches.length === 0 && (
+        <p role="status">
+          {hi
+            ? "इन फ़िल्टर से कोई इंस्ट्रूमेंट नहीं मिला।"
+            : "No instruments match these filters."}
+        </p>
+      )}
+      {value &&
+        searched &&
+        !loading &&
+        !matches.some((i) => i.key === value) && (
+          <p>
+            {hi
+              ? "आपका पिछला चयन नहीं बदला है। नया इंस्ट्रूमेंट चुनने पर ही बदलेगा।"
+              : "Your previous selection is unchanged and is outside these search results. Choose a replacement to change it."}
+          </p>
+        )}
       <small>
         {hi
           ? "कम से कम 2 अक्षर लिखें। अधिकतम 50 परिणाम।"

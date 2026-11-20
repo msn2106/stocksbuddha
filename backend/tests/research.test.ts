@@ -533,3 +533,96 @@ test("preview explains missing declarations, mismatched contracts, production re
     await f.cleanup();
   }
 });
+
+test("invalid recommendations identify missing and duplicate instruments and the incorrect stop-loss leg", async () => {
+  const f = await researchFixture();
+  try {
+    const leg = f.draft.legs[0];
+    for (const [legs, expected] of [
+      [
+        [
+          { ...leg, instrumentKey: "" },
+          { ...leg, stopLoss: 1000 },
+        ],
+        ["draft.legs.0.instrumentKey", "draft.legs.1.stopLoss"],
+      ],
+      [[leg, leg], ["draft.legs.1.instrumentKey"]],
+    ] as const) {
+      await assert.rejects(
+        f.service.save(f.admin, {
+          id: randomUUID(),
+          version: 0,
+          draft: { ...f.draft, offering: "hedges", legs },
+        }),
+        (error: unknown) => {
+          const failure = error as {
+            code: string;
+            issues: { path: string; message: string }[];
+          };
+          assert.equal(failure.code, "invalid_recommendation");
+          assert.deepEqual(
+            failure.issues.map((i) => i.path),
+            expected,
+          );
+          return true;
+        },
+      );
+    }
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("saved instrument lookup authorizes owners and retains expired identities for display", async () => {
+  const f = await researchFixture();
+  try {
+    const result = await f.market.instrument(f.admin, "NSE_FO|0");
+    assert.equal(result.instrument?.type, "CE");
+    f.setClock(new Date("2027-01-01"));
+    assert.equal(
+      (await f.market.instrument(f.admin, "NSE_FO|0")).instrument?.key,
+      "NSE_FO|0",
+    );
+    await assert.rejects(
+      f.market.instrument(f.investor, "NSE_FO|0"),
+      /forbidden/,
+    );
+    await assert.rejects(
+      f.market.instrument(f.admin, "missing"),
+      /instrument_not_found/,
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("preview explains exclusion counts without changing eligibility", async () => {
+  const f = await researchFixture();
+  try {
+    const id = randomUUID();
+    await f.service.save(f.admin, { id, version: 0, draft: f.draft });
+    const before = await f.service.preview(f.admin, id);
+    assert.equal(before.recipientCount, 1);
+    assert.equal(before.recipientSummary?.historical, false);
+    await f.query("DELETE FROM research_order_offerings WHERE order_id=?", [
+      f.orderId,
+    ]);
+    const after = await f.service.preview(f.admin, id);
+    assert.equal(after.recipientCount, 0);
+    assert.equal(
+      after.recipientSummary!.subscriptionOrOffering,
+      before.recipientSummary!.subscriptionOrOffering + 1,
+    );
+    const summary = after.recipientSummary!;
+    assert.equal(
+      summary.candidates,
+      summary.outsideGroup +
+        summary.kyc +
+        summary.subscriptionOrOffering +
+        summary.outsidePlan +
+        after.recipientCount,
+    );
+  } finally {
+    await f.cleanup();
+  }
+});

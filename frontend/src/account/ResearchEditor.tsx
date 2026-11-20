@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Plus, X, Trash2, Users, Layers, FileText } from "lucide-react";
 import type {
+  MarketInstrument,
   ResearchDraft,
   ResearchItem,
   ResearchOptions,
@@ -94,13 +95,95 @@ export function ResearchEditor({
     [message, setMessage] = useState(""),
     [confirmed, setConfirmed] = useState(false),
     [reason, setReason] = useState("");
+  const [instruments, setInstruments] = useState<
+    Record<string, MarketInstrument>
+  >(() =>
+    Object.fromEntries(
+      (item?.latest?.instruments ?? []).map((i) => [i.key, i]),
+    ),
+  );
+  const rememberInstrument = useCallback(
+    (instrument: MarketInstrument) =>
+      setInstruments((old) =>
+        old[instrument.key] === instrument
+          ? old
+          : { ...old, [instrument.key]: instrument },
+      ),
+    [],
+  );
+  const feedbackRef = useRef<HTMLParagraphElement>(null);
+  const previewRef = useRef<HTMLElement>(null);
+  const [operation, setOperation] = useState<
+    "save" | "preview" | "upload" | "publish"
+  >("save");
+  useEffect(() => {
+    if (error) {
+      feedbackRef.current?.focus();
+      feedbackRef.current?.scrollIntoView?.({ block: "center" });
+    }
+  }, [error]);
+  useEffect(() => {
+    if (preview) {
+      previewRef.current?.focus();
+      previewRef.current?.scrollIntoView?.({ block: "start" });
+    }
+  }, [preview]);
   const published = !!item?.latest;
+  const [savedDraft, setSavedDraft] = useState(() => JSON.stringify(draft));
+  const [closeRequested, setCloseRequested] = useState(false);
+  const dirty = JSON.stringify(draft) !== savedDraft;
+  const formRef = useRef<HTMLFormElement>(null);
+  const discardRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (closeRequested) discardRef.current?.focus();
+  }, [closeRequested]);
+  useEffect(() => {
+    if (!dirty) return;
+    /** Request the browser's native leave-page warning while draft edits are unsaved. */
+    const protect = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", protect);
+    return () => window.removeEventListener("beforeunload", protect);
+  }, [dirty]);
+  /** Require an explicit disposition for unsaved edits on every editor dismissal path. */
+  function requestClose() {
+    if (busy) return;
+    if (dirty) setCloseRequested(true);
+    else onClose();
+  }
+  /** Both category controls use the same leg-count and compatible-selection rules. */
+  function changeOffering(offering: ResearchDraft["offering"]) {
+    if (offering === draft.offering) return;
+    const legs =
+      offering === "hedges"
+        ? draft.legs.length > 1
+          ? draft.legs
+          : [...draft.legs, newLeg()]
+        : [
+            {
+              ...draft.legs[0],
+              instrumentKey: (() => {
+                const first = draft.legs[0];
+                const type = instruments[first.instrumentKey]?.type;
+                return (offering === "equity" && type === "EQ") ||
+                  (offering === "futures" && type === "FUT") ||
+                  (offering === "options" && (type === "CE" || type === "PE"))
+                  ? first.instrumentKey
+                  : "";
+              })(),
+            },
+          ];
+    edit({ ...draft, offering, legs });
+  }
   /** Any edit invalidates the previous publication preview and its user confirmation. */
   function edit(next: ResearchDraft) {
     setDraft(next);
     setPreview(null);
     setConfirmed(false);
     setMessage("");
+    setError("");
   }
   /** Update exactly one leg without changing the order used by the report snapshot. */
   function legEdit(n: number, patch: Partial<ResearchDraft["legs"][number]>) {
@@ -110,7 +193,8 @@ export function ResearchEditor({
     });
   }
   /** Save before requesting a preview; conflict failures preserve user-entered form content. */
-  async function save(withPreview: boolean) {
+  async function save(withPreview: boolean, closeAfter = false) {
+    setOperation(withPreview ? "preview" : "save");
     setBusy(true);
     setError("");
     setPreview(null);
@@ -120,10 +204,12 @@ export function ResearchEditor({
         version: number;
       };
       setVersion(saved.version);
+      setSavedDraft(JSON.stringify(draft));
       setMessage(hi ? "ड्राफ्ट सुरक्षित है।" : "Draft saved.");
+      onSaved();
       if (withPreview)
         setPreview((await request(`/${id}/preview`, {})) as ResearchPreview);
-      onSaved();
+      if (closeAfter) onClose();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -133,6 +219,7 @@ export function ResearchEditor({
   /** Publish only the saved version and server-issued preview token; updates require a retained explanation. */
   async function publish() {
     if (!preview?.token) return;
+    setOperation("publish");
     setBusy(true);
     setError("");
     try {
@@ -154,6 +241,7 @@ export function ResearchEditor({
   }
   /** Upload through the existing private Drive-backed document API and attach only its returned identifier. */
   async function upload(file: File) {
+    setOperation("upload");
     setBusy(true);
     setError("");
     try {
@@ -180,7 +268,7 @@ export function ResearchEditor({
     <Dialog.Root
       open
       onOpenChange={(open) => {
-        if (!open && !busy) onClose();
+        if (!open) requestClose();
       }}
     >
       <Dialog.Portal>
@@ -188,10 +276,46 @@ export function ResearchEditor({
         <Dialog.Content
           className="research-dialog"
           onEscapeKeyDown={(e) => {
-            if (busy) e.preventDefault();
+            e.preventDefault();
+            if (closeRequested) setCloseRequested(false);
+            else requestClose();
           }}
           onInteractOutside={(e) => e.preventDefault()}
         >
+          {closeRequested && (
+            <section
+              className="research-discard"
+              role="alertdialog"
+              aria-label={hi ? "असुरक्षित बदलाव" : "Unsaved changes"}
+              aria-describedby="research-discard-description"
+            >
+              <h2>{hi ? "असुरक्षित बदलाव" : "Unsaved changes"}</h2>
+              <p id="research-discard-description">
+                {hi
+                  ? "बंद करने से पहले ड्राफ्ट सुरक्षित करें या बदलाव छोड़ें।"
+                  : "Save your draft before closing, or discard the unsaved changes."}
+              </p>
+              <button
+                type="button"
+                ref={discardRef}
+                onClick={() => setCloseRequested(false)}
+              >
+                {hi ? "संपादन जारी रखें" : "Keep editing"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCloseRequested(false);
+                  if (formRef.current?.reportValidity()) void save(false, true);
+                }}
+              >
+                {hi ? "सुरक्षित करके बंद करें" : "Save and close"}
+              </button>
+              <button type="button" onClick={onClose}>
+                {hi ? "बदलाव छोड़ें" : "Discard changes"}
+              </button>
+            </section>
+          )}
           <header className="research-dialog-heading">
             <div>
               <Dialog.Title>
@@ -199,9 +323,13 @@ export function ResearchEditor({
                   ? hi
                     ? "अनुशंसा अपडेट करें"
                     : "Update recommendation"
-                  : hi
-                    ? "नई अनुशंसा बनाएँ"
-                    : "Create recommendation"}
+                  : item
+                    ? hi
+                      ? "ड्राफ्ट संपादित करें"
+                      : "Edit draft"
+                    : hi
+                      ? "नई अनुशंसा बनाएँ"
+                      : "Create recommendation"}
               </Dialog.Title>
               <Dialog.Description>
                 {hi
@@ -218,35 +346,22 @@ export function ResearchEditor({
             </Dialog.Close>
           </header>
           <form
+            ref={formRef}
             onSubmit={(e) => {
               e.preventDefault();
               void save(true);
             }}
             className="research-editor-form"
           >
-            {error && (
-              <p className="account-error" role="alert">
-                {error}
-              </p>
-            )}
-            {message && (
-              <p role="status" className="workspace-notice">
-                {message}
-              </p>
-            )}
             <fieldset disabled={busy} className="research-editor-fields">
               <div className="research-mode">
                 <button
                   type="button"
                   disabled={published}
                   aria-pressed={draft.offering !== "hedges"}
-                  onClick={() =>
-                    edit({
-                      ...draft,
-                      offering: "equity",
-                      legs: [draft.legs[0]],
-                    })
-                  }
+                  onClick={() => {
+                    if (draft.offering === "hedges") changeOffering("equity");
+                  }}
                 >
                   <FileText size={18} />
                   {hi ? "सामान्य ट्रेड" : "Normal trade"}
@@ -255,16 +370,7 @@ export function ResearchEditor({
                   type="button"
                   disabled={published}
                   aria-pressed={draft.offering === "hedges"}
-                  onClick={() =>
-                    edit({
-                      ...draft,
-                      offering: "hedges",
-                      legs:
-                        draft.legs.length > 1
-                          ? draft.legs
-                          : [draft.legs[0], newLeg()],
-                    })
-                  }
+                  onClick={() => changeOffering("hedges")}
                 >
                   <Layers size={18} />
                   {hi ? "हेज ट्रेड" : "Hedge trade"}
@@ -285,13 +391,12 @@ export function ResearchEditor({
                 <label>
                   {hi ? "रिसर्च श्रेणी" : "Research offering"}
                   <select
-                    disabled={published || draft.offering === "hedges"}
+                    disabled={published}
                     value={draft.offering}
                     onChange={(e) =>
-                      edit({
-                        ...draft,
-                        offering: e.target.value as ResearchDraft["offering"],
-                      })
+                      changeOffering(
+                        e.target.value as ResearchDraft["offering"],
+                      )
                     }
                   >
                     <option value="equity">Equity</option>
@@ -376,18 +481,31 @@ export function ResearchEditor({
                       />
                     </label>
                   </div>
-                  <p className="research-selected">
-                    {hi ? "चुना गया कॉन्ट्रैक्ट" : "Selected contract"}:{" "}
-                    <strong>
-                      {(item?.latest?.instruments.find(
-                        (i) => i.key === leg.instrumentKey,
-                      )?.symbol ??
-                        leg.instrumentKey) ||
-                        (hi ? "कोई नहीं" : "None")}
-                    </strong>
-                  </p>
+                  {!leg.instrumentKey && (
+                    <p role="alert">
+                      {hi
+                        ? `लेग ${n + 1}: इंस्ट्रूमेंट चुनें।`
+                        : `Leg ${n + 1}: Select an instrument before saving.`}
+                    </p>
+                  )}
+                  {published && (
+                    <p className="research-selected">
+                      {hi ? "चुना गया इंस्ट्रूमेंट" : "Selected instrument"}:{" "}
+                      <strong>
+                        {(item?.latest?.instruments.find(
+                          (i) => i.key === leg.instrumentKey,
+                        )?.symbol ??
+                          leg.instrumentKey) ||
+                          (hi ? "कोई नहीं" : "None")}
+                      </strong>
+                    </p>
+                  )}
                   {!published && (
                     <InstrumentPicker
+                      key={draft.offering}
+                      offering={draft.offering}
+                      selectedKey={leg.instrumentKey}
+                      onResolve={rememberInstrument}
                       base={`/api/workspaces/${slug}/market`}
                       onSelect={(i) =>
                         legEdit(n, {
@@ -397,11 +515,13 @@ export function ResearchEditor({
                       }
                     />
                   )}
-                  <p className="research-muted">
-                    {hi
-                      ? "ऑप्शन की कीमतें प्रीमियम हैं। F&O मात्रा लॉट साइज के गुणज में दर्ज करें।"
-                      : "Option prices are premiums. F&O quantity must be a multiple of the contract lot size."}
-                  </p>
+                  {draft.offering !== "equity" && (
+                    <p className="research-muted">
+                      {hi
+                        ? "ऑप्शन की कीमतें प्रीमियम हैं। F&O मात्रा लॉट साइज के गुणज में दर्ज करें।"
+                        : "Option prices are premiums. F&O quantity must be a multiple of the contract lot size."}
+                    </p>
+                  )}
                   <div className="research-grid">
                     {(["entryMin", "entryMax", "stopLoss"] as const).map(
                       (key, i) => (
@@ -576,8 +696,8 @@ export function ResearchEditor({
                 </label>
                 <label>
                   {hi
-                    ? "वैधता (आपके स्थानीय समय में)"
-                    : "Valid until (your local time)"}
+                    ? "अनुशंसा की वैधता (आपके स्थानीय समय में)"
+                    : "Recommendation valid until (your local time)"}
                   <input
                     required
                     type="datetime-local"
@@ -687,9 +807,25 @@ export function ResearchEditor({
                   >
                     <option value="all">All eligible subscribers</option>
                     <option value="plans">Specific plans</option>
-                    <option value="groups">Specific client groups</option>
+                    <option value="groups" disabled={!options.groups.length}>
+                      Specific client groups
+                    </option>
                   </select>
                 </label>
+                {!published && !options.groups.length && (
+                  <p>
+                    {hi
+                      ? "अभी कोई क्लाइंट समूह नहीं है। ड्राफ्ट सुरक्षित करके बंद करें, फिर अनुशंसाओं में क्लाइंट समूह बनाएँ।"
+                      : "No client groups exist yet. Save and close this draft, then use Client groups on Recommendations to create one."}
+                  </p>
+                )}
+                {draft.audience.mode === "plans" && !options.plans.length && (
+                  <p>
+                    {hi
+                      ? "कोई योजना उपलब्ध नहीं है। पहले योजनाएँ और छूट में योजना बनाएँ।"
+                      : "No plans are available. Create one in Plans and discounts first."}
+                  </p>
+                )}
                 {draft.audience.mode !== "all" && (
                   <div className="research-choice-list">
                     {(draft.audience.mode === "plans"
@@ -736,8 +872,43 @@ export function ResearchEditor({
                     : "Investor dashboard & Recommendations"}
                 </p>
               </section>
+              {error && (
+                <p
+                  ref={feedbackRef}
+                  tabIndex={-1}
+                  className="account-error"
+                  role="alert"
+                  style={{ whiteSpace: "pre-line" }}
+                >
+                  {error}
+                </p>
+              )}
+              {message && (
+                <p role="status" className="workspace-notice">
+                  {message}
+                </p>
+              )}
+              {busy && (
+                <p role="status">
+                  {operation === "preview"
+                    ? hi
+                      ? "ड्राफ्ट सुरक्षित करके प्रकाशन और प्राप्तकर्ता जाँच रहे हैं…"
+                      : "Saving draft and checking publication requirements and recipients…"
+                    : operation === "upload"
+                      ? hi
+                        ? "फ़ाइल अपलोड हो रही है…"
+                        : "Uploading supporting file…"
+                      : operation === "publish"
+                        ? hi
+                          ? "प्रकाशित हो रहा है…"
+                          : "Publishing…"
+                        : hi
+                          ? "सुरक्षित हो रहा है…"
+                          : "Saving draft…"}
+                </p>
+              )}
               <footer className="research-actions">
-                <button type="button" onClick={onClose}>
+                <button type="button" onClick={requestClose}>
                   {hi ? "रद्द करें" : "Cancel"}
                 </button>
                 <button
@@ -750,10 +921,10 @@ export function ResearchEditor({
                   {hi ? "ड्राफ्ट सुरक्षित करें" : "Save draft"}
                 </button>
                 <button type="submit" className="button primary">
-                  {busy
+                  {busy && operation === "preview"
                     ? hi
-                      ? "सुरक्षित हो रहा है…"
-                      : "Saving…"
+                      ? "जाँच रहे हैं…"
+                      : "Checking preview…"
                     : hi
                       ? "पूर्वावलोकन और प्राप्तकर्ता जाँचें"
                       : "Preview & check recipients"}
@@ -762,7 +933,11 @@ export function ResearchEditor({
             </fieldset>
           </form>
           {preview && (
-            <section className="research-publication-preview">
+            <section
+              className="research-publication-preview"
+              ref={previewRef}
+              tabIndex={-1}
+            >
               <h2>{hi ? "प्रकाशन पूर्वावलोकन" : "Publication preview"}</h2>
               <p>
                 <strong>{preview.recipientCount}</strong>{" "}
@@ -781,7 +956,63 @@ export function ResearchEditor({
                   {hi ? "सबसे पहले प्रकाशन" : "Earliest publication"} {c.until}
                 </p>
               ))}
-              <ResearchReport report={preview.snapshot} />
+              {preview.recipientSummary && (
+                <details className="research-recipient-summary">
+                  <summary>
+                    {hi
+                      ? "प्राप्तकर्ता कैसे चुने गए"
+                      : "How recipients were selected"}
+                  </summary>
+                  {preview.recipientSummary.historical ? (
+                    <p>
+                      {hi
+                        ? "यह अपडेट मूल प्राप्तकर्ताओं के लिए है।"
+                        : "This update retains the original published recipients; new subscriptions do not change its audience."}
+                    </p>
+                  ) : (
+                    <>
+                      <p>
+                        {preview.recipientSummary.candidates}{" "}
+                        {hi
+                          ? "सक्रिय सब्सक्राइबर जाँचे गए। बहिष्करण क्रम में गिने गए हैं।"
+                          : "active subscribers checked. Exclusions are counted once, in the order below."}
+                      </p>
+                      <ul>
+                        <li>
+                          {preview.recipientSummary.outsideGroup} —{" "}
+                          {hi
+                            ? "चुने गए समूहों के बाहर"
+                            : "outside the selected groups"}
+                        </li>
+                        <li>
+                          {preview.recipientSummary.kyc} —{" "}
+                          {hi
+                            ? "वर्तमान स्वीकार्य KYC नहीं है"
+                            : "without current acceptable KYC"}
+                        </li>
+                        <li>
+                          {preview.recipientSummary.subscriptionOrOffering} —{" "}
+                          {hi
+                            ? "इस श्रेणी के लिए वर्तमान भुगतान, अनुबंध या खरीदी गई पहुँच नहीं है"
+                            : "without a current paid, agreement-backed order granting this offering (development orders are excluded in production)"}
+                        </li>
+                        <li>
+                          {preview.recipientSummary.outsidePlan} —{" "}
+                          {hi
+                            ? "योग्य ऑर्डर चुनी गई योजनाओं के बाहर है"
+                            : "qualifying order is outside the selected plans"}
+                        </li>
+                      </ul>
+                      <p>
+                        {hi
+                          ? "योजना का नाम या समूह सदस्यता अकेले पहुँच नहीं देते।"
+                          : "Plan names and group membership alone do not grant access. Purchased offering rights determine eligibility."}
+                      </p>
+                    </>
+                  )}
+                </details>
+              )}
+              <ResearchReport report={preview.snapshot} preview />
               {published && (
                 <label>
                   {hi ? "अपडेट का कारण" : "Reason for update"}

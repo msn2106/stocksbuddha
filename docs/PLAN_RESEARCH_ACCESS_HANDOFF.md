@@ -1,6 +1,6 @@
 # Fix StocksBuddha plan research access
 
-Verified against the local development database on 18 November 2026. This document is a handoff; the plan correction has not been applied.
+Correction applied and verified against the local development database on 19 November 2026. This document records the original state, targeted correction and remaining UX observations.
 
 ## Intended behavior confirmed by the owner
 
@@ -12,7 +12,7 @@ Verified against the local development database on 18 November 2026. This docume
 
 The current offering model has only `equity`, `futures`, `options`, and `hedges`. Do not interpret “everything else” as automatic access to future categories. Clarify whether derivative hedge research should also belong to Gold before expanding Gold beyond the explicitly confirmed Futures/Options mapping.
 
-## Observed local state
+## Original local state (rechecked before correction)
 
 Tenant slug: `stocksbuddha`.
 
@@ -37,7 +37,7 @@ Plan offerings and purchased offerings are separate. Checkout freezes the select
 
 A plan name, verified KYC, or payment alone does not confer an offering. Changing only `research_plan_offerings` will not repair existing subscriptions. Previously created quotes also retain their original offering snapshot.
 
-## Requested follow-up
+## Correction procedure (completed 19 November 2026)
 
 1. Recheck the local state; do not assume the observations above remain current.
 2. Set the StocksBuddha plan mappings to the intended table above. These are tenant-specific settings, not global rules inferred from names such as Gold.
@@ -46,7 +46,26 @@ A plan name, verified KYC, or payment alone does not confer an offering. Changin
 5. Check whether the plan management UI makes included research offerings clear and whether recipient preview can explain missing offering access instead of only showing zero recipients.
 6. Verify that new checkout freezes the configured offerings and that existing purchase snapshots remain unchanged except for the explicitly targeted correction.
 
-## Acceptance checks
+## Applied changes and verification
+
+The correction ran in one transaction restricted to a loopback development database, the exact active StocksBuddha tenant, the three named plan IDs and the two paid development Gold order IDs above.
+
+| Record                      | Before    | After                            |
+| --------------------------- | --------- | -------------------------------- |
+| Silver plan                 | No grants | Equity                           |
+| Gold plan                   | Equity    | Futures, Options                 |
+| Platinum plan               | No grants | Equity, Futures, Options, Hedges |
+| Both identified Gold orders | Equity    | Futures, Options                 |
+
+The actual checkout snapshot function was exercised for all three plans inside rolled-back savepoints. Each copied exactly the configured offerings. The actual offering eligibility function confirmed both existing Gold members qualify for Futures and Options, and neither qualifies for Equity or Hedges. No current paid Silver or Platinum investors exist locally, so their end-to-end recipient delivery was not exercised.
+
+Full subscription order records were compared before/after and remained identical, including payment, agreement evidence, encrypted snapshots and subscription dates. Unrelated purchased grants and all research items, revisions, recipients and deliveries were also verified unchanged. No recommendation was published for testing.
+
+Two expired Gold quotes retain their original empty grants; future purchases should use fresh quotes. The previously published **Reliance** Equity report (`8d8b04a5-17d2-4f26-9fb3-dee31b0219aa`) already has frozen recipient grants for both Gold investors. Those historical grants remain intact under the published-report retention policy; this correction affects eligibility for new recommendations. Removing or changing that historical delivery would require a separate explicit decision.
+
+The Market Setup UI already exposes the four offering checkboxes per plan and explains that edits apply to future checkouts. No UI changes were needed for the original data correction. The subsequent recommendation repairs added aggregate recipient exclusions for groups, KYC, subscription/offering eligibility and selected plans. These counts do not expose individual investors' missing grants. See [the repair retest](audits/recommendations-2026-11-19/RETEST.md).
+
+## Acceptance criteria
 
 - Eligible Silver investor receives Equity, not Futures/Options/Hedges.
 - Eligible Gold investor receives Futures/Options, not Equity.

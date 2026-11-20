@@ -54,6 +54,14 @@ export function mountMarket(
       ),
     ),
   );
+  api.get("/instruments/:key", async (req, res) =>
+    res.json(
+      await d.service.instrument(
+        res.locals.marketContext,
+        String(req.params.key),
+      ),
+    ),
+  );
   api.post("/", async (req, res) =>
     res.json(await d.service.mutate(res.locals.marketContext, req.body)),
   );

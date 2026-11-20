@@ -195,10 +195,13 @@ async function choose(locale: Locale, key = stock.key) {
     screen.getByLabelText(locale === "hi" ? "नाम / सिंबल" : "Name / symbol"),
     { target: { value: "EXAMPLE" } },
   );
-  await screen.findByRole("option", { name: "NSE · EXAMPLE · EQ" });
+  await screen.findByRole("option", {
+    name:
+      key === stock.key ? "NSE · EXAMPLE · EQ" : "NSE · EXAMPLE 100 CE · CE",
+  });
   fireEvent.change(
     screen.getByLabelText(
-      locale === "hi" ? /^मिलते हुए कॉन्ट्रैक्ट/ : /^Matching contracts/,
+      locale === "hi" ? /^मिलते हुए इंस्ट्रूमेंट/ : /^Matching instruments/,
     ),
     { target: { value: key } },
   );
@@ -349,9 +352,11 @@ for (const locale of ["en", "hi"] as const)
     fireEvent.change(screen.getByLabelText(hi ? /^प्रकार/ : /^Type/), {
       target: { value: "CE" },
     });
-    assert.equal(screen.queryByText("Tick size (INR)"), null);
+    assert.ok(screen.getByText("Tick size (INR)"));
     fireEvent.change(
-      screen.getByLabelText(hi ? "एक्सपायरी (वैकल्पिक)" : "Expiry (optional)"),
+      screen.getByLabelText(
+        hi ? "कॉन्ट्रैक्ट एक्सपायरी (वैकल्पिक)" : "Contract expiry (optional)",
+      ),
       { target: { value: "2026-11-30" } },
     );
     await choose(locale, option.key);
@@ -359,7 +364,7 @@ for (const locale of ["en", "hi"] as const)
     assert.ok(screen.getByText("2026-11-30"));
     fireEvent.change(
       screen.getByLabelText(
-        hi ? /^मिलते हुए कॉन्ट्रैक्ट/ : /^Matching contracts/,
+        hi ? /^मिलते हुए इंस्ट्रूमेंट/ : /^Matching instruments/,
       ),
       { target: { value: "" } },
     );

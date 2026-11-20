@@ -8,7 +8,7 @@ const id = z.string().uuid();
 const price = z.number().finite().positive().max(1e10);
 export const researchLegSchema = z
   .object({
-    instrumentKey: z.string().min(1).max(160),
+    instrumentKey: z.string().min(1, "Select an instrument").max(160),
     side: z.enum(["buy", "sell", "hold"]),
     quantity: z.number().int().positive().max(10000000),
     horizon: z.enum(["intraday", "swing", "longterm"]),
@@ -27,24 +27,25 @@ export const researchLegSchema = z
         message: "Entry maximum must be at least the minimum",
         path: ["entryMax"],
       });
-    if (
-      v.side === "buy" &&
-      (v.stopLoss >= v.entryMin || v.targets.some((t) => t <= v.entryMax))
-    )
-      c.addIssue({
-        code: "custom",
-        message: "Buy stops must be below entry; targets must be above entry",
-        path: ["targets"],
-      });
-    if (
-      v.side === "sell" &&
-      (v.stopLoss <= v.entryMax || v.targets.some((t) => t >= v.entryMin))
-    )
-      c.addIssue({
-        code: "custom",
-        message: "Sell stops must be above entry; targets must be below entry",
-        path: ["targets"],
-      });
+    if (v.side === "buy" || v.side === "sell") {
+      const buy = v.side === "buy";
+      if (buy ? v.stopLoss >= v.entryMin : v.stopLoss <= v.entryMax)
+        c.addIssue({
+          code: "custom",
+          message: buy
+            ? "Buy stop-loss must be below the minimum entry"
+            : "Sell stop-loss must be above the maximum entry",
+          path: ["stopLoss"],
+        });
+      if (v.targets.some((t) => (buy ? t <= v.entryMax : t >= v.entryMin)))
+        c.addIssue({
+          code: "custom",
+          message: buy
+            ? "Buy targets must be above the maximum entry"
+            : "Sell targets must be below the minimum entry",
+          path: ["targets"],
+        });
+    }
     if (new Set(v.targets).size !== v.targets.length)
       c.addIssue({
         code: "custom",
@@ -87,12 +88,17 @@ export const researchDraftSchema = z
         message: "Choose at least one plan or group",
         path: ["audience"],
       });
-    if (new Set(v.legs.map((l) => l.instrumentKey)).size !== v.legs.length)
-      c.addIssue({
-        code: "custom",
-        message: "Use each contract only once",
-        path: ["legs"],
-      });
+    const seen = new Set<string>();
+    v.legs.forEach((leg, index) => {
+      if (leg.instrumentKey && seen.has(leg.instrumentKey))
+        c.addIssue({
+          code: "custom",
+          message:
+            "Choose a different instrument; this instrument is already used by another leg",
+          path: ["legs", index, "instrumentKey"],
+        });
+      seen.add(leg.instrumentKey);
+    });
   });
 export const researchSaveSchema = z
   .object({
@@ -155,7 +161,16 @@ export type ResearchItem = {
   recipientCount?: number;
 };
 export type ResearchDetail = ResearchItem & { history: ResearchSnapshot[] };
+export type ResearchRecipientSummary = {
+  candidates: number;
+  historical: boolean;
+  outsideGroup: number;
+  kyc: number;
+  subscriptionOrOffering: number;
+  outsidePlan: number;
+};
 export type ResearchPreview = {
+  recipientSummary?: ResearchRecipientSummary;
   snapshot: ResearchSnapshot;
   check: ResearchCheck;
   recipientCount: number;

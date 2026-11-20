@@ -4,9 +4,11 @@ import { useLanguage } from "../i18n";
 export function ResearchReport({
   report,
   attachmentBase,
+  preview = false,
 }: {
   report: ResearchSnapshot;
   attachmentBase?: string;
+  preview?: boolean;
 }) {
   const { locale } = useLanguage();
   const hi = locale === "hi";
@@ -22,7 +24,15 @@ export function ResearchReport({
       <header>
         <div>
           <p className="research-eyebrow">
-            {report.offering} · {hi ? "संस्करण" : "Version"} {report.version}
+            {report.offering} ·{" "}
+            {preview
+              ? hi
+                ? "प्रस्तावित संस्करण"
+                : "Proposed version"
+              : hi
+                ? "संस्करण"
+                : "Version"}{" "}
+            {report.version}
           </p>
           <h2>{report.title}</h2>
           <p>
@@ -30,11 +40,20 @@ export function ResearchReport({
           </p>
         </div>
         <span className={`research-state ${report.status}`}>
-          {report.status}
+          {preview
+            ? hi
+              ? "अप्रकाशित पूर्वावलोकन"
+              : "Unpublished preview"
+            : report.status}
         </span>
       </header>
       <p className="research-muted">
         {hi ? "लेखक" : "By"} {report.issuer.author} ·{" "}
+        {preview
+          ? hi
+            ? "पूर्वावलोकन बनाया गया: "
+            : "Preview generated: "
+          : ""}
         {new Date(report.publishedAt).toLocaleString("en-IN", {
           timeZone: "Asia/Kolkata",
         })}{" "}

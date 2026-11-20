@@ -7,7 +7,10 @@ import type { Socket } from "node:net";
 import type { AuthRoutesDependencies } from "../src/auth/routes";
 import type { Workspace } from "../src/auth/workspaces";
 import { mountResearch } from "../src/research/routes";
-import type { ResearchService } from "../src/research/service";
+import {
+  ResearchValidationError,
+  type ResearchService,
+} from "../src/research/service";
 import { OnboardingError } from "../src/onboarding/domain";
 import { tenants } from "../src/tenants/tenants";
 /** Exercise real Express research routing and parsers with controlled session and service adapters. */
@@ -194,4 +197,26 @@ test("research routes bind current tenant, require origin and verified roles, an
     (await request(`/ra/${tenants[0].slug}/account/recommendations`)).status,
     303,
   );
+});
+
+test("invalid draft API responses expose safe field errors", async () => {
+  const { state, request } = harness();
+  const issues = [
+    {
+      path: "draft.legs.1.stopLoss",
+      message: "Buy stop-loss must be below the minimum entry",
+    },
+  ];
+  state.failure = new ResearchValidationError(issues);
+  const response = await request(
+    `/api/workspaces/${tenants[0].slug}/recommendations`,
+    "POST",
+    Buffer.from("{}"),
+    { origin: "http://localhost:3000" },
+  );
+  assert.equal(response.status, 400);
+  assert.deepEqual(JSON.parse(response.body), {
+    error: "invalid_recommendation",
+    issues,
+  });
 });

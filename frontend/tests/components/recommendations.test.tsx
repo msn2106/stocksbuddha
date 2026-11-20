@@ -218,7 +218,16 @@ for (const locale of ["en", "hi"] as const) {
             status: uploadFail ? 503 : 200,
           })
         : new Response(
-            JSON.stringify({ instruments: [snapshot.instruments[0]] }),
+            JSON.stringify({
+              instruments: [
+                {
+                  ...snapshot.instruments[0],
+                  type: "CE",
+                  key: "NSE_FO|1",
+                  expiry: "2026-11-30",
+                },
+              ],
+            }),
           );
     const request = async (path: string, body: unknown) => {
       calls.push({ path, body });
@@ -246,8 +255,8 @@ for (const locale of ["en", "hi"] as const) {
     change(hi ? "शीर्षक" : "Recommendation title", "Updated research title");
     change(hi ? "रिसर्च श्रेणी" : "Research offering", "options");
     change(hi ? "नाम / सिंबल" : "Name / symbol", "EXAMPLE");
-    await screen.findByRole("option", { name: "NSE · EXAMPLE · EQ" });
-    change(hi ? "मिलते हुए कॉन्ट्रैक्ट" : "Matching contracts", "NSE_EQ|1");
+    await screen.findByRole("option", { name: "NSE · EXAMPLE · CE" });
+    change(hi ? "मिलते हुए इंस्ट्रूमेंट" : "Matching instruments", "NSE_FO|1");
     change(hi ? "दिशा" : "Direction", "sell");
     change(hi ? "समय सीमा" : "Horizon", "intraday");
     change(hi ? "मात्रा (यूनिट)" : "Quantity (units)", "50");
@@ -452,6 +461,12 @@ for (const locale of ["en", "hi"] as const) {
     );
     fireEvent.click(screen.getByRole("button", { name: "Remove target 1" }));
     await user.keyboard("{Escape}");
+    assert.equal(closed, 0);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: hi ? "बदलाव छोड़ें" : "Discard changes",
+      }),
+    );
     assert.equal(closed, 1);
     view.unmount();
     view = render(
@@ -745,3 +760,114 @@ for (const locale of ["en", "hi"] as const) {
     );
   });
 }
+
+test("both hedge entry points create two legs and dirty drafts require a disposition", async () => {
+  let closed = 0;
+  const writes: unknown[] = [];
+  render(
+    <ResearchEditor
+      slug="example"
+      item={{ ...item, latest: null, status: "draft", draft }}
+      options={options}
+      request={async (_path, body) => {
+        writes.push(body);
+        return { version: 3 };
+      }}
+      onSaved={() => {}}
+      onClose={() => closed++}
+    />,
+  );
+  change("Research offering", "hedges");
+  assert.equal(screen.getAllByLabelText("Direction").length, 2);
+  assert.ok(screen.getByText(snapshot.legs[0].instrumentKey));
+  fireEvent.click(screen.getByRole("button", { name: "Close editor" }));
+  assert.ok(screen.getByRole("alertdialog", { name: "Unsaved changes" }));
+  fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+  assert.equal(closed, 0);
+  change("Research offering", "equity");
+  assert.equal(screen.getAllByLabelText("Direction").length, 1);
+  fireEvent.click(screen.getByRole("button", { name: "Hedge trade" }));
+  assert.equal(screen.getAllByLabelText("Direction").length, 2);
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+  assert.equal(closed, 1);
+  assert.equal(writes.length, 0);
+});
+
+test("save and close preserves edits and failed saves keep the editor open", async () => {
+  let closed = 0,
+    fail = true;
+  render(
+    <ResearchEditor
+      slug="example"
+      item={{ ...item, latest: null, status: "draft", draft }}
+      options={options}
+      request={async () => {
+        if (fail) throw Error("Save failed");
+        return { version: 3 };
+      }}
+      onSaved={() => {}}
+      onClose={() => closed++}
+    />,
+  );
+  change("Recommendation title", "Changed title");
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save and close" }));
+  await screen.findByText("Save failed");
+  assert.equal(closed, 0);
+  fail = false;
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save and close" }));
+  await waitFor(() => assert.equal(closed, 1));
+});
+
+test("preview is explicitly unpublished and unavailable groups are explained", async () => {
+  globalThis.fetch = async () =>
+    Response.json({ instrument: snapshot.instruments[0] });
+  render(
+    <ResearchEditor
+      slug="example"
+      item={{ ...item, latest: null, status: "draft", draft }}
+      options={{ ...options, groups: [] }}
+      request={async (path) =>
+        path.endsWith("/preview")
+          ? {
+              snapshot,
+              check: { allowed: true, reasons: [], conflicts: [] },
+              reasons: [],
+              recipientCount: 0,
+              token: null,
+              recipientSummary: {
+                candidates: 2,
+                historical: false,
+                outsideGroup: 0,
+                kyc: 0,
+                subscriptionOrOffering: 2,
+                outsidePlan: 0,
+              },
+            }
+          : { version: 3 }
+      }
+      onSaved={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  assert.ok(screen.getByRole("dialog", { name: "Edit draft" }));
+  assert.ok(
+    (
+      screen.getByRole("option", {
+        name: "Specific client groups",
+      }) as HTMLOptionElement
+    ).disabled,
+  );
+  assert.ok(screen.getByText(/No client groups exist yet/));
+  assert.equal(screen.queryByText(/Option prices are premiums/), null);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Preview & check recipients" }),
+  );
+  await screen.findByText("Unpublished preview");
+  assert.ok(screen.getByText(/Preview generated:/));
+  assert.ok(screen.getByText(/Proposed version/));
+  assert.equal(screen.queryByText("active", { exact: true }), null);
+  assert.ok(screen.getByText("How recipients were selected"));
+});
