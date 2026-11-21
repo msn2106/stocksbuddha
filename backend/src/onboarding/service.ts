@@ -1,3 +1,4 @@
+import { isProductionDeployment } from "../deployment";
 import { freezeResearchOfferings } from "../market/entitlements";
 import { normalizeSignature } from "./signature";
 import { signatureBox, signatureStamp } from "../agreement-pdf";
@@ -426,7 +427,7 @@ export class OnboardingService {
   }
   /** Permit development signing, or explicitly reviewed production signing with production database settings. */
   private signingEnabled() {
-    return this.options.env.NODE_ENV !== "production"
+    return !isProductionDeployment(this.options.env)
       ? this.options.env.DB_ENV === "dev"
       : this.options.env.DB_ENV === "prod" &&
           this.options.env.ONBOARDING_PRODUCTION_APPROVED === "true";
@@ -1038,7 +1039,7 @@ export class OnboardingService {
         rendered,
         identity,
         kyc.status === "skipped_dev" ||
-          this.options.env.NODE_ENV !== "production",
+          !isProductionDeployment(this.options.env),
       );
       const snapshot: Snapshot = {
         text: rendered,
@@ -1076,7 +1077,7 @@ export class OnboardingService {
           plan.days,
           expires,
           kyc.status === "skipped_dev" ||
-            this.options.env.NODE_ENV !== "production",
+            !isProductionDeployment(this.options.env),
         ],
       );
       await freezeResearchOfferings(manager, actor.tenantId, plan.id, id);
@@ -1178,7 +1179,7 @@ export class OnboardingService {
       409,
     );
     requireValue(
-      this.options.env.NODE_ENV !== "production" || !row.dev,
+      !isProductionDeployment(this.options.env) || !row.dev,
       "development_evidence_forbidden",
       403,
     );
@@ -1504,7 +1505,7 @@ export class OnboardingService {
         row = await this.order(manager, actor, id);
       requireValue(
         this.signingEnabled() &&
-          (this.options.env.NODE_ENV !== "production" || !row.dev),
+          (!isProductionDeployment(this.options.env) || !row.dev),
         "production_payments_not_approved",
         403,
       );
@@ -1684,7 +1685,7 @@ export class OnboardingService {
       if (data.approve) {
         requireValue(
           this.signingEnabled() &&
-            (this.options.env.NODE_ENV !== "production" || !order.dev),
+            (!isProductionDeployment(this.options.env) || !order.dev),
           "production_payments_not_approved",
           403,
         );

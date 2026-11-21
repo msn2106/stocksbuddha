@@ -15,6 +15,7 @@
   "scripts": {
     "dev": "npm run dev --workspace @ra/backend",
     "build": "npm run typecheck && npm run build --workspace @ra/frontend && npm run build --workspace @ra/backend && npm run db:build",
+    "build:hostinger:dev": "npm run build && node database/dist/cli.js migrate --target dev && node database/dist/cli.js seed --target dev",
     "start": "npm run start --workspace @ra/backend",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit && npm run db:typecheck",
     "test": "npm run test:unit && npm run test:integration",

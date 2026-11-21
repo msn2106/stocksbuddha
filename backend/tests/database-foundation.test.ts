@@ -32,6 +32,10 @@ const snapshot = snapshotFromFixture(tenant, website);
 test("database configuration requires explicit environment, bounded ports and verified production TLS", () => {
   const env = { DB_ENV: "dev", DB_USER: "local", DB_PASSWORD: "test" };
   assert.equal(databaseConfig(env).database, "stocksbuddha_dev");
+  assert.equal(
+    databaseConfig({ ...env, DB_NAME: "u218170211_sb_dev" }).database,
+    "u218170211_sb_dev",
+  );
   for (const change of [
     { DB_ENV: "other" },
     { DB_NAME: "stocksbuddha_prod" },
@@ -54,6 +58,18 @@ test("database configuration requires explicit environment, bounded ports and ve
   });
   assert.equal(prod.ssl?.rejectUnauthorized, true);
   assert.equal(prod.ssl?.ca, "certificate");
+  assert.equal(
+    databaseConfig({
+      ...env,
+      DB_ENV: "prod",
+      DB_TLS: "true",
+      DB_NAME: "u218170211_sb_prod",
+    }).database,
+    "u218170211_sb_prod",
+  );
+  assert.throws(() =>
+    databaseConfig({ ...env, DB_NAME: "u218170211_sb_prod" }),
+  );
   assert.ok(databaseConfig({ ...env, DB_TLS: "true" }).ssl);
   assert.equal(createDatabase(databaseConfig(env)).options.type, "mariadb");
 });
@@ -292,6 +308,22 @@ test("runtime selection is explicit, rejects unavailable schema and closes the o
   );
   const configuredProduction = await createPersistence(productionEnv, factory);
   await configuredProduction.close();
+  const hostedDev = {
+    ...productionEnv,
+    APP_ENV: "dev",
+    ONBOARDING_DEV_SKIP: "false",
+  };
+  for (const invalid of [
+    { AUTH_BASE_URL: "http://example.test" },
+    { ONBOARDING_DATA_KEY: "" },
+    { SMTP_PASSWORD: "" },
+  ])
+    await assert.rejects(
+      createPersistence({ ...hostedDev, ...invalid }, factory),
+    );
+  const configuredDev = await createPersistence(hostedDev, factory);
+  assert.ok(await configuredDev.ready());
+  await configuredDev.close();
   closed = 1;
   fail = true;
   await assert.rejects(runtime.ready());

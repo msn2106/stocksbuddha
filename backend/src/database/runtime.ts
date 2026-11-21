@@ -1,3 +1,4 @@
+import { TelegramService } from "../telegram/service";
 import { ResearchService } from "../research/service";
 import { startCatalogueSync } from "../market/scheduler";
 import { MarketService } from "../market/service";
@@ -28,6 +29,7 @@ import type { PublicAppDependencies } from "../app";
 import { authMailer } from "../auth/email";
 import { OrganisationService } from "../organisations/service";
 import { trustedProxies } from "../auth/client-ip";
+import { isProductionDeployment } from "../deployment";
 
 export type Persistence = {
   resolvePage: PublicAppDependencies["resolvePage"];
@@ -42,6 +44,7 @@ export async function createPersistence(
   databaseFactory = createDatabase,
   authenticationFactory = createAuthentication,
 ): Promise<Persistence> {
+  isProductionDeployment(env);
   const mode =
     env.DATABASE_MODE ??
     (env.NODE_ENV === "production" ? "mariadb" : "fixtures");
@@ -153,6 +156,7 @@ export async function createPersistence(
     env,
   );
   const integrations = new IntegrationSettingsService(db, env);
+  const telegram = new TelegramService(db, env);
   const onboarding = new OnboardingService(db, {
     env,
     documents,
@@ -170,6 +174,8 @@ export async function createPersistence(
   /** Serialize bounded queue work; leases permit safe recovery after process failure. */
   const work = async () => {
     await sms.deliverNotice();
+    for (let index = 0; index < 5; index++)
+      if (!(await telegram.deliverOne())) break;
     if (++ticks % 6 === 0) {
       await onboarding.monitorQueues();
       await onboarding.reconcilePending();
@@ -191,11 +197,14 @@ export async function createPersistence(
   return {
     authentication: createAuthRoutes({
       onboarding,
+      telegram,
       research: new ResearchService(
         db,
         new InstrumentCatalogue(catalogueDirectory(env)),
         env,
         storageConfig ? new GoogleDriveStorage(storageConfig) : null,
+        undefined,
+        telegram,
       ),
       market: new MarketService(
         db,

@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { equal, requireValue, OnboardingError } from "./domain";
+import { isProductionDeployment } from "../deployment";
 
 export type PaymentOrder = {
   id: string;
@@ -29,6 +30,7 @@ export function merchants(
   env: NodeJS.ProcessEnv,
   request: typeof fetch = fetch,
 ): Map<string, PaymentGateway> {
+  const production = isProductionDeployment(env);
   const result = new Map<string, PaymentGateway>();
   if (!env.CASHFREE_MERCHANTS_JSON) return result;
   const configuration = JSON.parse(env.CASHFREE_MERCHANTS_JSON) as Record<
@@ -53,12 +55,13 @@ export function merchants(
       "invalid_cashfree_configuration",
     );
     requireValue(
-      env.NODE_ENV !== "production" || merchant.mode === "production",
+      !production || merchant.mode === "production",
       "sandbox_forbidden_in_production",
     );
     requireValue(
       merchant.mode !== "production" ||
         (env.DB_ENV === "prod" &&
+          production &&
           env.NODE_ENV === "production" &&
           env.ONBOARDING_PRODUCTION_APPROVED === "true"),
       "production_payments_not_approved",

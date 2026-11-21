@@ -1,3 +1,5 @@
+import { isProductionDeployment } from "../deployment";
+import type { TelegramService } from "../telegram/service";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import type { DataSource, EntityManager } from "typeorm";
 import {
@@ -58,6 +60,7 @@ export class ResearchService {
     private env: NodeJS.ProcessEnv,
     private drive: GoogleDriveStorage | null = null,
     private now = () => new Date(),
+    private telegram?: TelegramService,
   ) {
     this.key = env.ONBOARDING_DATA_KEY ?? "";
     requireValue(/^[a-f0-9]{64}$/.test(this.key), "research_key_required", 503);
@@ -184,6 +187,8 @@ export class ResearchService {
         [c.tenantId, row.id],
       );
       base.recipientCount = Number(count.total);
+      if (this.telegram && row.latest_revision_id)
+        base.telegramDelivery = await this.telegram.summary(m, c.tenantId, row.latest_revision_id);
     }
     return base;
   }
@@ -449,7 +454,7 @@ export class ResearchService {
         [c.tenantId, member.id, draft.offering, this.now(), this.now()],
       );
       const eligibleOrders = orders.filter(
-        (o) => this.env.NODE_ENV !== "production" || !o.dev,
+        (o) => !isProductionDeployment(this.env) || !o.dev,
       );
       if (!eligibleOrders.length) {
         if (summary) summary.subscriptionOrOffering++;
@@ -547,7 +552,7 @@ export class ResearchService {
     );
     if (!recipients.length) reasons.push("no_eligible_recipients");
     if (
-      this.env.NODE_ENV === "production" &&
+      isProductionDeployment(this.env) &&
       this.env.ONBOARDING_PRODUCTION_APPROVED !== "true"
     )
       reasons.push("production_review_required");
@@ -653,6 +658,10 @@ export class ResearchService {
         prepared.snapshot,
         prepared.recipients,
       );
+      if (p.data.sendTelegram) {
+        requireValue(this.telegram, "telegram_not_connected", 409);
+        await this.telegram.enqueue(m, c.tenantId, revision, prepared.recipients);
+      }
       for (const member of prepared.recipients)
         if (!row.latest_revision_id)
           await m.query(
@@ -720,7 +729,11 @@ export class ResearchService {
         row,
         unseal<ResearchDraft>(this.key, row.draft_cipher),
       );
-      await this.revision(m, c, row, snapshot, recipients);
+      const revision = await this.revision(m, c, row, snapshot, recipients);
+      if (p.data.sendTelegram) {
+        requireValue(this.telegram, "telegram_not_connected", 409);
+        await this.telegram.enqueue(m, c.tenantId, revision, recipients);
+      }
       const [s] = await m.query(
         "SELECT state_cipher FROM ra_market_state WHERE tenant_id=? LOCK IN SHARE MODE",
         [c.tenantId],
@@ -735,6 +748,19 @@ export class ResearchService {
         }
       await this.marketEvent(m, c, a, market, `research.${p.data.status}`);
       return { id, version: snapshot.version };
+    });
+  }
+  /** Send the latest immutable publication to its original audience, once per revision. */
+  async sendTelegram(c: ResearchContext, id: string, version: unknown) {
+    return this.db.transaction(async (m) => {
+      await this.actor(m, c, true);
+      const row = await this.row(m, c, id);
+      requireValue(row.latest_revision_id, "recommendation_not_published", 409);
+      requireValue(row.version === version, "research_version_conflict", 409);
+      requireValue(this.telegram, "telegram_not_connected", 409);
+      const members: { membership_id: string }[] = await m.query("SELECT membership_id FROM research_recipients WHERE tenant_id=? AND recommendation_id=?", [c.tenantId, id]);
+      await this.telegram.enqueue(m, c.tenantId, row.latest_revision_id, members.map((r) => r.membership_id));
+      return { ok: true, delivery: await this.telegram.summary(m, c.tenantId, row.latest_revision_id) };
     });
   }
   /** Append immutable published evidence and atomically expose the same revision to all original recipients. */

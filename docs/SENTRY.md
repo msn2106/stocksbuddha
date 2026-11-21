@@ -2,7 +2,7 @@
 
 ## Current status — 1 November 2026
 
-The application runs locally only. No Hostinger or other production deployment has been configured, and no production uptime monitor has been created. Local development and a locally running production build have both been verified with real browser/server errors, logs, traces and readable TypeScript stack traces in Sentry. A production build running on a laptop is still a local verification, not a hosted deployment.
+The application runs locally and on the isolated Hostinger dev site at `https://dev.stocksbuddha.com`; no production deployment or production uptime monitor has been configured. Hosted dev builds upload browser/server source maps under an explicit `dev` environment and release. Production monitoring still requires separate configuration and approval.
 
 The `stocks-buddha` organization hosts two projects:
 
@@ -92,13 +92,15 @@ Add repository secret `SENTRY_AUTH_TOKEN` in GitHub Actions. The checked-in [ver
 
 The verify workflow tests and builds the repository; it does not deploy it or set production DSNs. A future release pipeline must explicitly supply the frontend production variables before building and the backend production variables when starting the service. Local env files are ignored by Git and will not be present in a fresh CI checkout. If the host rebuilds the application itself, configure the build variables and upload token there as well; source maps must correspond to the exact build being deployed.
 
-## Deploying later on Hostinger or another platform
+## Hosted dev and later production deployment
 
 The current app renders HTML on the server and serves the read-only API and browser assets from one Nest/Express Node process. Deploy the complete application as a Node service. Uploading only `frontend/dist/client` to static hosting will not provide the SSR pages or API. Keeping one origin also matches the current frontend trace propagation configuration. A split-origin deployment would need explicit API routing, CORS and trace-propagation changes.
 
 ### Hostinger preparation
 
-At deployment time, confirm the selected Hostinger plan supports a persistent Node application and the required runtime. Hostinger's [Node deployment guide](https://www.hostinger.com/support/how-to-deploy-a-nodejs-website-in-hostinger/) documents managed Node hosting and VPS options; available settings must be checked against this monorepo rather than accepting a frontend-only preset. This repository requires Node 24 and npm 11.19.1, with exact requirements in the root `package.json` and `.nvmrc`.
+The selected Hostinger plan now runs the isolated dev application with Node 24, npm 11.19.1, the repository workspace build and a persistent Express process. Hostinger's [Node deployment guide](https://www.hostinger.com/support/how-to-deploy-a-nodejs-website-in-hostinger/) describes the managed platform; production capacity, TLS database requirements and recovery controls still need separate verification against this monorepo.
+
+For hosted dev, set `APP_ENV=dev` and `DB_ENV=dev` while retaining `npm start` and explicit `SENTRY_ENVIRONMENT=dev` / `VITE_SENTRY_ENVIRONMENT=dev`. The business environment does not automatically change Sentry environment labels. See the [deployment plan](HOSTINGER_DEPLOYMENT.md) for sandbox policy and acceptance.
 
 Use these repository requirements when configuring the host:
 
@@ -125,7 +127,7 @@ If a managed hosting preset cannot preserve the workspace layout, custom build/s
 6. Verify a controlled browser error and server error through the hosted app, confirm `environment=production`, matching release IDs and readable source lines in the respective Sentry projects, then remove any temporary triggers. Check that normal requests generate traces and server failures generate structured logs.
 7. Configure production-scoped error alerts and, once a stable public URL exists, an uptime monitor. Neither has been created by this local setup. Review sampling and Sentry usage after real traffic begins.
 
-These requirements apply to Hostinger and other Node-capable platforms. Provider-specific infrastructure, database connectivity, deployment packaging and the final production verification remain work to perform when a host is selected.
+These requirements apply to Hostinger and other Node-capable platforms. Dev database connectivity and deployment packaging are implemented; production infrastructure, capacity, recovery and final verification remain separate work.
 
 ## Verification
 

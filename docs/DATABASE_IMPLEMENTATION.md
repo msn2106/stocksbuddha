@@ -6,7 +6,7 @@
 
 - Local Docker Compose for MariaDB and the DbGate Community browser client; the application continues directly in Node. DbGate is bound to loopback, preconfigured only for the local dev database and excluded from hosted deployment.
 - Thirty-one constrained InnoDB tables, twenty TypeORM application migrations and verified metadata bootstrap.
-- Separate `stocksbuddha_dev` / `stocksbuddha_prod` targets, including optional Hostinger account prefix. No persistent third environment. SQL timestamp defaults explicitly use UTC expressions; the driver timezone setting controls value conversion and is not assumed to set server timezone.
+- Separate development/production targets, including Hostinger-compatible `sb_dev` / `sb_prod` suffixes and optional account prefixes. No persistent third environment. SQL timestamp defaults explicitly use UTC expressions; the driver timezone setting controls value conversion and is not assumed to set server timezone.
 - Source-checksum manifest, applied ledger, attempt outcomes, one release lock, drift rejection and refusal to retry failed/unfinished migrations automatically.
 - Repeatable dev preview seeds preserving UUIDs, localized websites, owner edits and explicit unpublication.
 - Database adapters behind existing repositories. Public reads follow the publication pointer and frozen profile, verify snapshot hash/version and never fall back to highest historical revision.
@@ -30,7 +30,7 @@
 | Seeds       | Dev previews can be ownerless with no protected mutation routes. Real managed tenants require a verified effective first owner in their provisioning transaction.                                                                                         |
 | Recovery    | No automatic destructive down/fake-success command. Forward repair or isolated restore requires observed schema and reconciliation evidence.                                                                                                              |
 
-Budget all old/new application processes during deployment, future workers and backup/admin reserve. Actual Hostinger limits/TLS/version have not been verified. Auth query deadlines/cancellation are not configured; a universal 5s auth query deadline is not claimed.
+Budget all old/new application processes during deployment, future workers and backup/admin reserve. Node 24, local database connectivity and the current dev migration set are verified on Hostinger; connection limits, backup/restore behavior and production TLS remain unverified. Auth query deadlines/cancellation are not configured; a universal 5s auth query deadline is not claimed.
 
 ## Setup and release
 
@@ -56,7 +56,7 @@ There is no unattended repair command because the runner cannot infer safe recov
 
 Real-DB tests use disposable `sb_test_*` databases on local MariaDB 11.4.8. They cover fresh/repeated/concurrent runners, drift/failure blocking, seed safety, tenant constraints, frozen projections, unknown/corrupt snapshots, incomplete/stale drafts, retries, revocation, last owner, atomic provisioning rollback and pinned core authentication. Unit tests cover controlled dependency failures, domain denials, projections and lifecycle. Browser tests use explicit fixture-preview configuration.
 
-These checks are not Hostinger deployment, load or restore evidence. Before production: inspect actual engine/grants/connection budget/TLS; test against its version; provision separate dev/prod databases and credentials; rehearse backups with required key/document recovery; verify live Hostinger SMTP mailbox/DNS readiness, chosen auth plugins, administrator MFA and deployed editor API/UI; approve privacy/retention policies. Payments, KYC verification, provider workflows and durable delivery remain deferred. Private document storage is implemented and the local OAuth-backed test uploads/downloads have been verified; see [Drive setup](GOOGLE_DRIVE.md).
+The hosted dev health/readiness checks establish deployment and database connectivity, but not load, restore or production evidence. Before production: inspect actual engine/grants/connection budget/TLS; test against its version; provision separate production database credentials; rehearse backups with required key/document recovery; verify administrator MFA and the deployed editor API/UI; and approve privacy/retention policies. Cashfree sandbox, isolated hosted Drive storage and the complete provider workflows remain pending. See [Drive setup](GOOGLE_DRIVE.md).
 
 Local validation also exercised the compiled migration/seed artifact and production server against a fresh disposable database: readiness, Hindi API projection, SSR, frozen identity after an administrative edit, explicit unpublication and graceful pool shutdown passed. All 16 browser acceptance tests passed. The full `verify` command remains blocked by 17 pre-existing moderate tooling audit findings; the dependency age policy was not weakened.
 

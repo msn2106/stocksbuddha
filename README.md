@@ -28,7 +28,9 @@ The production build and development server both render public content and tenan
 
 Private documents use Google Drive for file bytes and MariaDB for tenant-scoped metadata, integrity hashes and audit events. The three RA folders are provisioned in `stocksbuddha@gmail.com`; backend OAuth authorization enables runtime access. New uploads use readable RA folder names, `General/` for RA files and `Customer/<membership UUID>/` for customer files, with RA evidence in `ForYouByRA/`. Immutable tenant metadata identifies each RA folder even when its display name changes. Owner, RA and customer workspaces include Documents upload/download pages. See [Google Drive setup and access rules](docs/GOOGLE_DRIVE.md) before enabling uploads.
 
-Sentry captures browser/React and server failures in separate projects, with performance tracing and source-map uploads. The app currently runs locally only. See [Sentry setup](docs/SENTRY.md) for frontend/backend development and production variables, build tokens, sampling, and the preparation needed before deploying on Hostinger or another Node platform. Monitoring initializes only when a DSN is configured.
+Sentry captures browser/React and server failures in separate projects, with performance tracing and source-map uploads. An isolated Hostinger dev instance is available at `https://dev.stocksbuddha.com`; production remains disabled. See [Sentry setup](docs/SENTRY.md) for local, hosted-dev and production variables, build tokens and sampling. Monitoring initializes only when a DSN is configured.
+
+The [Hostinger deployment plan and checklist](docs/HOSTINGER_DEPLOYMENT.md) records the isolated hosted dev instance, sandbox prerequisites, acceptance tests and recovery before a separately approved production rollout. Hosted dev uses `APP_ENV=dev` with `DB_ENV=dev` and an optimized Node runtime: compiled assets and runtime protections remain enabled while onboarding and payments use development rules. Production uses `APP_ENV=production`, `DB_ENV=prod` and `npm start`. Omit `APP_ENV` to retain the existing `NODE_ENV`-based policy. Explicit mismatches fail startup.
 
 ## Investor onboarding
 

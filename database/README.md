@@ -1,6 +1,6 @@
 # MariaDB persistence
 
-The current thirty-eight-table schema uses TypeORM and mysql2. Twenty-two ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). No Hostinger resources have been provisioned or migrated.
+The current schema uses TypeORM and mysql2. Twenty-three ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). The isolated Hostinger dev database has all migrations applied; no production database has been provisioned.
 
 ## Local setup
 
@@ -44,7 +44,7 @@ node database/dist/cli.js status --target prod
 node database/dist/cli.js migrate --target prod
 ```
 
-Production requires `DB_ENV=prod`, a matching `stocksbuddha_prod` name (optional Hostinger account prefix), and `DB_TLS=true` with verified certificates. Supply `DB_TLS_CA` when needed. Use operator `DB_USER`/`DB_PASSWORD` for migrations and restricted runtime credentials for the application. Never pass secrets as CLI arguments or commit them. The source runner refuses production without a compiled manifest.
+Production requires `DB_ENV=prod`, a matching `stocksbuddha_prod` or compact `sb_prod` name (with an optional account prefix), and `DB_TLS=true` with verified certificates. Development likewise accepts `stocksbuddha_dev` or the Hostinger-compatible compact `sb_dev`; the explicit environment suffix remains mandatory. Supply `DB_TLS_CA` when needed. Use operator `DB_USER`/`DB_PASSWORD` for migrations and restricted runtime credentials for the application. Never pass secrets as CLI arguments or commit them. The source runner refuses production without a compiled manifest.
 
 Add timestamped reviewed SQL migrations through TypeORM QueryRunner and register classes in `catalog.ts` in matching order. No automatic entity-diff generator is configured. Build manifests hash original source and accompany compiled JavaScript. Applied files stay immutable; automatic destructive reversal is disabled. Status acquires the same lock and can initialize metadata on an empty database, but does not apply application migrations. Unfinished/failed history intentionally blocks normal commands pending operator reconciliation.
 

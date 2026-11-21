@@ -1,3 +1,4 @@
+import "./instrument";
 import "reflect-metadata";
 import * as Sentry from "@sentry/node";
 import { readFile } from "node:fs/promises";
@@ -10,6 +11,7 @@ import express from "express";
 import { createPublicApp } from "./app";
 import { createPersistence } from "./database/runtime";
 import { requestMetadata } from "./monitoring";
+import { isProductionDeployment } from "./deployment";
 
 /** Nest application root; startup registers the selected persistence shutdown provider. */
 class AppModule {}
@@ -40,6 +42,7 @@ export async function startServer({
   log = console.log,
   persistenceFactory = createPersistence,
 }: StartupOptions = {}) {
+  const productionDeployment = isProductionDeployment(env);
   const persistence = await persistenceFactory(env);
   try {
     const production = env.NODE_ENV === "production";
@@ -58,6 +61,7 @@ export async function startServer({
     const server = buildApp({
       brandSiteIndexable:
         production &&
+        productionDeployment &&
         env.BRAND_SITE_INDEXABLE === "true" &&
         env.ALLOW_PUBLIC_PREVIEW !== "true",
       /** Report handled request failures to Sentry and retain the existing console diagnostic. */

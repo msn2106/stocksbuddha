@@ -1,3 +1,4 @@
+import { isProductionDeployment } from "../deployment";
 import type { EntityManager } from "typeorm";
 import { devEnabled } from "./domain";
 
@@ -23,6 +24,6 @@ export async function researchEligible(
     [tenantId, membershipId, now, now],
   );
   return rows.some(
-    (row: { dev: number }) => env.NODE_ENV !== "production" || !row.dev,
+    (row: { dev: number }) => !isProductionDeployment(env) || !row.dev,
   );
 }

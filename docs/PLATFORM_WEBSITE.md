@@ -30,7 +30,7 @@ The platform has a distinct `PageData.page='platform'` SSR/hydration view, tenan
 
 All pages default to `noindex,nofollow` and `no-store`, including the platform homepage. Set `BRAND_SITE_INDEXABLE=true` only for a production launch after reviewing the domain and content. The setting is effective only when `NODE_ENV=production` and `ALLOW_PUBLIC_PREVIEW` is not `true`. It enables `index,follow` in both the HTTP header and HTML metadata for the root platform page only; invalid-access error views remain non-indexable. Tenant websites, API responses, authentication, workspaces, private previews and errors retain their existing indexing restrictions. This setting does not deploy the app, change DNS, or enable indexing for RA websites.
 
-Keep `AUTH_BASE_URL` as the exact shared origin (for example `https://stocksbuddha.com` in production). No subdomain, cookie-scope or authentication callback changes are needed for the root homepage. Hosting must route the root and existing `/ra`, `/workspace`, `/workspaces`, `/api` and `/assets` paths to the same application. The existing Hostinger site and live DNS are outside this local change.
+Keep `AUTH_BASE_URL` as the exact shared origin (`https://dev.stocksbuddha.com` in hosted dev and, after approval, `https://stocksbuddha.com` in production). No cookie-scope or authentication callback changes are needed for the root homepage. Hosting routes the root and existing `/ra`, `/workspace`, `/workspaces`, `/api` and `/assets` paths to the same application.
 
 ## Verification
 

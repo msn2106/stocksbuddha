@@ -9,6 +9,7 @@ import {
   couponView,
 } from "../src/onboarding/service";
 import { seal, unseal } from "../src/onboarding/domain";
+import { researchEligible } from "../src/onboarding/eligibility";
 
 /** Quote and sign through the real service with its captured email code. */
 async function signed(
@@ -35,6 +36,46 @@ async function signed(
   });
   return order.id;
 }
+
+test("hosted dev completes reviewed KYC, signing and sandbox payment without bypasses and marks evidence as development", async () => {
+  const f = onboardingFixture();
+  try {
+    Object.assign(f.env, {
+      NODE_ENV: "production",
+      APP_ENV: "dev",
+      ONBOARDING_DEV_SKIP: "false",
+    });
+    const { planId } = await f.setup();
+    const id = await signed(f, planId);
+    const before = await f.service.read(f.investor);
+    assert.equal(before.customer?.status, "verified");
+    assert.equal(before.orders[0].dev, true);
+    assert.equal(before.orders[0].status, "signed");
+    assert.equal(
+      (await f.service.payment(f.investor, id)).session,
+      `session-${id}`,
+    );
+    f.paid.add(id);
+    assert.equal((await f.service.confirm(f.investor, id)).paid, true);
+    assert.equal(await f.service.deliverOne(), true);
+    assert.ok(f.messages.some((message) => message.kind === "receipt"));
+    assert.equal(
+      await researchEligible(f.db, f.tenantId, f.memberId, f.env, new Date()),
+      true,
+    );
+    Object.assign(f.env, {
+      APP_ENV: "production",
+      DB_ENV: "prod",
+      ONBOARDING_PRODUCTION_APPROVED: "true",
+    });
+    assert.equal(
+      await researchEligible(f.db, f.tenantId, f.memberId, f.env, new Date()),
+      false,
+    );
+  } finally {
+    f.close();
+  }
+});
 
 test("private onboarding reads use current sessions and scoped roles; projections mask admin-list identity", async () => {
   const f = onboardingFixture();

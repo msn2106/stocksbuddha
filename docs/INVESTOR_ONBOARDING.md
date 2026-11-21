@@ -87,13 +87,13 @@ npm run dev
 ```dotenv
 # Generate once and retain privately. Never use this placeholder as a key.
 ONBOARDING_DATA_KEY=replace-with-64-lowercase-hex-characters
-ONBOARDING_DEV_SKIP=true
+ONBOARDING_DEV_SKIP=false
 ONBOARDING_PRODUCTION_APPROVED=false
 # Server-only JSON: use separate credentials for each RA's merchant account.
 # CASHFREE_MERCHANTS_JSON={"stocksbuddha":{"clientId":"...","clientSecret":"...","mode":"sandbox"}}
 ```
 
-`ONBOARDING_DEV_SKIP=true` is honored only with `DB_ENV=dev` and a non-production `NODE_ENV`. Both KYC and MITC UI skips record development provenance; direct skip requests are forbidden in production. Development orders are watermarked and cannot be charged through a live Cashfree merchant. Sandbox gateways are forbidden by the production runtime. Live gateway configuration requires `NODE_ENV=production`, `DB_ENV=prod` and `ONBOARDING_PRODUCTION_APPROVED=true`. That flag must stay false until the review findings are resolved; it is not compliance certification.
+`ONBOARDING_DEV_SKIP=true` is honored only with `DB_ENV=dev` and a development business environment (`APP_ENV=dev`, or an omitted `APP_ENV` with nonproduction `NODE_ENV`). Keep it false for normal acceptance testing. Both KYC and MITC UI skips record development provenance; direct skip requests are forbidden in production. Development orders are watermarked and cannot be charged through a live Cashfree merchant. Sandbox gateways are forbidden in production deployments. Hosted dev explicitly uses `APP_ENV=dev`, `DB_ENV=dev` and `NODE_ENV=production` to serve compiled assets with sandbox payments and development signing. Live credentials are rejected in dev even if the approval flag is set. Live gateway configuration requires a production deployment, `NODE_ENV=production`, `DB_ENV=prod` and `ONBOARDING_PRODUCTION_APPROVED=true`. Explicit `APP_ENV=production` requires the production runtime and database; omitted `APP_ENV` preserves the prior `NODE_ENV` policy. That flag must stay false until the review findings are resolved; it is not compliance certification.
 
 Use a different Cashfree merchant account/credential configuration for each RA unless a separately approved marketplace/split-settlement model is introduced. Credentials are never stored in public tenant configuration or returned to browsers. RA owners may enter and save private credentials through Payment Settings; saved secrets are retained without being returned. The checkout SDK loads only from `https://sdk.cashfree.com/js/v3/cashfree.js` when the investor starts payment; the SDK submits a cross-origin form to load hosted checkout. The app permits form submissions to the Cashfree production and sandbox origins on the investor overview and onboarding pages. Any additional deployment CSP must also permit these submissions and allow the SDK and checkout frame. Allowlist the investor checkout domain in the Cashfree merchant dashboard and configure the return URL for the app origin.
 
@@ -134,7 +134,7 @@ npm run test:e2e:organisations
 
 ## Recommendation eligibility and administrator recovery
 
-Subscriber recommendation metadata and downloads share the same eligibility query as `canUseResearch`: current verified KYC (or explicitly permitted development KYC), an active paid date range, an archived agreement reference and no development order in production. Staff document permissions remain role-scoped. Historical KYC and `mitc` agreements/receipts remain accessible to the owning active member after subscription expiry. Downloads reauthorize after external I/O; expired eligibility or revoked authorization prevents releasing bytes.
+Subscriber recommendation metadata and downloads share the same eligibility query as `canUseResearch`: current verified KYC (or explicitly permitted development KYC), an active paid date range, an archived agreement reference and no development order in a production deployment. Staff document permissions remain role-scoped. Historical KYC and `mitc` agreements/receipts remain accessible to the owning active member after subscription expiry. Downloads reauthorize after external I/O; expired eligibility or revoked authorization prevents releasing bytes.
 
 RA Admin onboarding pages show up to 100 payment/delivery jobs, with payment status, delivery status, attempts, queue date and next attempt. `GET /api/workspaces/:slug/onboarding/jobs` returns status only after fresh tenant-admin authorization. `POST /api/workspaces/:slug/onboarding/retry-job` takes `{"orderId":"<uuid>"}` and the same Origin/session protection as other writes. A paid, unsent delivery without a live lease is requeued for the worker; a pending payment is reconciled with the provider. Sent jobs cannot be resent through this action. Retry requests are audited. A retry does not mean the provider recovered or that email reached an inbox.
 

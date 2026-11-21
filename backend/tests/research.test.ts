@@ -5,6 +5,39 @@ import { researchDraftSchema } from "@ra/contracts";
 import { indiaDate, addDays } from "../src/market/policy";
 import { researchFixture } from "./research-fixture";
 
+test("hosted dev publishes to sandbox subscribers while production excludes them", async () => {
+  const f = await researchFixture();
+  try {
+    Object.assign(f.env, {
+      NODE_ENV: "production",
+      APP_ENV: "dev",
+      DB_ENV: "dev",
+      ONBOARDING_DEV_SKIP: "false",
+    });
+    await f.query("UPDATE subscription_orders SET dev=1");
+    const id = randomUUID();
+    await f.service.save(f.admin, { id, version: 0, draft: f.draft });
+    const preview = await f.service.preview(f.admin, id);
+    assert.equal(preview.recipientCount, 1);
+    assert.equal(preview.check.allowed, true);
+    await f.service.publish(f.admin, id, {
+      version: 1,
+      token: preview.token,
+      confirmed: true,
+      reason: "",
+    });
+    assert.equal((await f.service.list(f.investor)).items.length, 1);
+    Object.assign(f.env, { APP_ENV: "production", DB_ENV: "prod" });
+    const next = randomUUID();
+    await f.service.save(f.admin, { id: next, version: 0, draft: f.draft });
+    const blocked = await f.service.preview(f.admin, next);
+    assert.equal(blocked.recipientCount, 0);
+    assert.ok(blocked.reasons.includes("production_review_required"));
+  } finally {
+    await f.cleanup();
+  }
+});
+
 test("published research freezes entitled recipients, keeps draft updates private and retains history after subscription expiry", async () => {
   const f = await researchFixture();
   try {

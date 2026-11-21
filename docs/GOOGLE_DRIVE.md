@@ -225,7 +225,7 @@ For an RA check, use an existing RA Admin login at `/ra/stocksbuddha/login?audie
 
 The initial setup above uses **External / Testing**. Google normally expires refresh tokens after seven days in this mode when Drive scopes are requested. Complete local activation first; then review the separate publishing/verification requirements for the restricted Drive scope before relying on unattended production access. Moving to Production is not the same as completing Google verification, and tokens can still be revoked for other reasons.
 
-For a future hosted deployment, configure these server-only environment values in the host's secret settings, apply the reviewed migration to the explicit production target, and restart the hosted backend. Do not copy the entire local `.env` over production database settings.
+For hosted dev, configure a separate private Drive root and server-only OAuth values in Hostinger before enabling uploads; the current dev instance intentionally omits Drive credentials. For production, use separately reviewed storage credentials, apply migrations to the explicit production target and restart the hosted backend. Do not copy the entire local `.env` over hosted database settings.
 
 The runtime rejects partial OAuth configuration. With all three OAuth credentials absent, metadata pages can load but uploads remain disabled. Fixture preview mode has no authenticated document service.
 

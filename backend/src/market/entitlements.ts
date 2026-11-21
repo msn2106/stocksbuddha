@@ -1,3 +1,4 @@
+import { isProductionDeployment } from "../deployment";
 import type { EntityManager } from "typeorm";
 import type { ResearchOffering } from "@ra/contracts";
 import { researchEligible } from "../onboarding/eligibility";
@@ -28,5 +29,5 @@ export async function offeringEligible(
     "SELECT o.dev FROM subscription_orders o JOIN research_order_offerings g ON g.order_id=o.id AND g.tenant_id=o.tenant_id WHERE o.tenant_id=? AND o.membership_id=? AND g.offering=? AND o.status='paid' AND o.starts_at<=? AND o.ends_at>? AND o.agreement_id IS NOT NULL",
     [tenantId, membershipId, offering, now, now],
   );
-  return rows.some((r) => env.NODE_ENV !== "production" || !r.dev);
+  return rows.some((r) => !isProductionDeployment(env) || !r.dev);
 }

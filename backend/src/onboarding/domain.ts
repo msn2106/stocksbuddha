@@ -1,3 +1,4 @@
+import { isProductionDeployment } from "../deployment";
 import {
   createCipheriv,
   createDecipheriv,
@@ -311,7 +312,7 @@ export async function pdf(textContent: string): Promise<Buffer> {
 /** Development bypasses require both explicit opt-in and an explicitly development database. */
 export function devEnabled(env: NodeJS.ProcessEnv): boolean {
   return (
-    env.NODE_ENV !== "production" &&
+    !isProductionDeployment(env) &&
     env.DB_ENV === "dev" &&
     env.ONBOARDING_DEV_SKIP === "true"
   );

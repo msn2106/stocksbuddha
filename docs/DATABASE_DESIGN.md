@@ -2,22 +2,22 @@
 
 Status: **Reviewed specification; foundation implemented locally** · 1 November 2026 · Revision 2 baseline
 
-This document is the reviewed ten-table specification. The local implementation, resolved schema choices, validation scope and remaining deployment gates are tracked in [DATABASE_IMPLEMENTATION.md](DATABASE_IMPLEMENTATION.md). Executable migrations live under `database/migrations/`; Hostinger deployment has not occurred. Historical proposal wording below describes the design baseline; the implementation runbook identifies what now exists.
+This document is the reviewed ten-table specification. The implementation, resolved schema choices, validation scope and remaining production gates are tracked in [DATABASE_IMPLEMENTATION.md](DATABASE_IMPLEMENTATION.md). Executable migrations live under `database/migrations/`; they are applied to the isolated Hostinger dev database, while production remains unprovisioned. Historical proposal wording below describes the design baseline; the implementation runbook identifies what now exists.
 
 ## 1. Decisions and scope
 
-| Item                    | Proposed decision                                                                                            |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Persistent environments | `stocksbuddha_dev` and `stocksbuddha_prod` only; Hostinger may prepend its account prefix                    |
-| Engine                  | MariaDB; confirm the actual Hostinger plan, version, privileges and limits before writing migrations         |
-| Application persistence | TypeORM with `mysql2`, behind tenant-aware repository interfaces                                             |
-| Authentication          | Better Auth candidate using its supported MySQL connection; generated schema must be checked against MariaDB |
-| Migration ownership     | One new TypeORM migration history; legacy Liquibase remains with the legacy application                      |
-| Runtime                 | Frontend SSR and backend continue in the existing Node application; no application containers required       |
-| Local database          | Docker Compose with a pinned MariaDB version matching production as closely as possible                      |
-| Database tests          | Disposable Docker database; no third persistent/hosted environment                                           |
-| Tenancy                 | Shared tables, immutable tenant IDs and server-verified membership                                           |
-| Initial table count     | Eight application/authentication tables and two migration tables                                             |
+| Item                    | Proposed decision                                                                                                             |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Persistent environments | Development and production only; accept `stocksbuddha_*` or compact Hostinger `sb_*` suffixes with an optional account prefix |
+| Engine                  | MariaDB; confirm the actual Hostinger plan, version, privileges and limits before writing migrations                          |
+| Application persistence | TypeORM with `mysql2`, behind tenant-aware repository interfaces                                                              |
+| Authentication          | Better Auth candidate using its supported MySQL connection; generated schema must be checked against MariaDB                  |
+| Migration ownership     | One new TypeORM migration history; legacy Liquibase remains with the legacy application                                       |
+| Runtime                 | Frontend SSR and backend continue in the existing Node application; no application containers required                        |
+| Local database          | Docker Compose with a pinned MariaDB version matching production as closely as possible                                       |
+| Database tests          | Disposable Docker database; no third persistent/hosted environment                                                            |
+| Tenancy                 | Shared tables, immutable tenant IDs and server-verified membership                                                            |
+| Initial table count     | Eight application/authentication tables and two migration tables                                                              |
 
 Ten tables cover the foundation, not the complete future commerce/KYC/Telegram product. Additional independently repeating business records will need tables when implemented. Preserving their future foreign-key boundaries is part of this design; hiding those records in JSON to maintain an arbitrary count is not.
 

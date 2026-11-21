@@ -275,6 +275,24 @@ test("research offering grants are frozen at checkout and require current KYC pl
       ),
       true,
     );
+    await f.query("UPDATE subscription_orders SET dev=1 WHERE id=?", [orderId]);
+    for (const [appEnv, dbEnv, expected] of [
+      ["dev", "dev", true],
+      ["production", "prod", false],
+    ] as const) {
+      assert.equal(
+        await offeringEligible(
+          f.db,
+          f.tenantId,
+          f.memberId,
+          "equity",
+          { NODE_ENV: "production", APP_ENV: appEnv, DB_ENV: dbEnv },
+          now,
+        ),
+        expected,
+      );
+    }
+    await f.query("UPDATE subscription_orders SET dev=0 WHERE id=?", [orderId]);
     assert.equal(
       await offeringEligible(
         { query: f.query } as unknown as EntityManager,

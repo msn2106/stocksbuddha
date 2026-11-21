@@ -17,7 +17,11 @@ export function databaseConfig(
   if (target !== "dev" && target !== "prod")
     throw new Error("DB_ENV must be dev or prod");
   const database = env.DB_NAME ?? `stocksbuddha_${target}`;
-  if (!new RegExp(`^(?:[a-zA-Z0-9]+_)?stocksbuddha_${target}$`).test(database))
+  const suffix =
+    target === "dev"
+      ? "(?:stocksbuddha_dev|sb_dev)"
+      : "(?:stocksbuddha_prod|sb_prod)";
+  if (!new RegExp(`^(?:[a-zA-Z0-9]+_)?${suffix}$`).test(database))
     throw new Error(
       "Database name does not match the explicit environment target",
     );
