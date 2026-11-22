@@ -112,6 +112,7 @@ export const researchPublishSchema = z
     version: z.number().int().positive(),
     token: z.string().length(64),
     confirmed: z.literal(true),
+    sendTelegram: z.boolean().optional(),
     reason: z.string().trim().max(2000),
   })
   .strict();
@@ -119,6 +120,7 @@ export const researchCloseSchema = z
   .object({
     version: z.number().int().positive(),
     status: z.enum(["closed", "withdrawn"]),
+    sendTelegram: z.boolean().optional(),
     reason: z.string().trim().min(10).max(2000),
   })
   .strict();
@@ -159,6 +161,7 @@ export type ResearchItem = {
   latest: ResearchSnapshot | null;
   unread: boolean;
   recipientCount?: number;
+  telegramDelivery?: Record<string, number>;
 };
 export type ResearchDetail = ResearchItem & { history: ResearchSnapshot[] };
 export type ResearchRecipientSummary = {

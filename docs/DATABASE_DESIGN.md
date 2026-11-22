@@ -532,4 +532,8 @@ Migration 22, `MarketSetup1794614400001`, adds six tables, bringing the total at
 
 ## Research publication tables
 
-Migration 23 adds `research_items`, `research_recipients`, `research_groups` and delivery read timestamps. The current total is 41 tables including metadata. The Phase 1 revision/delivery foundations now support immutable published reports and transactional dashboard distribution. See [Recommendations](RECOMMENDATIONS.md).
+Migration 23 adds `research_items`, `research_recipients`, `research_groups` and delivery read timestamps. That migration brought the total to 41 tables including metadata. The Phase 1 revision/delivery foundations now support immutable published reports and transactional dashboard distribution. See [Recommendations](RECOMMENDATIONS.md).
+
+## Telegram account bindings and delivery
+
+Migration 24 adds five relational tables, bringing the current total to 46 tables including metadata. `telegram_bots` has one row per tenant and globally unique bot identity. `telegram_links` is keyed by tenant/membership with a unique tenant/Telegram-user pair; it retains encrypted contact proof and a keyed mobile digest. `telegram_invites` stores one expiring hashed token per membership. `telegram_updates` deduplicates callbacks by tenant/update ID. `telegram_deliveries` uniquely identifies tenant/revision/member delivery and retains status, attempts, availability and claim expiry. Foreign keys retain tenant, membership and revision boundaries. See [Telegram behavior and operating limits](TELEGRAM.md).

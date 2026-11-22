@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { TelegramConnection } from "../account/TelegramConnection";
 import { LockKeyhole, ExternalLink } from "lucide-react";
 import {
   privateRequest,
@@ -80,8 +81,6 @@ export function IntegrationSettings({
       const body = telegram
         ? {
             version: settings!.version,
-            chatId: form.get("chatId"),
-            inviteLink: form.get("inviteLink"),
             ...(form.get("botToken") ? { botToken: form.get("botToken") } : {}),
           }
         : {
@@ -99,7 +98,7 @@ export function IntegrationSettings({
       onDirtyChange?.(false);
       setMessage(
         telegram
-          ? "Telegram settings saved. Automatic delivery is not enabled by this configuration."
+          ? "Telegram token saved. Connect the bot to the site below to enable delivery."
           : "Payment gateway settings saved.",
       );
     } catch (failure) {
@@ -116,7 +115,7 @@ export function IntegrationSettings({
         title={telegram ? "Telegram settings" : "Payment gateway settings"}
         description={
           telegram
-            ? "Keep your research channel and bot connection details together."
+            ? "Connect your own bot for private recommendations to verified investors."
             : "Connect the Cashfree merchant account that collects fees for your RA."
         }
         configured={!!settings?.configured}
@@ -144,8 +143,9 @@ export function IntegrationSettings({
         <>
           {telegram && (
             <p className="settings-explanation">
-              These settings store the connection only. Automated Telegram
-              delivery and investor channel access are not enabled yet.
+              Save the token from BotFather, then connect the bot below.
+              Investors receive personal invite links in their account. No
+              channel ID is needed.
             </p>
           )}
           {!telegram && settings.locked && (
@@ -169,12 +169,10 @@ export function IntegrationSettings({
             >
               <div className="settings-section">
                 <div className="settings-section-copy">
-                  <h3>
-                    {telegram ? "Channel connection" : "Merchant connection"}
-                  </h3>
+                  <h3>{telegram ? "Bot connection" : "Merchant connection"}</h3>
                   <p>
                     {telegram
-                      ? "Create a bot with BotFather and add it to the channel you manage."
+                      ? "Create a dedicated bot with BotFather for this RA. Recommendations are sent privately to each linked investor."
                       : "Use your own merchant credentials so research fees reach the correct account."}
                   </p>
                   <a
@@ -205,25 +203,6 @@ export function IntegrationSettings({
                             : "Copy the token from BotFather. It is never shown again after saving."
                         }
                       />
-                      <SettingsField
-                        label="Channel / chat ID"
-                        name="chatId"
-                        placeholder="e.g. -1001234567890 or @your_research_channel"
-                        defaultValue={settings.chatId}
-                        required
-                        maxLength={100}
-                        help="Use the exact numeric channel ID or public channel username."
-                      />
-                      <div className="settings-field-wide">
-                        <SettingsField
-                          label="Investor invite link (optional)"
-                          name="inviteLink"
-                          placeholder="e.g. https://t.me/+yourPrivateInvite"
-                          defaultValue={settings.inviteLink}
-                          maxLength={255}
-                          help="Save a Telegram invite link for reference. This does not grant investor access automatically."
-                        />
-                      </div>
                     </>
                   ) : (
                     <>
@@ -316,6 +295,9 @@ export function IntegrationSettings({
               </div>
             </fieldset>
           </form>
+          {telegram && (
+            <TelegramConnection key={settings.version} slug={slug} owner />
+          )}
         </>
       )}
     </section>

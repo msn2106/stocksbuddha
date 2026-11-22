@@ -3,19 +3,24 @@ import type { DataSource, EntityManager } from "typeorm";
 import { z } from "zod";
 import { seal, unseal, requireValue } from "../onboarding/domain";
 import { merchants, type PaymentGateway } from "../onboarding/cashfree";
+import { digest } from "../sms/policy";
 
 const common = { version: z.number().int().min(0) };
 const telegramSchema = z
   .object({
     ...common,
     botToken: z.string().min(10).max(256).optional(),
-    chatId: z.string().regex(/^(?:-?\d{1,30}|@[A-Za-z0-9_]{5,64})$/),
+    chatId: z
+      .string()
+      .regex(/^(?:-?\d{1,30}|@[A-Za-z0-9_]{5,64})$/)
+      .optional(),
     inviteLink: z
       .string()
       .max(255)
       .refine(
         (value) => !value || /^https:\/\/t\.me\/[A-Za-z0-9_+/-]+$/.test(value),
-      ),
+      )
+      .optional(),
   })
   .strict();
 const paymentSchema = z
@@ -131,6 +136,13 @@ export class IntegrationSettingsService {
           ? this.environmentPayment(actor.slug)
           : undefined;
       const { botToken, clientSecret, ...safe } = config ?? {};
+      const [connected] =
+        kind === "telegram" && botToken
+          ? await manager.query(
+              "SELECT tenant_id FROM telegram_bots WHERE tenant_id=? AND token_hash=? LOCK IN SHARE MODE",
+              [context.tenantId, digest(this.key, botToken)],
+            )
+          : [];
       return {
         ...safe,
         version: row?.version ?? 0,
@@ -139,7 +151,7 @@ export class IntegrationSettingsService {
         locked:
           kind === "payment" &&
           (await this.paymentLocked(manager, context.tenantId)),
-        deliveryAvailable: false,
+        deliveryAvailable: !!connected,
       };
     });
   }

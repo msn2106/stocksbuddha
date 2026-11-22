@@ -94,6 +94,7 @@ export function ResearchEditor({
     [error, setError] = useState(""),
     [message, setMessage] = useState(""),
     [confirmed, setConfirmed] = useState(false),
+    [sendTelegram, setSendTelegram] = useState(false),
     [reason, setReason] = useState("");
   const [instruments, setInstruments] = useState<
     Record<string, MarketInstrument>
@@ -227,6 +228,7 @@ export function ResearchEditor({
         version,
         token: preview.token,
         confirmed,
+        sendTelegram,
         reason,
       });
       onSaved();
@@ -943,6 +945,20 @@ export function ResearchEditor({
                 <strong>{preview.recipientCount}</strong>{" "}
                 {hi ? "प्राप्तकर्ता" : "recipients"} ·{" "}
                 {hi ? "डैशबोर्ड डिलीवरी" : "Dashboard delivery"}
+              </p>
+              <label className="research-check">
+                <input
+                  type="checkbox"
+                  checked={sendTelegram}
+                  onChange={(event) => setSendTelegram(event.target.checked)}
+                  disabled={busy}
+                />{" "}
+                Also send to investors on Telegram
+              </label>
+              <p>
+                Telegram uses the same eligible plan/group audience. Connect
+                your bot in Telegram Settings first. Investors must link their
+                verified mobile; unlinked accounts are skipped.
               </p>
               {[...preview.check.reasons, ...preview.reasons].map((r) => (
                 <p role="alert" className="account-error" key={r}>

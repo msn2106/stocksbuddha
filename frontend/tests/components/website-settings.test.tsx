@@ -205,16 +205,10 @@ test("Telegram settings save a private connection, retain blank secrets and dist
     />,
   );
   await screen.findByLabelText("Bot token");
-  assert.ok(
-    screen.getByText(
-      /Automated Telegram delivery and investor channel access are not enabled yet/,
-    ),
-  );
+  assert.ok(screen.getByText(/No channel ID is needed/));
   change("Bot token", "123456789:private-bot-token");
-  change("Channel / chat ID", "-1001234567890");
-  change("Investor invite link (optional)", "https://t.me/+testInvite");
   submit("Save Telegram settings");
-  await screen.findByText(/Telegram settings saved/);
+  await screen.findByText(/Telegram token saved/);
   assert.equal(f.calls[0].botToken, "123456789:private-bot-token");
   assert.equal(dirty.at(-1), false);
   assert.equal(

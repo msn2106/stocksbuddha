@@ -2745,6 +2745,30 @@ html[data-contrast="high"] *::after {
   margin-bottom: 28px;
   font-size: 0.9375rem;
 }
+.telegram-connection > :is(h2, h3) {
+  font-family: inherit;
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 0 0 8px;
+}
+.telegram-connection > p {
+  margin: 8px 0;
+}
+.telegram-connection .research-toolbar {
+  margin-top: 14px;
+}
+.research-detail label.research-check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+.research-detail .research-check input {
+  width: auto;
+  min-height: 0;
+  flex-shrink: 0;
+}
 .workspace-table {
   max-width: 1040px;
   overflow: auto;

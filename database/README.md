@@ -1,6 +1,6 @@
 # MariaDB persistence
 
-The current schema uses TypeORM and mysql2. Twenty-three ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). The isolated Hostinger dev database has all migrations applied; no production database has been provisioned.
+The current schema uses TypeORM and mysql2. Twenty-four ordered application migrations create its tables/relationships; a locked runner bootstraps and verifies two migration metadata tables. See the [reviewed schema](../docs/DATABASE_DESIGN.md) and [implementation/recovery runbook](../docs/DATABASE_IMPLEMENTATION.md). Apply the Telegram migration to each deployed environment before starting this release; no production database has been provisioned.
 
 ## Local setup
 
@@ -144,4 +144,8 @@ Migration 22, `1794614400001`, brings the totals to 22 application migrations an
 
 ## Research Phase 2
 
-Migration 23, `1794700800000-ResearchPublishing`, adds recommendation items, frozen recipient grants and encrypted client groups, plus delivery read timestamps. Current totals are **23 application migrations and 41 tables including metadata**. Apply explicitly before startup. The publisher uses the Phase 1 revision/delivery tables for immutable history and transactional dashboard distribution. See [Recommendations](../docs/RECOMMENDATIONS.md) for access, retention and lifecycle rules.
+Migration 23, `1794700800000-ResearchPublishing`, adds recommendation items, frozen recipient grants and encrypted client groups, plus delivery read timestamps. That migration brought the total to 23 application migrations and 41 tables including metadata. Apply explicitly before startup. The publisher uses the Phase 1 revision/delivery tables for immutable history and transactional dashboard distribution. See [Recommendations](../docs/RECOMMENDATIONS.md) for access, retention and lifecycle rules.
+
+## Telegram delivery
+
+Migration 24, `1794787200000-TelegramDelivery`, adds `telegram_bots`, `telegram_links`, `telegram_invites`, `telegram_updates` and `telegram_deliveries`. Current totals are **24 application migrations and 46 tables including metadata**. Apply the complete manifest before restarting. Bot tokens stay encrypted in `tenant_integrations`; callback secrets and contact evidence are encrypted, pending invites are hashed, and unique constraints enforce one current Telegram identity per investor membership per RA. See [Telegram setup, delivery and recovery](../docs/TELEGRAM.md).

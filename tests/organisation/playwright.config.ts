@@ -5,6 +5,7 @@ export default defineConfig({
     "flow.ts",
     "onboarding-flow.ts",
     "settings-flow.ts",
+    "telegram-flow.ts",
     "letterhead-flow.ts",
     "qr-payments-flow.ts",
   ],

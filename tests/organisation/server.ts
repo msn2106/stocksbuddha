@@ -1,4 +1,8 @@
 import { IntegrationSettingsService } from "../../backend/src/integrations/service";
+import { TelegramService } from "../../backend/src/telegram/service";
+import { ResearchService } from "../../backend/src/research/service";
+import { InstrumentCatalogue } from "../../backend/src/market/catalogue";
+import { seal, unseal } from "../../backend/src/onboarding/domain";
 import { RecoveryEmailLimiter } from "../../backend/src/auth/recovery-limits";
 import { SmsService } from "../../backend/src/sms/service";
 import type { SmsMessage } from "../../backend/src/sms/horizon";
@@ -74,6 +78,7 @@ const identity = createAuthentication(
 );
 for (const email of [
   "settings-admin@example.test",
+  "telegram-investor@example.test",
   "onboarding-admin@example.test",
   "onboarding-investor@example.test",
   "onboarding-other@example.test",
@@ -129,6 +134,10 @@ await db.query(
   [randomUUID()],
 );
 const objects = new Map<string, Buffer>();
+await db.query(
+  "INSERT INTO tenant_memberships(id,tenant_id,user_id,role,status,profile_json,capabilities_json,mobile,mobile_verified_at) SELECT ?,t.id,u.id,'subscriber','active','{\"schemaVersion\":1}','{}','9876543210',UTC_TIMESTAMP(3) FROM tenants t CROSS JOIN auth_users u WHERE t.slug='alpha' AND u.email='telegram-investor@example.test'",
+  [randomUUID()],
+);
 const storage = {
   config: { mainId: "main" },
   verify: async () => {},
@@ -160,6 +169,30 @@ const integrations = new IntegrationSettingsService(db, {
   DB_ENV: "dev",
   NODE_ENV: "test",
 });
+const telegramEnv = {
+  ONBOARDING_DATA_KEY: "a".repeat(64),
+  AUTH_BASE_URL: origin,
+  TELEGRAM_WEBHOOK_ORIGIN: "https://telegram-fixture.example.test",
+};
+const telegramSends: Record<string, unknown>[] = [];
+const telegram = new TelegramService(
+  db,
+  telegramEnv,
+  async (_token, method, body = {}) => {
+    if (method === "getMe")
+      return { id: 123456789, is_bot: true, username: "fixture_ra_bot" };
+    if (body.protect_content) telegramSends.push(body);
+    return {};
+  },
+);
+const research = new ResearchService(
+  db,
+  new InstrumentCatalogue("/tmp/stocksbuddha-telegram-fixture-catalogue"),
+  telegramEnv,
+  null,
+  undefined,
+  telegram,
+);
 const onboarding = new OnboardingService(db, {
   env: {
     ONBOARDING_DATA_KEY: "a".repeat(64),
@@ -215,6 +248,8 @@ const app = createPublicApp({
   authentication: createAuthRoutes({
     sms,
     integrations,
+    telegram,
+    research,
     onboarding,
     documents,
     auth: identity.auth,
@@ -232,6 +267,79 @@ const app = createPublicApp({
   ),
   assets: express
     .Router()
+    .post("/__test/telegram-input", express.json(), async (req, res) => {
+      if (req.headers.origin !== origin) return res.sendStatus(403);
+      const [bot] = await db.query(
+        "SELECT b.* FROM telegram_bots b JOIN tenants t ON t.id=b.tenant_id WHERE t.slug='alpha'",
+      );
+      await telegram.webhook(
+        bot.tenant_id,
+        unseal<string>(telegramEnv.ONBOARDING_DATA_KEY, bot.secret_cipher),
+        req.body,
+      );
+      return res.sendStatus(204);
+    })
+    .post("/__test/telegram-recommendation", async (req, res) => {
+      if (req.headers.origin !== origin) return res.sendStatus(403);
+      const [member] = await db.query(
+        "SELECT m.id,m.tenant_id FROM tenant_memberships m JOIN auth_users u ON u.id=m.user_id WHERE u.email='telegram-investor@example.test'",
+      );
+      const id = randomUUID(),
+        revision = randomUUID();
+      const draft = {
+        title: "Telegram delivery browser check",
+        offering: "equity",
+        rationale: "Synthetic browser research rationale.",
+        disclosures: "Synthetic research; no financial interest.",
+        aiDisclosure: "Test fixture",
+        validUntil: "2099-01-01T00:00:00Z",
+        legs: [],
+        attachmentIds: [],
+        audience: { mode: "all", ids: [] },
+      };
+      const snapshot = {
+        ...draft,
+        instruments: [],
+        attachments: [],
+        issuer: {
+          name: "Alpha",
+          registration: "INH-FIXTURE",
+          author: "Test RA",
+        },
+        status: "active",
+        reason: "",
+        version: 2,
+        publishedAt: new Date().toISOString(),
+      };
+      await db.query(
+        "INSERT INTO research_items(id,tenant_id,version,status,draft_cipher,latest_revision_id,created_at,updated_at) VALUES (?,?,2,'active',?,?,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))",
+        [
+          id,
+          member.tenant_id,
+          seal(telegramEnv.ONBOARDING_DATA_KEY, draft),
+          revision,
+        ],
+      );
+      await db.query(
+        "INSERT INTO research_revisions(id,tenant_id,recommendation_id,version,snapshot_cipher,created_at) VALUES (?,?,?,2,?,UTC_TIMESTAMP(3))",
+        [
+          revision,
+          member.tenant_id,
+          id,
+          seal(telegramEnv.ONBOARDING_DATA_KEY, snapshot),
+        ],
+      );
+      await db.query(
+        "INSERT INTO research_recipients(tenant_id,recommendation_id,membership_id,granted_at) VALUES (?,?,?,UTC_TIMESTAMP(3))",
+        [member.tenant_id, id, member.id],
+      );
+      return res.json({ id });
+    })
+    .post("/__test/telegram-deliver", async (req, res) => {
+      if (req.headers.origin !== origin) return res.sendStatus(403);
+      await telegram.deliverOne();
+      return res.json(telegramSends);
+    })
     .post("/__test/settle", express.json(), async (req, res) => {
       if (req.headers.origin !== origin || typeof req.body?.id !== "string")
         return res.sendStatus(403);

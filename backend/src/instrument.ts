@@ -4,6 +4,7 @@ import * as Sentry from "@sentry/node";
 /** Remove bearer credentials from password-reset URL paths as well as query strings. */
 export function redactAuthUrl(value: string) {
   return value
+    .replace(/(\/bot)\d+:[A-Za-z0-9_-]+/g, "$1[Filtered]")
     .replace(/(\/api\/auth\/reset-password\/)[^/?#\s]+/g, "$1[Filtered]")
     .replace(/([?&](?:token|password)=)[^&#\s]*/gi, "$1[Filtered]");
 }
@@ -30,6 +31,16 @@ export function configureServerMonitoring(
       if (event.transaction)
         event.transaction = redactAuthUrl(event.transaction);
       return event;
+    },
+    /** Telegram embeds its credential in the URL path, including HTTP breadcrumbs. */
+    beforeBreadcrumb(breadcrumb) {
+      if (breadcrumb.message)
+        breadcrumb.message = redactAuthUrl(breadcrumb.message);
+      if (breadcrumb.data)
+        for (const key of ["url", "http.url", "url.full"])
+          if (typeof breadcrumb.data[key] === "string")
+            breadcrumb.data[key] = redactAuthUrl(breadcrumb.data[key]);
+      return breadcrumb;
     },
     /** Redact reset credentials from span names and standard URL attributes. */
     beforeSendSpan(span) {

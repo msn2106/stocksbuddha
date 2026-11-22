@@ -11,6 +11,9 @@ function fixture() {
   f.memory.exec(
     "CREATE TABLE tenant_integrations(tenant_id TEXT,kind TEXT,config_cipher TEXT,version INTEGER,PRIMARY KEY(tenant_id,kind))",
   );
+  f.memory.exec(
+    "CREATE TABLE telegram_bots(tenant_id TEXT PRIMARY KEY,token_hash TEXT)",
+  );
   const env: NodeJS.ProcessEnv = { ...f.env };
   return { ...f, env, integrations: new IntegrationSettingsService(f.db, env) };
 }

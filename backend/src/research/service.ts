@@ -188,7 +188,11 @@ export class ResearchService {
       );
       base.recipientCount = Number(count.total);
       if (this.telegram && row.latest_revision_id)
-        base.telegramDelivery = await this.telegram.summary(m, c.tenantId, row.latest_revision_id);
+        base.telegramDelivery = await this.telegram.summary(
+          m,
+          c.tenantId,
+          row.latest_revision_id,
+        );
     }
     return base;
   }
@@ -660,7 +664,12 @@ export class ResearchService {
       );
       if (p.data.sendTelegram) {
         requireValue(this.telegram, "telegram_not_connected", 409);
-        await this.telegram.enqueue(m, c.tenantId, revision, prepared.recipients);
+        await this.telegram.enqueue(
+          m,
+          c.tenantId,
+          revision,
+          prepared.recipients,
+        );
       }
       for (const member of prepared.recipients)
         if (!row.latest_revision_id)
@@ -758,9 +767,24 @@ export class ResearchService {
       requireValue(row.latest_revision_id, "recommendation_not_published", 409);
       requireValue(row.version === version, "research_version_conflict", 409);
       requireValue(this.telegram, "telegram_not_connected", 409);
-      const members: { membership_id: string }[] = await m.query("SELECT membership_id FROM research_recipients WHERE tenant_id=? AND recommendation_id=?", [c.tenantId, id]);
-      await this.telegram.enqueue(m, c.tenantId, row.latest_revision_id, members.map((r) => r.membership_id));
-      return { ok: true, delivery: await this.telegram.summary(m, c.tenantId, row.latest_revision_id) };
+      const members: { membership_id: string }[] = await m.query(
+        "SELECT membership_id FROM research_recipients WHERE tenant_id=? AND recommendation_id=?",
+        [c.tenantId, id],
+      );
+      await this.telegram.enqueue(
+        m,
+        c.tenantId,
+        row.latest_revision_id,
+        members.map((r) => r.membership_id),
+      );
+      return {
+        ok: true,
+        delivery: await this.telegram.summary(
+          m,
+          c.tenantId,
+          row.latest_revision_id,
+        ),
+      };
     });
   }
   /** Append immutable published evidence and atomically expose the same revision to all original recipients. */

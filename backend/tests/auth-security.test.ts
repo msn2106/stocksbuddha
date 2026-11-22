@@ -274,6 +274,12 @@ test("concurrent monitoring scopes retain their own request and resolved tenant 
 test("monitoring redacts reset credentials in event URLs and streamed spans", () => {
   assert.equal(
     redactAuthUrl(
+      "https://api.telegram.org/bot123456:private_token/sendMessage",
+    ),
+    "https://api.telegram.org/bot[Filtered]/sendMessage",
+  );
+  assert.equal(
+    redactAuthUrl(
       "https://example.test/api/auth/reset-password/secret?token=secret",
     ),
     "https://example.test/api/auth/reset-password/[Filtered]?token=[Filtered]",
@@ -295,6 +301,12 @@ test("monitoring redacts reset credentials in event URLs and streamed spans", ()
       };
       options!.beforeSendSpan!(span as never);
       assert.ok(!JSON.stringify(span).includes("private"));
+      const breadcrumb = {
+        message: "POST /bot123456:private/sendMessage",
+        data: { url: "https://api.telegram.org/bot123456:private/sendMessage" },
+      };
+      options!.beforeBreadcrumb!(breadcrumb, {});
+      assert.ok(!JSON.stringify(breadcrumb).includes("private"));
       return undefined;
     },
   );

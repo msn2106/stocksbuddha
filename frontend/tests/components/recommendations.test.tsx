@@ -106,12 +106,82 @@ test("investor opens a delivered report, marks it read and can inspect earlier v
   });
   assert.ok(screen.getByText("Original research rationale."));
 });
+
+test("owner can request and refresh Telegram delivery and include closure updates", async () => {
+  const calls: { path: string; body?: string }[] = [];
+  const ownerItem = {
+    ...item,
+    draft,
+    recipientCount: 1,
+    telegramDelivery: { pending: 1 },
+  };
+  globalThis.fetch = async (url, init) => {
+    const path = String(url);
+    calls.push({ path, body: init?.body?.toString() });
+    return Response.json(
+      path.endsWith("/report")
+        ? { ...ownerItem, history: [snapshot] }
+        : path.includes("/recommendations?")
+          ? { items: [ownerItem], hasMore: false }
+          : {},
+    );
+  };
+  render(<Recommendations slug="example" owner />);
+  fireEvent.click(await screen.findByRole("button", { name: "View research" }));
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: "Send latest version to Telegram",
+    }),
+  );
+  await screen.findByText(
+    "Telegram delivery requested. Refresh delivery status to see the results. Repeated requests will not resend this version.",
+  );
+  assert.ok(calls.some(({ path }) => path.endsWith("/report/telegram")));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Refresh delivery status" }),
+  );
+  await waitFor(() =>
+    assert.equal(
+      (
+        screen.getByRole("button", {
+          name: "Confirm status update",
+        }) as HTMLButtonElement
+      ).disabled,
+      false,
+    ),
+  );
+  fireEvent.change(screen.getByLabelText("Reason (retained in history)"), {
+    target: { value: "New information changes the recommendation." },
+  });
+  fireEvent.click(
+    screen.getByRole("checkbox", {
+      name: "Also send this status update on Telegram",
+    }),
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Confirm status update" }),
+  );
+  await waitFor(() =>
+    assert.ok(calls.some(({ path }) => path.endsWith("/report/close"))),
+  );
+  assert.equal(
+    JSON.parse(calls.find(({ path }) => path.endsWith("/report/close"))!.body!)
+      .sendTelegram,
+    true,
+  );
+});
+
 test("failed list stays visibly retryable and an empty success is distinct", async () => {
   let fail = true;
-  globalThis.fetch = async () =>
-    new Response(JSON.stringify(fail ? {} : { items: [], hasMore: false }), {
-      status: fail ? 503 : 200,
-    });
+  globalThis.fetch = async (url) =>
+    String(url).endsWith("/telegram")
+      ? Response.json({ connected: false })
+      : new Response(
+          JSON.stringify(fail ? {} : { items: [], hasMore: false }),
+          {
+            status: fail ? 503 : 200,
+          },
+        );
   render(<Recommendations slug="example" />);
   assert.ok(await screen.findByRole("alert"));
   fail = false;
@@ -391,6 +461,11 @@ for (const locale of ["en", "hi"] as const) {
         name: hi ? /मैं रिसर्च/ : /I confirm the research/,
       }),
     );
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "Also send to investors on Telegram",
+      }),
+    );
     failPublish = true;
     fireEvent.click(
       screen.getByRole("button", {
@@ -418,6 +493,14 @@ for (const locale of ["en", "hi"] as const) {
     );
     await waitFor(() => assert.equal(closed, 1));
     assert.ok(calls.some((c) => c.path.endsWith("/publish")));
+    assert.equal(
+      (
+        calls.filter((c) => c.path.endsWith("/publish")).at(-1)!.body as {
+          sendTelegram: boolean;
+        }
+      ).sendTelegram,
+      true,
+    );
   });
   test(`${locale}: multi-leg editing and published update controls preserve locked scope`, async () => {
     let closed = 0;
@@ -748,7 +831,10 @@ for (const locale of ["en", "hi"] as const) {
       }),
     );
     v.unmount();
-    globalThis.fetch = async () => new Response("{}", { status: 503 });
+    globalThis.fetch = async (url) =>
+      String(url).endsWith("/telegram")
+        ? Response.json({ connected: false })
+        : new Response("{}", { status: 503 });
     v = render(localized(locale, <Recommendations slug="example" />));
     await screen.findByRole("alert");
     v.unmount();

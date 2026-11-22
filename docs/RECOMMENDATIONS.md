@@ -1,13 +1,13 @@
 # Research Phase 2: recommendation publishing
 
-RA owners open **Workspace → Recommendations** (`/ra/:slug/workspace/recommendations`). Subscribers see delivered reports on their dashboard and at `/ra/:slug/account/recommendations`. Telegram delivery and broker order placement remain future work.
+RA owners open **Workspace → Recommendations** (`/ra/:slug/workspace/recommendations`). Subscribers see delivered reports on their dashboard and at `/ra/:slug/account/recommendations`. Optional [Telegram delivery](TELEGRAM.md) uses the same eligible audience; broker order placement remains future work.
 
 ## Create and publish
 
 1. Complete today's declaration in [Market Setup](MARKET_SETUP.md), using a fresh instrument catalogue.
 2. Create a normal recommendation (one leg) or hedge (two to ten legs). Choose equity, futures, options or hedge research; select instruments from the public reference catalogue. Enter direction, horizon, quantity in units, entry range, stop-loss, one to five targets and each leg's rationale. F&O quantities must be multiples of the contract lot size. Option prices represent premiums.
 3. Supply a title, overall rationale, material-interest/conflict disclosures, extent of AI use and validity. Optionally attach up to ten existing RA general documents or upload supporting PDF/PNG/JPEG files (10 MB each). Customer-private documents cannot be selected as shared attachments.
-4. Select all eligible subscribers, specific plans or saved client groups. Group membership never grants paid access by itself. Delivery currently means the investor dashboard and Recommendations section.
+4. Select all eligible subscribers, specific plans or saved client groups. Group membership never grants paid access by itself. Delivery always includes the investor dashboard and Recommendations section; the publication preview offers optional Telegram delivery.
 5. Save a complete draft or request a publication preview. The preview shows the exact report, eligible recipient count and declaration/conflict blockers. Confirm publication after reviewing it.
 
 The instrument picker limits normal recommendations to their category (Equity, Futures or Options); hedge legs can search each type independently. Contract expiry is a search filter for Futures/Options only, separate from the recommendation validity deadline. Search and expiry-filter edits preserve the selected instrument until a replacement is chosen. Changing category preserves compatible selections and clears incompatible instruments for replacement. Both hedge entry points create at least two legs. Reopened drafts resolve saved keys to readable instrument details without changing quantities. Search results explain when the preserved selection falls outside the filters. Invalid saves show friendly field and leg labels near the actions and focus the error summary.
@@ -32,10 +32,10 @@ Attachments are delivered through an authenticated recommendation route, checked
 
 ## Operations and limits
 
-Apply migration 23 (`1794700800000-ResearchPublishing`) before application startup. It adds `research_items`, `research_recipients`, `research_groups` and delivery `read_at`; totals are 41 tables including metadata and 23 application migrations. Preserve `ONBOARDING_DATA_KEY` with backups. Startup does not migrate automatically.
+Recommendation publishing uses migration 23 (`1794700800000-ResearchPublishing`), which added `research_items`, `research_recipients`, `research_groups` and delivery `read_at`. At that migration, the schema had 23 application migrations and 41 tables including metadata. The current release also requires migration 24 (`1794787200000-TelegramDelivery`), bringing totals to 24 application migrations and 46 tables including metadata. Preserve `ONBOARDING_DATA_KEY` with backups. Startup does not migrate automatically.
 
 The production publisher respects the existing `ONBOARDING_PRODUCTION_APPROVED=true` review gate. This feature is not a compliance certification and does not replace the existing [production review](SEBI_RA_REVIEW.md). It relies on self-declared personal trading records; there is no broker verification or external-trade blocking. Existing Market Setup policies and their stated limits remain applicable.
 
-Lists are paginated in batches of 20; dashboard cards show the latest three. Recipient previews are bounded to 2,000 candidates; plan/client pickers to 1,000, groups to 100 and available general files to 100. Larger deployments need expanded paging before using those limits operationally. Dashboard delivery is recorded synchronously; no email, Telegram or push notification is sent by this publisher.
+Lists are paginated in batches of 20; dashboard cards show the latest three. Recipient previews are bounded to 2,000 candidates; plan/client pickers to 1,000, groups to 100 and available general files to 100. Larger deployments need expanded paging before using those limits operationally. Dashboard delivery is recorded synchronously. Optional Telegram delivery is queued atomically and dispatched by the background worker; no email or push notification is sent. See [Telegram setup, account linking and delivery outcomes](TELEGRAM.md).
 
 The tenant-specific Silver/Gold/Platinum mapping correction is tracked in [the plan access handoff](PLAN_RESEARCH_ACCESS_HANDOFF.md). The local development correction was applied on 19 November 2026: Silver has Equity, Gold has Futures/Options, and Platinum has all four current offerings. The two identified Gold development subscriptions were corrected; previously published recipient grants remain intact.

@@ -1,3 +1,5 @@
+import { mountTelegram } from "../telegram/routes";
+import type { TelegramService } from "../telegram/service";
 import { mountResearch } from "../research/routes";
 import type { ResearchService } from "../research/service";
 import { mountMarket } from "../market/routes";
@@ -59,6 +61,7 @@ export type AuthRoutesDependencies = {
   research?: ResearchService;
   sms?: SmsService;
   integrations?: IntegrationSettingsService;
+  telegram?: TelegramService;
 };
 
 const privatePagePolicy =
@@ -130,6 +133,7 @@ export function createAuthRoutes({
   research,
   sms,
   integrations,
+  telegram,
   mailer,
 }: AuthRoutesDependencies) {
   const router = express.Router();
@@ -179,6 +183,8 @@ export function createAuthRoutes({
       trustedProxyAddresses,
     });
   const authHandler = toNodeHandler(auth);
+  if (telegram)
+    mountTelegram(router, { auth, store, service: telegram, origin });
   router.all("/api/auth/{*path}", (req, res) =>
     withAuthTenant(null, () => authHandler(req, res)),
   );

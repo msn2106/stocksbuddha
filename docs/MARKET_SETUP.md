@@ -1,6 +1,6 @@
 # Research Phase 1: Market Setup
 
-RA owners open **Workspace → Market Setup** (`/ra/:slug/workspace/market`). Phase 1 provides shared reference instruments, private declarations and recommendation history, restriction previews and research offering configuration. [Phase 2](RECOMMENDATIONS.md) adds the recommendation editor, publication and investor feed; Telegram and broker connections remain future work.
+RA owners open **Workspace → Market Setup** (`/ra/:slug/workspace/market`). Phase 1 provides shared reference instruments, private declarations and recommendation history, restriction previews and research offering configuration. [Phase 2](RECOMMENDATIONS.md) adds the recommendation editor, publication and investor feed; [Telegram delivery](TELEGRAM.md) is available for linked investors; broker connections remain future work.
 
 ## Setup and daily refresh
 

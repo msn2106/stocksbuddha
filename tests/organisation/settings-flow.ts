@@ -94,15 +94,9 @@ test("RA configures private template library and dedicated integration tabs acro
     .getByLabel("Bot token", { exact: true })
     .fill("123456789:fake-test-bot-token");
   await page
-    .getByLabel("Channel / chat ID", { exact: true })
-    .fill("@research_channel");
-  await page
-    .getByLabel("Investor invite link (optional)")
-    .fill("https://t.me/+testInvite");
-  await page
     .getByRole("button", { name: "Save Telegram settings", exact: true })
     .click();
-  await expect(page.getByText(/Telegram settings saved/)).toBeVisible();
+  await expect(page.getByText(/Telegram token saved/)).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.screenshot({
     path: "/tmp/sb-telegram-desktop.png",

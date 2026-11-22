@@ -8,7 +8,9 @@ import type {
 import { useLanguage } from "../i18n";
 import { ResearchEditor } from "./ResearchEditor";
 import { ResearchReport } from "./ResearchReport";
+import { TelegramConnection, telegramErrors } from "./TelegramConnection";
 const messages: Record<string, string> = {
+  ...telegramErrors,
   research_version_conflict:
     "This recommendation changed in another session. Reload it before saving.",
   preview_changed:
@@ -54,6 +56,8 @@ export function Recommendations({
     [history, setHistory] = useState(0),
     [groups, setGroups] = useState(false),
     [reason, setReason] = useState(""),
+    [sendTelegram, setSendTelegram] = useState(false),
+    [telegramMessage, setTelegramMessage] = useState(""),
     [status, setStatus] = useState<"closed" | "withdrawn">("closed");
   const detailRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -171,6 +175,8 @@ export function Recommendations({
       setDetail(d);
       setHistory(0);
       setReason("");
+      setTelegramMessage("");
+      setSendTelegram(false);
       if (!owner && d.latest) {
         await request(`/${id}/read`, { version: d.latest.version });
         setItems((rows) =>
@@ -193,6 +199,7 @@ export function Recommendations({
         version: detail.version,
         status,
         reason,
+        sendTelegram,
       });
       setDetail((await request(`/${detail.id}`)) as ResearchDetail);
       setHistory(0);
@@ -247,6 +254,7 @@ export function Recommendations({
           </div>
         )}
       </header>
+      {!owner && <TelegramConnection slug={slug} />}
       {error && (
         <p className="account-error" role="alert">
           {error}{" "}
@@ -415,6 +423,55 @@ export function Recommendations({
               attachmentBase={`${base}/${detail.id}/attachments`}
             />
           )}
+          {owner && detail.latest && (
+            <section aria-label="Telegram delivery">
+              <h3>Telegram delivery</h3>
+              <p>
+                Send the latest published version to the original plan/group
+                audience. Only investors with a current verified Telegram link
+                can receive it.
+              </p>
+              <p>
+                {Object.entries(detail.telegramDelivery ?? {})
+                  .map(([state, count]) => `${state}: ${count}`)
+                  .join(" · ") ||
+                  "This version has not been queued for Telegram."}
+              </p>
+              <p>
+                Skipped means no eligible active link or a newer version exists.
+                Unknown means delivery could not be confirmed; it is not
+                automatically resent.
+              </p>
+              {telegramMessage && <p role="status">{telegramMessage}</p>}
+              <button
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setError("");
+                  try {
+                    await request(`/${detail.id}/telegram`, {
+                      version: detail.version,
+                    });
+                    setDetail(
+                      (await request(`/${detail.id}`)) as ResearchDetail,
+                    );
+                    setTelegramMessage(
+                      "Telegram delivery requested. Refresh delivery status to see the results. Repeated requests will not resend this version.",
+                    );
+                  } catch (failure) {
+                    setError((failure as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Send latest version to Telegram
+              </button>{" "}
+              <button disabled={busy} onClick={() => void open(detail.id)}>
+                Refresh delivery status
+              </button>
+            </section>
+          )}
           {owner && detail.status === "active" && (
             <form
               className="research-closure"
@@ -455,6 +512,14 @@ export function Recommendations({
                   ? "मूल प्राप्तकर्ताओं को अपडेट मिलेगा। यह कार्रवाई वापस नहीं हो सकती।"
                   : "Original recipients will receive this update. Closed or withdrawn research cannot be reopened."}
               </p>
+              <label className="research-check">
+                <input
+                  type="checkbox"
+                  checked={sendTelegram}
+                  onChange={(event) => setSendTelegram(event.target.checked)}
+                />{" "}
+                Also send this status update on Telegram
+              </label>
               <button disabled={busy} type="submit">
                 {hi ? "स्थिति की पुष्टि करें" : "Confirm status update"}
               </button>

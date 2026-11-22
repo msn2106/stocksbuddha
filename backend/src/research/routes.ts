@@ -102,6 +102,15 @@ export function mountResearch(
       ),
     ),
   );
+  api.post("/:id/telegram", async (req, res) =>
+    res.json(
+      await d.service.sendTelegram(
+        res.locals.researchContext,
+        String(req.params.id),
+        req.body?.version,
+      ),
+    ),
+  );
   api.get("/:id/attachments/:fileId", async (req, res) => {
     const file = await d.service.download(
       res.locals.researchContext,
